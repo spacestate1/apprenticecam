@@ -1,0 +1,34 @@
+--- tools/peloader/peloader.c
++++ peloader.c
+@@ -13,6 +13,7 @@
+ #include <sys/syscall.h>
+ #include <sys/stat.h>
+ #include "pe.h"
++void cov_arm(void); void cov_dump(void);
+ 
+ typedef BOOL (WINAPI *dllmain_fn)(void *, DWORD, void *);
+ typedef int  (WINAPI *runnest_fn)(const char *, int *, void *);
+@@ -112,6 +113,7 @@
+     }
+     setup_teb();
+ 
++    cov_arm();
+     dllmain_fn entry = (dllmain_fn)(g_img.base + g_img.entry_rva);
+     BOOL ok = entry(g_img.base, 1 /* DLL_PROCESS_ATTACH */, NULL);
+     fprintf(stderr, "peloader: DllMain(PROCESS_ATTACH) = %d\n", ok);
+@@ -121,6 +123,7 @@
+     if (job) {
+         int r = 0;
+         for (int k = 0; k < njob; k++) r = job_run(jobs[k], jobouts[k]);
++        cov_dump();
+         entry(g_img.base, 0 /* DLL_PROCESS_DETACH */, NULL);
+         return r;
+     }
+@@ -136,6 +139,7 @@
+     printf("runNestCommon(%s) = %d, status = %d\n", nip, r, status);
+     fflush(stdout);
+ 
++    cov_dump();
+     entry(g_img.base, 0 /* DLL_PROCESS_DETACH */, NULL);   /* CRT flushes / closes its streams */
+ 
+     if (g_last_nop[0]) printf("result file: %s\n", g_last_nop);

@@ -1,0 +1,466 @@
+# wireframepointandlinedynamicmanagerview.baml
+  PANEL HasOKButton HasOKNewButton HasCancelButton HasHelpButton
+      TAB BasicTabItem
+          TEXT Basic
+            EXPANDER Entity  
+                  Label Content=Type:
+                  RadioButton Content=Poin_t IsChecked={Type} Command={SetTypeCommand} GroupName=grpType tip="<h1>Point</h1><p>Choose this option to create a point normal"
+                  RadioButton Content=_Line IsChecked={Type} Command={SetTypeCommand} GroupName=grpType tip="<h1>Line</h1><p>Choose this option to create a line normal t"
+                  RadioButton Content=_Both IsChecked={Type} Command={SetTypeCommand} GroupName=grpType tip="<h1>Both</h1><p>Choose this option to create a line and a po"
+            EXPANDER Position  
+                  ToggleButton Content=_Reselect IsChecked={CurrentlyEditing} IsEnabled={EnableReselect} Command={SetCurrentlyEditingCommand} tip="<h1>Reselect</h1><p>Returns you to the graphics window to se"
+            EXPANDER Distance  
+                  Label Content=_Along:
+                  EvaluatorBox Name=AlongEvaluatorBox Value={AlongDistance.Value} HasLock=True IsLocked={AlongDistance.IsHardLocked} IsEnabled={AlongDistance.IsEnabled} tip="<h1>Along</h1><p>Specifies the position of the point and/or "
+                  Label Content=Perpen_dicular:
+                  EvaluatorBox Name=PerpendicularEvaluatorBox Value={PerpendicularDistance.Value} HasLock=True IsLocked={PerpendicularDistance.IsHardLocked} IsEnabled={PerpendicularDistance.IsEnabled} tip="<h1>Perpendicular</h1><p>Defines the distance that the point"
+            EXPANDER Direction  
+                  Button Content={Direction} Command={FlipCommand} tip="<h1>Direction</h1><p>Sets the side of the selected entity on"
+            EXPANDER Normal  
+                TextBox tip="<h1>Normal</h1><p>Displays the normal information for the se"
+# wireframepointdynamicmanagerview.baml
+  PANEL HasOKButton HasOKNewButton HasCancelButton HasHelpButton
+      TAB TabItem_1
+          TEXT Basic
+            EXPANDER Position  
+                  ToggleButton Content=_Reselect IsChecked={CurrentlyEditing} IsEnabled={EnableReselect} Command={SetCurrentlyEditingCommand} tip="<h1>Reselect</h1><p>Returns you to the graphics window to se"
+            EXPANDER Distance  
+                  Label Content=_Along:
+                  EvaluatorBox Name=AlongEvaluatorBox Value={AlongDistance.Value} HasLock=True IsLocked={AlongDistance.IsHardLocked} IsEnabled={AlongDistance.IsEnabled} tip="<h1>Along</h1><p>Specifies the position of the point and/or "
+# wireframepointpositionmanagerview.baml
+  PANEL HasOKButton HasOKNewButton HasCancelButton HasHelpButton
+      TAB BasicTabItem
+          TEXT Basic
+            EXPANDER Entity  
+                    Label Content=Mode:
+                    RadioButton Content=_Point IsChecked={Mode} Command={SetModeCommand} GroupName=grpMode tip="<h1>Point</h1><p>Creates a point at the selected location.</"
+                    RadioButton Content=_Thread Point IsChecked={Mode} Command={SetModeCommand} GroupName=grpMode tip="<h1>Thread Point</h1><p>Creates a thread point, which specif"
+                    RadioButton Content=_Cut Point IsChecked={Mode} Command={SetModeCommand} GroupName=grpMode tip="<h1>Cut Point</h1><p>Creates a cut point, which specifies wh"
+                  ToggleButton Content=_Reselect IsChecked={CurrentlyEditing} IsEnabled={EnablePosition} Command={SetCurrentlyEditingCommand} tip="<h1>Reselect</h1><p>Returns you to the graphics window to re"
+# wireframepointsegmentmanagerview.baml
+  PANEL HasOKButton HasOKNewButton HasCancelButton HasHelpButton
+      TAB BasicTabItem
+          TEXT Basic
+            EXPANDER _Distance  
+                  EvaluatorBox Name=DistanceEvaluatorBox Value={Distance.Value} HasLock=True IsLocked={Distance.IsHardLocked} IsEnabled={Distance.IsEnabled} tip="<h1>Distance</h1><p>Defines the distance between the points "
+            EXPANDER _Number  
+                  EvaluatorBox Name=NumberEvaluatorBox Value={Number.Value} HasLock=True IsDoubleValue=False IsLocked={Number.IsHardLocked} IsEnabled={Number.IsEnabled} tip="<h1>Number</h1><p>Defines the number of points placed along "
+# wireframepointsmallarcsmanagerview.baml
+  PANEL HasOKButton HasOKNewButton HasCancelButton HasHelpButton
+      TAB BasicTabItem
+          TEXT Basic
+            EXPANDER _Maximum Radius  
+                  EvaluatorBox Name=MaximumRadiusEvaluatorBox Value={MaximumRadius.Value} HasLock=True IsLocked={MaximumRadius.IsHardLocked} IsEnabled={MaximumRadius.IsEnabled} tip="<h1>Maximum Radius</h1><p>Determines the maximum arc or circ"
+            EXPANDER Settings  
+                  CheckBox Content=Include _partial arcs IsChecked={IncludePartialArcs.Value} tip="<h1>Include partial arcs</h1><p>Creates center points for bo"
+                  CheckBox Content=_Delete arcs IsChecked={DeleteArcs.Value} tip="<h1>Delete arcs</h1><p>Deletes the arcs or circles once the "
+# wireframelinebisectmanagerview.baml
+  PANEL HasOKButton HasOKNewButton HasCancelButton HasHelpButton
+      TAB BasicTabItem
+          TEXT Basic
+            EXPANDER Entity  
+                  Label Content=Solution:
+                  RadioButton Content=_Single IsChecked={AutoSelectSolution.Value} GroupName=grpSelectionSolution tip="<h1>Single</h1><p>Mastercam creates a single bisecting line."
+                  RadioButton Content=_Multiple IsChecked={AutoSelectSolution.Value} GroupName=grpSelectionSolution tip="<h1>Multiple</h1><p>Mastercam displays four bisecting lines."
+            EXPANDER _Length  
+                  EvaluatorBox Name=LengthEvaluatorBox Value={Length.Value} HasLock=True IsLocked={Length.IsHardLocked} IsEnabled={Length.IsEnabled} tip="<h1>Length</h1><p>Enter the length of the bisecting line.</p"
+# wireframelineendpointsmanagerview.baml
+  PANEL HasOKButton HasOKNewButton HasCancelButton HasHelpButton
+      TAB BasicTabItem
+          TEXT Basic
+            EXPANDER Entity  
+                  Label Content=Mode:
+                  RadioButton Content=_Freeform IsChecked={EntityMode} Command={SetEntityModeCommand} GroupName=grpEntityMode tip="<h1>Freeform</h1><p>Allows you to create the line anywhere o"
+                  CheckBox Content=_Tangent IsChecked={Tangent.Value} IsEnabled={Tangent.IsEnabled} tip="<h1>Tangent</h1><p>Select to create lines that are tangent t"
+                  RadioButton Content=_Horizontal IsChecked={EntityMode} Command={SetEntityModeCommand} GroupName=grpEntityMode tip="<h1>Horizontal</h1><p>Limits line creation to the X axis.</p"
+                  RadioButton Content=_Vertical IsChecked={EntityMode} Command={SetEntityModeCommand} GroupName=grpEntityMode tip="<h1>Vertical</h1><p>Limits line creation to the Y axis.</p>"
+                  Label Content=Type:
+                  RadioButton Content=T_wo endpoints IsChecked={EntityType} Command={SetEntityTypeCommand} GroupName=grpEntityType tip="<h1>Two Endpoints</h1><p>Select to create single, unconnecte"
+                  RadioButton Content=_Multi-line IsChecked={EntityType} Command={SetEntityTypeCommand} GroupName=grpEntityType tip="<h1>Multi-line</h1><p>Select to create multiple lines connec"
+            EXPANDER Endpoints  
+                    ToggleButton Content=_1 IsChecked={CurrentlyEditing} IsEnabled={EnableEndpoint1} Command={SetCurrentlyEditingCommand} tip="<h1>Endpoint 1</h1><p>Select to edit the location of the fir"
+                    ToggleButton Content=_2 IsChecked={CurrentlyEditing} IsEnabled={EnableEndpoint2} Command={SetCurrentlyEditingCommand} tip="<h1>Endpoint 2</h1><p>Select to edit the location of the sec"
+            EXPANDER Dimensions  
+                  Label Content=_Length:
+                  EvaluatorBox Name=LengthEvaluatorBox Value={Length.Value} HasLock=True IsLocked={Length.IsHardLocked} tip="<h1>Length</h1><p>Sets the length of the line.</p>"
+                  Label Content=_Angle:
+                  EvaluatorBox Name=AngleEvaluatorBox Value={Angle.Value} HasLock=True IsLocked={Angle.IsHardLocked} IsEnabled={EntityMode} tip="<h1>Angle</h1><p>Defines the polar angle of the line.</p>"
+            EXPANDER Axi_s Offset  
+                  EvaluatorBox Name=AxisOffsetEvaluatorBox Value={AxisOffset.Value} IsEnabled={AxisOffset.IsEnabled} tip="<h1>Axis Offset</h1><p>Moves a live line by a defined distan"
+# wireframelinenormalmanagerview.baml
+  PANEL HasOKButton HasOKNewButton HasCancelButton HasHelpButton
+      TAB TabItem_1
+          TEXT Basic
+            EXPANDER Entity  
+                  Label Content=Points:
+                  CheckBox Content=_Contact point IsChecked={ContactPoint.Value} IsEnabled={ContactPoint.IsEnabled} tip="<h1>Contact point</h1><p>Creates a point where the line cont"
+                  CheckBox Content=_End point IsChecked={EndPoint.Value} IsEnabled={EndPoint.IsEnabled} tip="<h1>End point</h1><p>Creates a point at the end point(s) of "
+            EXPANDER Position  
+                  ToggleButton Content=_Reselect IsChecked={CurrentlyEditing} IsEnabled={EnableReselect} Command={SetCurrentlyEditingCommand} tip="<h1>Reselect</h1><p>Returns you to the graphics window to se"
+            EXPANDER _Length  
+                  EvaluatorBox Name=LengthEvaluatorBox Value={Length.Value} IsEnabled={Length.IsEnabled} tip="<h1>Length</h1><p>Sets the length of the line.</p>"
+            EXPANDER Direction  
+                  RadioButton Content=_Normal IsChecked={Direction} Command={FlipCommand} GroupName=grpDirection tip="<h1>Normal</h1><p>Creates a line on the surface or solid as "
+                  RadioButton Content=Re_verse Normal IsChecked={Direction} Command={FlipCommand} GroupName=grpDirection tip="<h1>Reverse Normal</h1><p>Creates a line on the surface or s"
+                  RadioButton Content=_Both IsChecked={Direction} Command={FlipCommand} GroupName=grpDirection tip="<h1>Both</h1><p>Creates a line in both directions.</p><p><im"
+# wireframelineparallelmanagerview.baml
+  PANEL HasOKButton HasOKNewButton HasCancelButton HasHelpButton
+      TAB BasicTabItem
+          TEXT Basic
+            EXPANDER Entity  
+                  Label Content=Mode:
+                    RadioButton Content=_Point IsChecked={Tangent.Value} GroupName=grpMode tip="<h1>Point</h1><p>Use this mode to create a line at a point i"
+                    ToggleButton IsChecked={CurrentlyEditing} IsEnabled={EnablePosition} Command={SetCurrentlyEditingCommand} tip="<h1>Reselect</h1><p>Click this button to choose a new locati"
+                  RadioButton Content=_Tangent IsChecked={Tangent.Value} IsEnabled={Tangent.IsEnabled} GroupName=grpMode tip="<h1>Tangent</h1><p>Use this mode to create lines that are ta"
+            EXPANDER Offset _Distance  
+                  EvaluatorBox Name=OffsetDistanceEvaluatorBox Value={OffsetDistance.Value} HasLock=True IsLocked={OffsetDistance.IsHardLocked} IsEnabled={OffsetDistance.IsEnabled} tip="<h1>Offset Distance</h1><p>Sets the distance that the parall"
+            EXPANDER Direction  
+                  RadioButton Content=_Selected side IsChecked={Direction} Command={SetDirectionCommand} GroupName=grpDirection tip="<h1>Selected side</h1><p>Creates the new point and/or line o"
+                  RadioButton Content=_Opposite side IsChecked={Direction} Command={SetDirectionCommand} GroupName=grpDirection tip="<h1>Opposite side</h1><p>Creates the new point and/or line o"
+                  RadioButton Content=_Both sides IsChecked={Direction} Command={SetDirectionCommand} GroupName=grpDirection tip="<h1>Both</h1><p>Creates a new point and/or line on both side"
+# wireframelineperpendicularmanagerview.baml
+  PANEL HasOKButton HasOKNewButton HasCancelButton HasHelpButton
+      TAB BasicTabItem
+          TEXT Basic
+            EXPANDER Entity  
+                  Label Content=Mode:
+                    RadioButton Content=_Point IsChecked={Tangent.Value} GroupName=grpMode tip="<h1>Point</h1><p>Use this mode to create a line at a point i"
+                    ToggleButton IsChecked={CurrentlyEditing} IsEnabled={EnablePosition} Command={SetCurrentlyEditingCommand} tip="<h1>Reselect</h1><p>Click this button to choose a new locati"
+                  RadioButton Content=_Tangent IsChecked={Tangent.Value} IsEnabled={Tangent.IsEnabled} GroupName=grpMode tip="<h1>Tangent</h1><p>Use this mode to create lines that are ta"
+            EXPANDER _Length  
+                  EvaluatorBox Name=LengthEvaluatorBox Value={Length.Value} HasLock=True IsLocked={Length.IsHardLocked} IsEnabled={Length.IsEnabled} tip="<h1>Length</h1><p>Sets the length of the line.</p>"
+            EXPANDER Direction  
+                  RadioButton Content=_Selected side IsChecked={Direction} Command={SetDirectionCommand} GroupName=grpDirection tip="<h1>Selected side</h1><p>Creates a new point and/or line on "
+                  RadioButton Content=_Opposite side IsChecked={Direction} Command={SetDirectionCommand} GroupName=grpDirection tip="<h1>Opposite side</h1><p>Creates a new point and/or line on "
+                  RadioButton Content=_Both sides IsChecked={Direction} Command={SetDirectionCommand} GroupName=grpDirection tip="<h1>Both</h1><p>Creates a new point and/or line on both side"
+# wireframelinetangentthroughpointmanagerview.baml
+  PANEL HasOKButton HasOKNewButton HasCancelButton HasHelpButton
+      TAB BasicTabItem
+          TEXT Basic
+            EXPANDER Tangent To  
+                  Label Content=_Reference entity:
+                  Button Name=SelectReferenceEntityButton Command={ReselectReferenceEntityCommand} tip="<h1>Select</h1><p>Click this button to reselect the referenc"
+            EXPANDER Endpoints  
+                  ToggleButton Content=_1 IsChecked={CurrentlyEditing} IsEnabled={EnableEndpoint1} Command={SetCurrentlyEditingCommand} tip="<h1>1</h1><p>Click this button to choose a new first tangent"
+                  ToggleButton Content=_2 IsChecked={CurrentlyEditing} IsEnabled={EnableEndpoint2} Command={SetCurrentlyEditingCommand} tip="<h1>2</h1><p>Click this button to choose a new second tangen"
+            EXPANDER _Length  
+                  EvaluatorBox Name=LengthEvaluatorBox Value={Length.Value} HasLock=True IsLocked={Length.IsHardLocked} IsEnabled={Length.IsEnabled} tip="<h1>Length</h1><p>Determines the length of the line.</p>"
+# wireframearcendpointsmanagerview.baml
+  PANEL HasOKButton HasOKNewButton HasCancelButton HasHelpButton
+      TAB BasicTabItem
+          TEXT Basic
+            EXPANDER Entity  
+                  Label Content=Mode:
+                  RadioButton Content=_Manual IsChecked={Tangent.Value} GroupName=grpMode tip="<h1>Manual</h1><p>Use this mode to select points in the grap"
+                  RadioButton Content=_Tangent IsChecked={Tangent.Value} GroupName=grpMode tip="<h1>Tangent</h1><p>Use this mode to select existing entities"
+            EXPANDER Position By  
+                  ToggleButton Content=_1 IsChecked={CurrentlyEditing} IsEnabled={EnableEndpoint1} Command={SetCurrentlyEditingCommand} tip="<h1>1</h1><p>Click this button to choose a new location of t"
+                  ToggleButton Content=_2 IsChecked={CurrentlyEditing} IsEnabled={EnableEndpoint2} Command={SetCurrentlyEditingCommand} tip="<h1>2</h1><p>Click this button to choose a new location of t"
+            EXPANDER Size  
+                  Label Content=Radi_us:
+                  EvaluatorBox Name=RadiusEvaluatorBox Value={Radius.Value} HasLock=True IsLocked={Radius.IsHardLocked} IsEnabled={Tangent.Value} tip="<h1>Radius</h1><p>Enter a value for the radius of the arc or"
+                  Label Content=_Diameter:
+                  EvaluatorBox Name=DiameterEvaluatorBox Value={Diameter.Value} HasLock=True IsLocked={Diameter.IsHardLocked} IsEnabled={Tangent.Value} tip="<h1>Diameter</h1><p>Enter a value for the diameter of the ar"
+# wireframearcpolarendpointsmanagerview.baml
+  PANEL HasOKButton HasOKNewButton HasCancelButton HasHelpButton
+      TAB BasicTabItem
+          TEXT Basic
+            EXPANDER Entity  
+                  Label Content=Mode:
+                  RadioButton Content=_Start point IsChecked={IsPickingStart.Value} GroupName=grpMode tip="<h1>Start point</h1><p>Set the start point of the arc. </p>"
+                  RadioButton Content=E_nd point IsChecked={IsPickingStart.Value} GroupName=grpMode tip="<h1>End point</h1><p>Set the end point of the arc. </p>"
+            EXPANDER Start/End Point  
+                  ToggleButton Content=_Reselect IsChecked={CurrentlyEditing} IsEnabled={EnablePoint} Command={SetCurrentlyEditingCommand} tip="<h1>Reselect</h1><p>Select this button to reposition the sta"
+            EXPANDER Size  
+                  Label Content=Radi_us:
+                  EvaluatorBox Name=RadiusEvaluatorBox Value={Radius.Value} tip="<h1>Radius</h1><p>Enter a value for the radius of the arc or"
+                  Label Content=_Diameter:
+                  EvaluatorBox Name=DiameterEvaluatorBox Value={Diameter.Value} tip="<h1>Diameter</h1><p>Enter a value for the diameter of the ar"
+            EXPANDER Angle  
+                  Label Content=Start _angle:
+                  EvaluatorBox Name=StartAngleEvaluatorBox Value={StartAngle.Value} tip="<h1>Start angle</h1><p>Enter the angle at which Mastercam st"
+                  Label Content=_End angle:
+                  EvaluatorBox Name=EndAngleEvaluatorBox Value={EndAngle.Value} tip="<h1>End angle</h1><p>Enter the angle at which Mastercam fini"
+# wireframearcpolarmanagerview.baml
+  PANEL HasOKButton HasOKNewButton HasCancelButton HasHelpButton
+      TAB BasicTabItem
+          TEXT Basic
+            EXPANDER Entity  
+                  Label Content=Mode:
+                  RadioButton Content=_Manual IsChecked={Tangent.Value} IsEnabled={Tangent.IsEnabled} GroupName=grpMode tip="<h1>Manual</h1><p>Use this mode to select points in the grap"
+                  RadioButton Content=_Tangent IsChecked={Tangent.Value} IsEnabled={Tangent.IsEnabled} GroupName=grpMode tip="<h1>Tangent</h1><p>Use this mode to select existing entities"
+            EXPANDER Center Point  
+                  ToggleButton Content=_Reselect IsChecked={CurrentlyEditing} IsEnabled={EnableCenterPoint} Command={SetCurrentlyEditingCommand} tip="<h1>Reselect</h1><p>Select the button to relocate the arc or"
+            EXPANDER Size  
+                  Label Content=Radi_us:
+                  EvaluatorBox Name=RadiusEvaluatorBox Value={Radius.Value} HasLock=True IsLocked={Radius.IsHardLocked} IsEnabled={Tangent.Value} tip="<h1>Radius</h1><p>Enter a value for the radius of the arc or"
+                  Label Content=_Diameter:
+                  EvaluatorBox Name=DiameterEvaluatorBox Value={Radius.Value} HasLock=True IsLocked={Radius.IsHardLocked} IsEnabled={Tangent.Value} tip="<h1>Diameter</h1><p>Enter a value for the diameter of the ar"
+            EXPANDER Angle  
+                  Label Content=Start _angle: IsEnabled={StartAngle.IsEnabled}
+                  EvaluatorBox Name=StartAngleEvaluatorBox Value={StartAngle.Value} HasLock=True IsLocked={StartAngle.IsHardLocked} IsEnabled={MultiBinding x:Uid=MultiBinding_3, Converter={StaticResource BooleanAndConverter}, (ContentProperty)=MultiBinding.Bindings, {Binding x:Uid=Binding_5, Path=Tangent.Value, Converter={StaticResource BooleanNegationConverter}}, {Binding x:Uid=Binding_6, Path=StartAngle.IsEnabled}} tip="<h1>Start angle</h1><p>Enter the angle at which Mastercam st"
+                  Label Content=_End angle:
+                  EvaluatorBox Name=EndAngleEvaluatorBox Value={EndAngle.Value} HasLock=True IsLocked={EndAngle.IsHardLocked} tip="<h1>End angle</h1><p>Enter the angle at which Mastercam fini"
+            EXPANDER Direction  
+                  RadioButton Content=De_fined Arc IsChecked={IsDirection2.Value} IsEnabled={IsDirection2.IsEnabled} GroupName=grpDirection tip="<h1>Defined Arc</h1><p>Creates the arc as defined by the rad"
+                  RadioButton Content=In_verted Arc IsChecked={IsDirection2.Value} IsEnabled={IsDirection2.IsEnabled} GroupName=grpDirection tip="<h1>Inverted Arc</h1><p>Reverses the start point and end ang"
+# wireframearctangentmanagerview.baml
+  PANEL HasOKButton HasOKNewButton HasCancelButton HasHelpButton
+      TAB BasicTabItem
+          TEXT Basic
+            EXPANDER Entity  
+                  Label Content=_Mode:
+                  ComboBox Name=ModeComboBox SelectedItem={Mode} ItemsSource={TangencyModes} tip="<h1>Mode</h1><p>Select one of the listed tangent conditions "
+            EXPANDER Size  
+                  Label Content=Radi_us:
+                  EvaluatorBox Name=RadiusEvaluatorBox Value={Radius.Value} HasLock=True IsLocked={Radius.IsHardLocked} IsEnabled={Radius.IsEnabled} tip="<h1>Radius</h1><p>Enter a value for the radius of the arc or"
+                  Label Content=_Diameter:
+                  EvaluatorBox Name=DiameterEvaluatorBox Value={Diameter.Value} HasLock=True IsLocked={Diameter.IsHardLocked} IsEnabled={Diameter.IsEnabled} tip="<h1>Diameter</h1><p>Enter a value for the diameter of the ar"
+# wireframearcthreepointsmanagerview.baml
+  PANEL HasOKButton HasOKNewButton HasCancelButton HasHelpButton
+      TAB BasicTabItem
+          TEXT Basic
+            EXPANDER Entity  
+                  Label Content=Mode:
+                  RadioButton Content=_Point IsChecked={Tangent.Value} GroupName=grpMode tip="<h1>Point</h1><p>Use this mode to select points in the graph"
+                  RadioButton Content=_Tangent IsChecked={Tangent.Value} GroupName=grpMode tip="<h1>Tangent</h1><p>Use this mode to select existing entities"
+            EXPANDER Point/Tangent Entity  
+                    ToggleButton Content=_1 IsChecked={CurrentlyEditing} IsEnabled={EnablePoint1} Command={SetCurrentlyEditingCommand} tip="<h1>1</h1><p>Click this button to choose a new location of t"
+                    ToggleButton Content=_2 IsChecked={CurrentlyEditing} IsEnabled={EnablePoint2} Command={SetCurrentlyEditingCommand} tip="<h1>2</h1><p>Click this button to choose a new location of t"
+                    ToggleButton Content=_3 IsChecked={CurrentlyEditing} IsEnabled={EnablePoint3} Command={SetCurrentlyEditingCommand} tip="<h1>3</h1><p>Click this button to choose a new location of t"
+# wireframecirclecenterpointmanagerview.baml
+  PANEL HasOKButton HasOKNewButton HasCancelButton HasHelpButton
+      TAB BasicTabItem
+          TEXT Basic
+            EXPANDER Entity  
+                  Label Content=Mode:
+                  RadioButton Content=_Manual IsChecked={Tangent.Value} GroupName=grpMode tip="<h1>Manual</h1><p>Use this mode to select points in the grap"
+                  RadioButton Content=_Tangent IsChecked={Tangent.Value} GroupName=grpMode tip="<h1>Tangent</h1><p>Use this mode to select existing entities"
+            EXPANDER Center Point  
+                  ToggleButton Content=_Reselect IsChecked={CurrentlyEditing} Command={SetCurrentlyEditingCommand} tip="<h1>Reselect</h1><p>Select the button to relocate the arc or"
+            EXPANDER Size  
+                  Label Content=Radi_us:
+                  EvaluatorBox Name=RadiusEvaluatorBox Value={Radius.Value} HasLock=True IsLocked={Radius.IsHardLocked} IsEnabled={Tangent.Value} tip="<h1>Radius</h1><p>Enter a value for the radius of the arc or"
+                  Label Content=_Diameter:
+                  EvaluatorBox Name=DiameterEvaluatorBox Value={Diameter.Value} HasLock=True IsLocked={Diameter.IsHardLocked} IsEnabled={Tangent.Value} tip="<h1>Diameter</h1><p>Enter a value for the diameter of the ar"
+# wireframecircleedgepointmanagerview.baml
+  PANEL HasOKButton HasOKNewButton HasCancelButton HasHelpButton
+      TAB BasicTabItem
+          TEXT Basic
+            EXPANDER Entity  
+                  Label Content=Mode:
+                  RadioButton Content=2 _Points IsChecked={Mode} Command={SetModeCommand} GroupName=grpMode tip="<h1>2 Points</h1><p>Create circles from two edge points.</p>"
+                  RadioButton Content=2 Points _tangent IsChecked={Mode} IsEnabled={EnableTangent.Value} Command={SetModeCommand} GroupName=grpMode tip="<h1>2 Points tangent</h1><p>Create circles from two edge poi"
+                  RadioButton Content=3 P_oints IsChecked={Mode} Command={SetModeCommand} GroupName=grpMode tip="<h1>3 Points</h1><p>Create circles from three edge points.</"
+                  RadioButton Content=3 Points t_angent IsChecked={Mode} IsEnabled={EnableTangent.Value} Command={SetModeCommand} GroupName=grpMode tip="<h1>3 Points tangent</h1><p>Create circles from three edge p"
+            EXPANDER Edge Points  
+                    ToggleButton Content=_1 IsChecked={IsSelectingEdgePoint1.Value} IsEnabled={EnableEdgePoint1.Value} Command={ReselectEdgePoint1Command} tip="<h1>1</h1><p>Click this button to choose a new location of t"
+                    ToggleButton Content=_2 IsChecked={IsSelectingEdgePoint2.Value} IsEnabled={EnableEdgePoint2.Value} Command={ReselectEdgePoint2Command} tip="<h1>2</h1><p>Click this button to choose a new location of t"
+                    ToggleButton Content=_3 IsChecked={IsSelectingEdgePoint3.Value} IsEnabled={EnableEdgePoint3.Value} Command={ReselectEdgePoint3Command} tip="<h1>3</h1><p>Click this button to choose a new location of t"
+            EXPANDER Size  
+                  Label Content=Radi_us:
+                  EvaluatorBox Name=RadiusEvaluatorBox Value={Radius.Value} HasLock=True IsLocked={Radius.IsHardLocked} IsEnabled={Radius.IsEnabled} tip="<h1>Radius</h1><p>Enter a value for the radius of the arc or"
+                  Label Content=_Diameter:
+                  EvaluatorBox Name=DiameterEvaluatorBox Value={Diameter.Value} HasLock=True IsLocked={Diameter.IsHardLocked} IsEnabled={Diameter.IsEnabled} tip="<h1>Diameter</h1><p>Enter a value for the diameter of the ar"
+# wireframerectanglemanagerview.baml
+  PANEL HasOKButton HasOKNewButton HasCancelButton HasHelpButton
+      TAB BasicTabItem
+          TEXT Basic
+            EXPANDER Points  
+                  ToggleButton Content=_1 IsChecked={CurrentlyEditing} IsEnabled={EnablePoint1} Command={SetCurrentlyEditingCommand} tip="<h1>1</h1><p>While the rectangle is a live entity, choose th"
+                  ToggleButton Content=_2 IsChecked={CurrentlyEditing} IsEnabled={EnablePoint2} Command={SetCurrentlyEditingCommand} tip="<h1>2</h1><p>While the rectangle is a live entity, choose th"
+            EXPANDER Dimensions  
+                  Label Content=_Width:
+                  EvaluatorBox Name=WidthEvaluatorBox Value={Width.Value} HasLock=True IsLocked={Width.IsHardLocked} tip="<h1>Width</h1><p>To create a rectangle with a specific width"
+                  Label Content=Heigh_t:
+                  EvaluatorBox Name=HeightEvaluatorBox Value={Height.Value} HasLock=True IsLocked={Height.IsHardLocked} tip="<h1>Height</h1><p>To create a rectangle with a specific heig"
+            EXPANDER Settings  
+                  CheckBox Content=_Anchor to center IsChecked={AnchorToCenter.Value} tip="<h1>Anchor to center</h1><p>Sets the base point of the recta"
+                  CheckBox Content=Create _surface IsChecked={CreateSurface.Value} tip="<h1>Create surface </h1><p>Creates a surface and wireframe g"
+# boundingboxmanagerview.baml
+  PANEL HasOKButton HasOKNewButton HasCancelButton HasHelpButton
+      TAB BasicTabItem
+          TEXT Basic
+            EXPANDER Entities  
+                  Label Content=Select:
+                    RadioButton Content=_Manual IsChecked={AllEntities.Value} GroupName=grpEntitiesSelect tip="<h1>Manual</h1><p>Lets you manually select entities to inclu"
+                    Button Command={SelectEntitiesCommand} tip="<h1>Select Entities</h1><p>Lets you select the entities to i"
+                  RadioButton Content=_All shown IsChecked={AllEntities.Value} GroupName=grpEntitiesSelect tip="<h1>All shown</h1><p>Includes all entities shown in the grap"
+            EXPANDER Shape  
+                  RadioButton Content=_Rectangular IsChecked={Shape} Command={SetShapeCommand} GroupName=grpShape tip="<h1>Rectangular</h1><p>Creates a box around the selected ent"
+                  RadioButton Content=_Cylindrical IsChecked={Shape} IsEnabled={EnableCylindrical} Command={SetShapeCommand} GroupName=grpShape tip="<h1>Cylindrical</h1><p>Creates a cylinder around the selecte"
+            EXPANDER Rectangular Settings  IsExpanded={RectangularSettingsAdvancedExpanderIsExpanded}
+                    Label Content=_Origin:
+                      RadioButton Name=RectangularOriginTopBackLeftRadioButton IsChecked={RectangularOrigin} Command={SetRectangularOriginCommand} GroupName=grpOrigin
+                      RadioButton IsChecked={RectangularOrigin} Command={SetRectangularOriginCommand} GroupName=grpOrigin
+                      RadioButton IsChecked={RectangularOrigin} Command={SetRectangularOriginCommand} GroupName=grpOrigin
+                      RadioButton IsChecked={RectangularOrigin} Command={SetRectangularOriginCommand} GroupName=grpOrigin
+                      RadioButton IsChecked={RectangularOrigin} Command={SetRectangularOriginCommand} GroupName=grpOrigin
+                      RadioButton IsChecked={RectangularOrigin} Command={SetRectangularOriginCommand} GroupName=grpOrigin
+                      RadioButton IsChecked={RectangularOrigin} Command={SetRectangularOriginCommand} GroupName=grpOrigin
+                      RadioButton IsChecked={RectangularOrigin} Command={SetRectangularOriginCommand} GroupName=grpOrigin
+                      RadioButton IsChecked={RectangularOrigin} Command={SetRectangularOriginCommand} GroupName=grpOrigin
+                      RadioButton IsChecked={RectangularOrigin} Command={SetRectangularOriginCommand} GroupName=grpOrigin
+                      RadioButton IsChecked={RectangularOrigin} Command={SetRectangularOriginCommand} GroupName=grpOrigin
+                  Label Content=Size:
+                  Label Content=_X:
+                  EvaluatorBox Name=XEvaluatorBox Value={SizeX.Value} tip="<h1>X</h1><p>Sets the size of the box on the X axis.</p>"
+                  Label Content=_Y:
+                  EvaluatorBox Name=YEvaluatorBox Value={SizeY.Value} tip="<h1>Y</h1><p>Sets the size of the box on the Y axis.</p>"
+                  Label Content=_Z:
+                  EvaluatorBox Name=ZEvaluatorBox Value={SizeZ.Value} tip="<h1>Z</h1><p>Sets the size of the box on the Z axis.</p>"
+            EXPANDER Cylindrical Settings  IsExpanded={CylindricalSettingsAdvancedExpanderIsExpanded}
+                    Label Content=Ori_gin:
+                      RadioButton Name=CylindricalOriginTopRadioButton IsChecked={CylindricalOrigin} Command={SetCylindricalOriginCommand}
+                      RadioButton IsChecked={CylindricalOrigin} Command={SetCylindricalOriginCommand}
+                      RadioButton IsChecked={CylindricalOrigin} Command={SetCylindricalOriginCommand}
+                  Label Content=Size:
+                  Label Content=Radi_us:
+                  EvaluatorBox Name=RadiusEvaluatorBox Value={Radius.Value} tip="<h1>Radius</h1><p>Sets the radius of the cylinder.</p>"
+                  Label Content=Heigh_t:
+                  EvaluatorBox Name=HeightEvaluatorBox Value={Height.Value} tip="<h1>Height</h1><p>Sets the height of the cylinder.</p>"
+                    Label Content=Axis:
+                    RadioButton Content=_X IsChecked={Axis} Command={SetAxisCommand} GroupName=grpAxis tip="<h1>X</h1><p>Places the cylinder along the X axis.</p>"
+                    RadioButton Content=_Y IsChecked={Axis} Command={SetAxisCommand} GroupName=grpAxis tip="<h1>Y</h1><p>Places the cylinder along the Y axis.</p>"
+                    RadioButton Content=_Z IsChecked={Axis} Command={SetAxisCommand} GroupName=grpAxis tip="<h1>Z</h1><p>Places the cylinder along the Z axis.</p>"
+                    CheckBox Content=Ce_nter on axis IsChecked={CenterOnAxis.Value} IsEnabled={CenterOnAxis.IsEnabled} tip="<h1>Center on axis</h1><p>Centers the cylinder on the select"
+            EXPANDER Push Pull  
+                  Label Content=Arrow values:
+                  RadioButton Content=Ab_solute IsChecked={Incremental.Value} GroupName=grpArrowValues tip="<h1>Absolute</h1><p>Sets the push/pull feature to the absolu"
+                  RadioButton Content=_Incremental IsChecked={Incremental.Value} GroupName=grpArrowValues tip="<h1>Incremental</h1><p>Sets the push/pull feature to the inc"
+                  CheckBox Content=_Both directions IsChecked={BothDirections.Value} IsEnabled={BothDirections.IsEnabled} tip="<h1>Both directions</h1><p>Sets the push/pull feature to cha"
+            EXPANDER Create Geometry  
+                  CheckBox Content=_Lines and arcs IsChecked={CreateLinesAndArcs.Value} IsEnabled={CreateLinesAndArcs.IsEnabled} tip="<h1>Lines and arcs</h1><p>Creates a closed boundary of lines"
+                  CheckBox Content=_Points IsChecked={CreatePoints.Value} IsEnabled={CreatePoints.IsEnabled} tip="<h1>Points</h1><p>Creates points at the corners or extents o"
+                  CheckBox Content=C_enter point IsChecked={CreateCenterPoint.Value} IsEnabled={CreateCenterPoint.IsEnabled} tip="<h1>Center point</h1><p>Creates a center point in the boundi"
+                  CheckBox Content=Soli_ds IsChecked={CreateSolids.Value} IsEnabled={EnableSolidsCheckBox} tip="<h1>Solids</h1><p>Creates a solid bounding box or cylinder.<"
+      TAB AdvancedTabItem
+          TEXT Advanced
+            EXPANDER _Create Tool Plane  UIElement.IsEnabled={CreateToolPlane.IsEnabled} IsChecked={CreateToolPlane.Value} HasCheckBox=True
+                  Label Content=_Name:
+                  TextBox Name=NameTextBox IsEnabled={CreateToolPlane.Value} tip="<h1>Name</h1><p>Enter a name for the new tool plane.</p>"
+                  CheckBox Content=_Set as current tool plane IsChecked={SetAsCurrentToolPlane.Value} IsEnabled={CreateToolPlane.Value} tip="<h1>Set as current tool plane</h1><p>Sets the current tool p"
+                  CheckBox Content=Set _WCS from new tool plane IsChecked={SetWCSFromNewToolPlane.Value} IsEnabled={CreateToolPlane.Value} tip="<h1>Set WCS from new tool plane</h1><p>Sets the WCS to the n"
+            EXPANDER Volume  
+                  TextBox tip="<h1>Volume</h1><p>Shows the volume of the generated bounding"
+# wireframefilletchainsmanagerview.baml
+  PANEL HasOKButton HasOKNewButton HasCancelButton HasHelpButton
+      TAB BasicTabItem
+          TEXT Basic
+            EXPANDER Entity  
+                  Label Content=Style:
+                  RadioButton Content=N_ormal IsChecked={Style} Command={SetStyleCommand} GroupName=grpStyle tip="<h1>Normal</h1><p>Creates normal fillets on the corners of a"
+                  RadioButton Content=_Inverse IsChecked={Style} Command={SetStyleCommand} GroupName=grpStyle tip="<h1>Inverse</h1><p>Creates inverted arcs on the corners of a"
+                  RadioButton Content=_Circle IsChecked={Style} Command={SetStyleCommand} GroupName=grpStyle tip="<h1>Circle</h1><p>Creates full circles in each of the corner"
+                    RadioButton Content=Cle_arance IsChecked={Style} Command={SetStyleCommand} GroupName=grpStyle tip="<h1>Clearance</h1><p>Creates fillets on the inside corners o"
+                    EvaluatorBox Value={ClearanceDistance.Value} IsEnabled={Style} tip="<h1>Clearance Distance</h1><p>Enter an additional clearance "
+            EXPANDER Chains  
+                  Button Content=_Reselect Command={ReselectAllChainsCommand} tip="<h1>Reselect</h1><p>Click this button to remove all previous"
+            EXPANDER Radi_us  
+                  EvaluatorBox Name=RadiusEvaluatorBox Value={Radius.Value} tip="<h1>Radius</h1><p>Sets the radius of the fillet.</p>"
+            EXPANDER Direction  
+                  RadioButton Content=All cor_ners IsChecked={Direction} Command={SetDirectionCommand} GroupName=grpDirection tip="<h1>All corners</h1><p>Creates fillets on all corners of the"
+                  RadioButton Content=+ _Sweeps IsChecked={Direction} Command={SetDirectionCommand} GroupName=grpDirection tip="<h1>+ Sweeps</h1><p>Creates fillets in counterclockwise corn"
+                  RadioButton Content=- S_weeps IsChecked={Direction} Command={SetDirectionCommand} GroupName=grpDirection tip="<h1>- Sweeps</h1><p>Creates fillets in clockwise corners (re"
+            EXPANDER Settings  
+                  CheckBox Content=_Trim entities IsChecked={TrimEntities.Value} tip="<h1>Trim entities</h1><p>Select to trim entities to fillet. "
+# wireframefilletentitiesmanagerview.baml
+  PANEL HasOKButton HasOKNewButton HasCancelButton HasHelpButton
+      TAB BasicTabItem
+          TEXT Basic
+            EXPANDER Entity  
+                  Label Content=Style:
+                  RadioButton Content=N_ormal IsChecked={Style} Command={SetStyleCommand} GroupName=grpStyle tip="<h1>Normal</h1><p>Creates normal fillets on the corners of a"
+                  RadioButton Content=_Inverse IsChecked={Style} Command={SetStyleCommand} GroupName=grpStyle tip="<h1>Inverse</h1><p>Creates inverted arcs on the corners of a"
+                  RadioButton Content=_Circle IsChecked={Style} Command={SetStyleCommand} GroupName=grpStyle tip="<h1>Circle</h1><p>Creates full circles in each of the corner"
+                    RadioButton Content=Cle_arance IsChecked={Style} Command={SetStyleCommand} GroupName=grpStyle tip="<h1>Clearance</h1><p>Creates fillets on the inside corners o"
+                    EvaluatorBox Value={ClearanceDistance.Value} IsEnabled={Style} tip="<h1>Clearance Distance</h1><p>Enter an additional clearance "
+                  RadioButton Content=_Relief IsChecked={Style} Command={SetStyleCommand} GroupName=grpStyle tip="<h1>Relief</h1><p>Create a fillet that puts the clearance on"
+            EXPANDER Radi_us  
+                  EvaluatorBox Name=RadiusEvaluatorBox Value={Radius.Value} tip="<h1>Radius</h1><p>Sets the radius of the fillet.</p>"
+            EXPANDER Settings  
+                  CheckBox Content=_Trim entities IsChecked={TrimEntities.Value} tip="<h1>Trim Entities</h1><p>Select to trim entities to fillet. "
+# wireframechamferchainsmanagerview.baml
+  PANEL HasOKButton HasOKNewButton HasCancelButton HasHelpButton
+      TAB BasicTabItem
+          TEXT Basic
+            EXPANDER Entity  
+                  Label Content=Style:
+                  RadioButton Content=_Distance IsChecked={Style} Command={SetStyleCommand} GroupName=grpStyle tip="<h1>Distance</h1><p>Creates a chamfer with a specified dista"
+                  EvaluatorBox Value={Distance.Value} IsEnabled={Style} tip="<h1>Distance</h1><p>Creates a chamfer with a specified dista"
+                  RadioButton Content=_Width IsChecked={Style} Command={SetStyleCommand} GroupName=grpStyle tip="<h1>Width</h1><p>Creates a chamfer based on the specified wi"
+                  EvaluatorBox Value={Width.Value} IsEnabled={Style} tip="<h1>Width</h1><p>Creates a chamfer based on the specified wi"
+            EXPANDER Chains  
+                  Button Content=_Reselect Command={ReselectAllChainsCommand} tip="<h1>Reselect</h1><p>Click this button to remove all previous"
+            EXPANDER Settings  
+                  CheckBox Content=_Trim entities IsChecked={TrimEntities.Value} tip="<h1>Trim entities</h1><p>Select to trim entities to chamfer."
+# wireframechamferentitiesmanagerview.baml
+  PANEL HasOKButton HasOKNewButton HasCancelButton HasHelpButton
+      TAB BasicTabItem
+          TEXT Basic
+            EXPANDER Entity  
+                  Label Content=Style:
+                  RadioButton Content=1 _Distance IsChecked={Style} Command={SetStyleCommand} GroupName=grpStyle tip="<h1>1 Distance</h1><p>Creates a chamfer where the endpoints "
+                  RadioButton Content=2 Di_stances IsChecked={Style} Command={SetStyleCommand} GroupName=grpStyle tip="<h1>2 Distances</h1><p>Creates a chamfer where the endpoints"
+                  RadioButton Content=Distance and an_gle IsChecked={Style} Command={SetStyleCommand} GroupName=grpStyle tip="<h1>Distance and angle</h1><p>Creates a chamfer where the en"
+                  RadioButton Content=Widt_h IsChecked={Style} Command={SetStyleCommand} GroupName=grpWidth tip="<h1>Width</h1><p>Creates a chamfer based on the specified wi"
+            EXPANDER Distance _1  
+                  EvaluatorBox Name=Distance1EvaluatorBox Value={Distance1.Value} IsEnabled={EnableDistance1} tip="<h1>Distance 1</h1><p>Sets the distance from the intersectio"
+            EXPANDER Distance _2  
+                  EvaluatorBox Name=Distance2EvaluatorBox Value={Distance2.Value} IsEnabled={Style} tip="<h1>Distance 2</h1><p>Sets the distance from the endpoint of"
+            EXPANDER _Angle  
+                  EvaluatorBox Name=AngleEvaluatorBox Value={Angle.Value} IsEnabled={Style} tip="<h1>Angle</h1><p>Determines the angle of the chamfer. Only a"
+            EXPANDER _Width  
+                  EvaluatorBox Name=WidthEvaluatorBox Value={Width.Value} IsEnabled={Style} tip="<h1>Width</h1><p> Enter the width of the chamfer. Only avail"
+            EXPANDER Settings  
+                  CheckBox Content=_Trim entities IsChecked={TrimEntities.Value} tip="<h1>Trim entities</h1><p>Select to trim entities to chamfer."
+# wireframebreakmanypiecesmanagerview.baml
+  PANEL HasOKButton HasOKNewButton HasCancelButton HasHelpButton
+      TAB BasicTabItem
+          TEXT Basic
+            EXPANDER Entity  
+                  Label Content=Style:
+                  RadioButton Content=_Create curves IsChecked={CreateCurves.Value} GroupName=grpStyle tip="<h1>Create curves</h1><p>Breaks the selected entity into mul"
+                  RadioButton Content=Create _lines IsChecked={CreateCurves.Value} GroupName=grpStyle tip="<h1>Create lines</h1><p>Breaks the selected entity into mult"
+            EXPANDER Segments  
+                  RadioButton Content=_Number: IsChecked={Method} Command={SetMethodCommand} GroupName=grpSegments tip="<h1>Number</h1><p>Breaks an entity into multiple segments ba"
+                  EvaluatorBox Name=NumberEvaluatorBox Value={Number.Value} IsDoubleValue=False IsEnabled={Method} tip="<h1>Number</h1><p>Breaks an entity into multiple segments ba"
+                  RadioButton Content=_Tolerance: IsChecked={Method} Command={SetMethodCommand} GroupName=grpSegments tip="<h1>Tolerance</h1><p>Breaks an arc or spline entity based on"
+                  EvaluatorBox Value={Tolerance.Value} IsEnabled={Method} tip="<h1>Tolerance</h1><p>Breaks an arc or spline entity based on"
+                  RadioButton Content=_Exact distance: IsChecked={Method} Command={SetMethodCommand} GroupName=grpSegments tip="<h1>Exact distance</h1><p>Creates segments of the exact leng"
+                  EvaluatorBox Value={ExactDistance.Value} IsEnabled={Method} tip="<h1>Exact distance</h1><p>Creates segments of the exact leng"
+                  RadioButton Content=_Rounded distance: IsChecked={Method} Command={SetMethodCommand} GroupName=grpSegments tip="<h1>Rounded distance</h1><p>Creates segments that all have t"
+                  EvaluatorBox Value={RoundedDistance.Value} IsEnabled={Method} tip="<h1>Rounded distance</h1><p>Creates segments that all have t"
+            EXPANDER Original Curves/Lines  
+                  RadioButton Content=_Delete IsChecked={BreakAction} Command={SetActionCommand} GroupName=grpOriginalCurves tip="<h1>Delete</h1><p>Removes the selected entities from the gra"
+                  RadioButton Content=_Keep IsChecked={BreakAction} Command={SetActionCommand} GroupName=grpOriginalCurves tip="<h1>Keep</h1><p>Retains the original entities in the same lo"
+                  RadioButton Content=_Blank IsChecked={BreakAction} Command={SetActionCommand} GroupName=grpOriginalCurves tip="<h1>Blank</h1><p>Hides the original entities from the graphi"
+# wireframetrimbreakextendmanagerview.baml
+  PANEL HasOKButton HasOKNewButton HasCancelButton HasHelpButton
+      TAB BasicTabItem
+          TEXT Basic
+            EXPANDER Entity  
+                  Label Content=Mode:
+                  RadioButton Content=_Trim IsChecked={Trim.Value} GroupName=grpMode tip="<h1>Trim</h1><p>Trims the entities you have selected in the "
+                  RadioButton Content=_Break IsChecked={Trim.Value} GroupName=grpMode tip="<h1>Break</h1><p>Breaks the entities you have selected in th"
+                  Label Content=Type:
+                  RadioButton Content=_Auto IsChecked={Method} Command={SetMethodCommand} GroupName=grpType tip="<h1>Auto</h1><p>Allows you to switch between Trim 1 entity a"
+                  RadioButton Content=Trim _1 entity IsChecked={Method} Command={SetMethodCommand} GroupName=grpType tip="<h1>Trim 1 entity</h1><p>Trims one entity. Select the entity"
+                  RadioButton Content=Trim _2 entities IsChecked={Method} Command={SetMethodCommand} GroupName=grpType tip="<h1>Trim 2 entities</h1><p>Trims two entities to their inter"
+                  RadioButton Content=Trim _3 entities IsChecked={Method} Command={SetMethodCommand} GroupName=grpType tip="<h1>Trim 3 entities</h1><p>Trims three entities. The first t"
+                  RadioButton Content=_Divide/delete IsChecked={Method} Command={SetMethodCommand} GroupName=grpType tip="<h1>Divide/delete</h1><p>Trims a line, arc, or spline into t"
+                  RadioButton Content=T_rim to point IsChecked={Method} Command={SetMethodCommand} GroupName=grpType tip="<h1>Trim to point</h1><p>Trims an entity to a point or any d"
+                  RadioButton Content=_Extend IsChecked={Method} Command={SetMethodCommand} GroupName=grpType tip="<h1>Extend</h1><p>Trims or extends a selected entity based o"
+            EXPANDER Extension _length  
+                  EvaluatorBox Name=ExtensionLengthEvaluatorBox Value={ExtensionLength.Value} tip="<h1>Extension length</h1><p>Type a value in the entry field "
+# wireframetrimmanymanagerview.baml
+  PANEL HasOKButton HasOKNewButton HasCancelButton HasHelpButton
+      TAB BasicTabItem
+          TEXT Basic
+            EXPANDER Entity  
+                  Label Content=Mode:
+                  RadioButton Content=_Trim IsChecked={Trim.Value} GroupName=grpMode tip="<h1>Trim</h1><p>Trims the entities you have selected in the "
+                  RadioButton Content=_Break IsChecked={Trim.Value} GroupName=grpMode tip="<h1>Break</h1><p>Breaks the entities you have selected in th"
+            EXPANDER Direction  
+                  RadioButton Content=_Selected side IsChecked={IsDirection1} GroupName=grpDirection tip="<h1>Selected side</h1><p>Keeps entities on the selected side"
+                  RadioButton Content=_Opposite side IsChecked={IsDirection1} GroupName=grpDirection tip="<h1>Opposite side</h1><p>Keeps entities on the opposite side"

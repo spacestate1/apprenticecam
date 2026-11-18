@@ -1,0 +1,136 @@
+# Checks to run in real Mastercam 2017 on Windows (N11-3, 2026-11-11)
+
+Three things only real Mastercam can tell us. Send back the answers (and the exact text of any message) per item.
+
+Copy the files to the Windows side first, for example:
+```
+mkdir -p "<windows>/apprenticecam-checks" && cp ~/mastercam-re/work/occt/proof/out/cube_*.mcx-9 <windows>/apprenticecam-checks/
+```
+
+## 1. Solid proof files (unblocks: saving new solids into .mcam, TODO "Solids tree" item 3; occt_xt.md 6)
+Open each file in Mastercam 2017 in this order. File > Open, do not merge.
+
+| # | File | What to check | Answer |
+|---|---|---|---|
+| 1a | `cube_A_regenxt.mcx-9` | Opens with no message? Solid looks the same as before? Solids manager shows Extrude + Extrude Cut? | |
+| 1b | | Right-click the solid > Regen: works with no error? | |
+| 1c | | Analyze > Dynamic on the solid, or a 2D Contour chained on a solid edge: does it pick? | |
+| 2a | `cube_B_newsolid.mcx-9` | Two solids in the Solids manager, the new one with "Extrude" under it? New one = 10 x 10 x 3 block, Z -3..0? | |
+| 2b | | Edit the new Extrude, distance 3 -> 4: does it regenerate? Then Regen All: any error? | |
+| 2c | | File > Save, close, reopen: is the new solid still there? | |
+| 3 | `cube_C_newsolid_dirty.mcx-9` | Same as 2a. Any message on open such as "Error reapplying operation"? | |
+| 4 | `cube_D_newsolid_records.mcx-9` | Same as 2a. Select a face of the new solid, then Regen: any crash? | |
+| 5 | any | Any other message on open (size mismatch, version, PK error): copy its exact text. | |
+
+## 2. D3: the X on a dirty operation (opdlg_port_audit.md 19.6)
+1. Open any part with a toolpath, for example BRACKET4.
+2. Make an op dirty: open its Parameters, change the feed rate, OK. Do not regenerate.
+3. Look at its icon in the Toolpaths manager in each of these states:
+
+| State | Red X on the op icon? |
+|---|---|
+| collapsed, not selected | |
+| collapsed, selected | |
+| expanded (click the + so Parameters / Tool / Geometry show), not selected | |
+| expanded, selected | |
+
+(The decompile says the X disappears when the op is **expanded**, not when it is selected. Our app does it on
+selection. This table decides which is right.)
+
+## 3. 3D roughing test parts (oracle for the 3D toolpaths; hst3d_port_plan.md 5, decision 3D-1)
+There is no stored 3D High Speed op to compare against. Please make one small part with these ops and save it
+with every op regenerated, so the toolpaths (NCI) are stored in the part:
+
+- Stock about 100 x 80 x 40 mm. A solid with a raised boss, a pocket with a floor, and a dome or fillet
+  (any curved surface).
+- Ops on that solid, each with defaults except the tool:
+  - Dynamic OptiRough with a 10 mm flat endmill
+  - Area Roughing with a 10 mm flat endmill
+  - Waterline with a 6 mm ball
+  - Raster with a 6 mm ball
+  - Scallop with a 6 mm ball
+  - Pencil with a 6 mm ball
+  - One of the ops above again with a 6 mm bull nose (R1)
+- Regenerate all, save as `rough3d_test.mcam`, and copy it back (for example to `<windows>/apprenticecam-checks/`).
+- If there is time, an inch copy of the same part helps too.
+
+## 4. Saved 3D operations with surface / solid references (S6, formats/surface_selection.md 6 "S6")
+apprenticeCAM now writes a 3D op's drive / check references (TP kind 4 records) and, for a solid picked here as a whole body, a new
+"Toolpath" op (SldToolPOp) in the solid's history. Files (copies of corpus parts saved by `cam_cli PART saveref all OUT`, in
+`~/mastercam-re/work/s6/`): `waterline_gen.mcam` (WATERLINE.mcam, 182 drive surfaces written by the new writer), `swarf_metric_gen.mcam`
+(TUTORIAL 2 SWARF_METRIC: drive + 43 check surfaces + containment chain), `horizontal_newsolid.mcam` (HORIZONTAL.mcam: the solid picked
+again as a whole body, a new Toolpath op appended to sld_0's history). Each op opens dirty (red X).
+
+| # | File | What to check | Answer |
+|---|---|---|---|
+| 4a | each | Opens with no message? The edited ops are in the Toolpaths manager (red X)? | |
+| 4b | each | Op > Toolpath geometry (Toolpath/surface selection dialog): Drive count (and Check / Containment) as in the original part? Show... highlights the same surfaces / solid? | |
+| 4c | `swarf_metric_gen.mcam` | The 43 check surfaces are under Check, not Drive? | |
+| 4d | `horizontal_newsolid.mcam` | Solids manager: sld_0's history ends with a second "Toolpath" op? Right-click the solid > Regen: any message? | |
+| 4e | each | Regenerate the edited ops: toolpath as the original op's (no "no drive surfaces" message 241)? | |
+| 4f | each | File > Save, close, reopen: the ops still have their geometry? | |
+
+## 5. STL mesh entity written by apprenticeCAM (formats/cad_import.md 7)
+apprenticeCAM writes a PMESH_ID record (class 0x100000) + its "MASTERCAM STL DATA" block for an STL file opened as a mesh. Make one:
+open `~/mastercam-re/files/g68.2_cube.stl` (or any STL) in apprenticeCAM, Save as Mastercam part -> `stl_mesh_gen.mcam`; also open the same
+STL in Mastercam (File > Open, STL, Options: Import as STL Mesh) and save it as `stl_mesh_ref.mcam`.
+
+| # | File | What to check | Answer |
+|---|---|---|---|
+| 5a | `stl_mesh_gen.mcam` | Opens with no message? The mesh shows (shaded / wireframe), its level / colour as in apprenticeCAM? | |
+| 5b | `stl_mesh_ref.mcam` | Send the file back: its PMESH_ID record and data block are the read-compare oracle (none in the corpus) | |
+| 5c | `stl_mesh_gen.mcam` | Analyze the mesh / delete it / Save: any message? | |
+
+
+## 6. Drill per-point options (oracle for formats/nci_writer.md 10 "2026-11-13"; none of the 50 corpus drill ops uses them)
+apprenticeCAM now writes the drill NCI for points with their own initial height, canned text and manual entries, and for bolt circle /
+grid points, ported from bnci_drill but never compared with Mastercam. Please make one small part (any plate with 4 holes in a row):
+
+- One Drill op (Simple drill, G81) on the 4 points, defaults otherwise. Through Mastercam's per-point drill editing (the drill point list / point manager):
+  - point 2: its own Initial height (e.g. 20 mm above the default);
+  - point 3: a Canned text entry and a Manual entry text (two lines, e.g. `M00` and `(CHECK)`);
+- A second Drill op whose points come from a Bolt Circle (the drill point selection's bolt circle pattern, 4 holes).
+- A third Drill op with "Use clearance only at the start and end of operation" on, plus one point with its own initial height.
+- Regenerate all, save as `drill_points_test.mcam`, copy it back (for example to `<windows>/apprenticecam-checks/`).
+
+## 7. New Lathe Face from the stock (L-6, formats/lathe.md 7; oracle for tools/tests/lathe_face_test.sh section 4)
+apprenticeCAM now makes a new Face "from stock" from the LATHE_INCH defaults, but only checked against its own decoded rules. Please:
+
+- Open `Lathe.mcam` (shared Mcam2017 / common/reports/SST/Samples/Lathe), do not change the stock / machine group. Insert arrow after op 2.
+- Lathe toolpaths > Face. Tool page: note which tool is selected by default (number / name), keep it. Face page: "Use stock" on,
+  do NOT touch Finish Z - write down the Finish Z value the page shows. OK. (op A)
+- Again Face: Use stock, Finish Z = -0.25, Rough stepover on (default 0.1), finish as default. OK. (op B)
+- Again Face with the same tool on a bottom-turret / left-hand tool if the tool list has one (otherwise skip). (op C)
+- Save as `lathe_face_new.mcam`, copy it back (for example to `<windows>/apprenticecam-checks/`), plus the posted NC of ops A / B if easy.
+
+| # | What | Answer |
+|---|---|---|
+| 7a | Finish Z shown for op A before OK (default of a new op) | |
+| 7b | Default tool of the new Face (number, name) | |
+| 7c | Any message on OK / regenerate | |
+
+## 8. Extend Trimmed Edges default Style (decision S-12, formats/surfaces_trim_decode.md 3)
+The panel's default Style is an uninitialised byte in the decompile (FUN_180305960). Please:
+
+- Start Mastercam fresh (no Extend Trimmed Edges used in this session), open any part with a trimmed surface.
+- Surfaces > Extend > Extend Trimmed Edges: before picking anything, note which Style radio is on.
+- Repeat once after restarting Mastercam (to see if it is stable).
+
+| # | What | Answer |
+|---|---|---|
+| 8a | Default Style on the first start (Mitered / Rounded) | |
+| 8b | Default Style after a restart | |
+
+## 9. A part with a kind 4 surface (CS-6, formats/chaining.md "Decisions CS-5 .. CS-8"; unblocks eval_surf / eval_surf_const of kind 4)
+No surface record of kind 4 exists in the corpus, so its evaluation (eval_surf_const FUN_18042c080 / FUN_18042d9b0, eval_surf) is not
+ported and such a surface is refused (no display-list points; hover / click / surface edge chaining refused with a message) until a part
+holds one (user decision CS-6). Kind 4 is a curve-based loft (formats/mcam.md: "kind 4 loft"; evalsurf FUN_18042cad0). In Mastercam
+2017 please make a Lofted surface and a Ruled surface through 3 or more curves (once with the Surface type / Create NURBS option off if the
+panel has one), and to be sure a surface of each other kind you can reach from the Surfaces tab (Revolved, Swept, Net, Fence, Draft, Extruded, Offset, Fillet; also Surfaces > Flat Boundary and a surface from a solid face),
+leave each untrimmed, save them all in one part `srf_kinds.mcam` and copy it back (for example to `<windows>/apprenticecam-checks/`).
+Whichever command makes kind 4 (the record's class word) then gives the sample; apprenticeCAM can tell which one it was.
+
+| # | What | Answer |
+|---|---|---|
+| 9a | The commands used (in the order made) | |
+| 9b | Any surface Mastercam made trimmed although untrimmed was asked | |

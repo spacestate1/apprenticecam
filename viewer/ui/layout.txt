@@ -1,0 +1,1011 @@
+FILE	Project File Manager		
+FILE	Change Recognition		
+FILE	Track Changes		
+FILE	AutoSave/Backup		
+FILE	Repair File		
+FILE	New		
+FILE	Open		
+FILE	Open in Editor		
+FILE	Merge		
+FILE	Save		
+FILE	Save As		
+FILE	Save Some		
+FILE	Zip2Go		
+FILE	Migration Wizard		
+FILE	Import Folder		
+FILE	Export Folder		
+FILE	Print		
+FILE	What's New		
+FILE	Contents		
+FILE	Tutorials		
+FILE	ReadMe		
+FILE	Check for Updates		
+FILE	Network Licensing		
+FILE	Link Account		
+FILE	Feedback Program		
+FILE	Satisfaction Survey		
+FILE	Configuration		
+FILE	Options		
+TAB	Home		H
+GROUP	Clipboard
+BTN	Button	53404	Paste	Paste		S	L	OnEditPaste	EXE	OnEditPaste
+BTN	Button	53405	Cut	Cut		S		OnEditCut	EXE	OnEditCut
+BTN	Button	53406	Copy	Copy		S		OnEditCopy	EXE	OnEditCopy
+BTN	Button	53407	Copy Image	Copy Image		S		ToClipboard	EXE	ToClipboard
+GROUP	Attributes
+BTN	Group									
+SUB	ComboBox	53409		Point Style				ChangeSelectedEntityPointStyle	EXE	ChangeSelectedEntityPointStyle
+SUB	ComboBox	53410		Line Style				ChangeSelectedEntityLineStyle	EXE	ChangeSelectedEntityLineStyle
+SUB	ComboBox	53411		Line Width				ChangeSelectedEntityLineWidth	EXE	ChangeSelectedEntityLineWidth
+SUB	Button	53420		CPlane 2D/3D		S		OnScreen2D3DToggle	EXE	OnScreen2D3DToggle
+BTN	Group									
+SUB	Button_Color	53412	Default Wireframe Color	Wireframe Color		S		ChangeSelectedWireframeColor	EXE	ChangeSelectedWireframeColor
+SUB	Button_Color	53414	Default Solid Color	Solid Color		S		ChangeSelectedSolidsColor	EXE	ChangeSelectedSolidsColor
+SUB	Button_Color	53416	Default Surface Color	Surface Color		S		ChangeSelectedSurfacesColor	EXE	ChangeSelectedSurfacesColor
+SUB	Button	53418	Clear Colors	Clear Colors		S		ClearColors	EXE	ClearColors
+SUB	Button	53419	Set From Entity	Set From Entity		S		set_main_from_entity	EXE	set_main_from_entity
+SUB	Button	54203	Set All	Set All		S		ChangeEntityAttribs	EXE	ChangeEntityAttribs
+GROUP	Organize
+BTN	Group									
+SUB	Button	53421		Select Z Depth		S		OnScreenZDepth	EXE	OnScreenZDepth
+SUB	ComboBox	53422		Set Z Depth						
+BTN	Group									
+SUB	Button	53423	Change Level	Change Level		S		ChangeEntityLevel	EXE	ChangeEntityLevel
+SUB	ComboBox	53424		Levels						
+GROUP	Delete
+BTN	Button	53425	Delete Entities	Delete Entities		S	L	delete_entities	MCCADUTIL.DLL	delete_entities
+BTN	Button	53426	Non-Associative	Non-Associative		S		delete_all_nonassoc	MCCADUTIL.DLL	delete_all_nonassoc
+BTN	Button	53427	Duplicates	Duplicates		S		delete_duplicates_basic	MCCADUTIL.DLL	delete_duplicates_basic
+SUB	Button	53428	Duplicates	Duplicates		S		delete_duplicates_basic	MCCADUTIL.DLL	delete_duplicates_basic
+SUB	Button	53429	Advanced	Advanced		S		delete_duplicates_advanced	MCCADUTIL.DLL	delete_duplicates_advanced
+BTN	Button	53430	Undelete Entity	Undelete Entity		S		undelete_single	MCCADUTIL.DLL	undelete_single
+GROUP	Display
+BTN	Button	53431	Hide/Unhide	Hide/Unhide		S	L	OnHide	EXE	OnHide
+SUB	Button	53432	Hide/Unhide	Hide/Unhide		S		OnHide	EXE	OnHide
+SUB	Button	53433	Hide More	Hide More		S		OnHideMore	EXE	OnHideMore
+SUB	Button	53434	Unhide Some	Unhide Some		S		OnUnhideSome	EXE	OnUnhideSome
+BTN	Button	53435	Arc Center Points	Arc Center Points		S		OnDisplayArcCenterPts	EXE	OnDisplayArcCenterPts
+BTN	Button	53436	Endpoints	Endpoints		S		displayEndpoints	MCCAD.DLL	displayEndpoints
+BTN	Button	53437	Blank	Blank		S		blank_entities	MCCADUTIL.DLL	blank_entities
+SUB	Button	53438	Blank	Blank		S		blank_entities	MCCADUTIL.DLL	blank_entities
+SUB	Button	53439	Unblank	Unblank		S		unblank_entities	MCCADUTIL.DLL	unblank_entities
+GROUP	Analyze
+BTN	Button	53440	Analyze Entity	Analyze Entity		S	L	AnalyzeStart	MCCADUTIL.DLL	AnalyzeStart
+BTN	Button	53441	Analyze Distance	Analyze Distance		S	L	AnalyzeBtwnPtStart	MCCADUTIL.DLL	AnalyzeBtwnPtStart
+BTN	Button	53442	Analyze Toolpath	AnalyzeToolpath		S	L	AnalyzeToolpath	MCCADUTIL.DLL	AnalyzeToolpath
+BTN	Button	53443	Dynamic	Dynamic		S		AnalyzeDynoStart	MCCADUTIL.DLL	AnalyzeDynoStart
+SUB	Button	53444	Dynamic	Dynamic		S		AnalyzeDynoStart	MCCADUTIL.DLL	AnalyzeDynoStart
+SUB	Button	53445	Position	Position		S		AnalyzePtStart	MCCADUTIL.DLL	AnalyzePtStart
+BTN	Button	53446	Angle	Angle		S		AnalyzeAngleStart	MCCADUTIL.DLL	AnalyzeAngleStart
+SUB	Button	53447	Angle	Angle		S		AnalyzeAngleStart	MCCADUTIL.DLL	AnalyzeAngleStart
+SUB	Button	53448	Draft Angle	Draft Angle		S		SurfaceDraftAngleAnalysis	MCCADUTIL.DLL	SurfaceDraftAngleAnalysis
+BTN	Button	53449	Chain	Chain		S		AnalyzeChainStart	MCCADUTIL.DLL	AnalyzeChainStart
+SUB	Button	53450	Chain	Chain		S		AnalyzeChainStart	MCCADUTIL.DLL	AnalyzeChainStart
+SUB	Button	53451	Contour	Contour		S		AnalyzeContourStart	MCCADUTIL.DLL	AnalyzeContourStart
+BTN	Button	53452	Check Solid	Check Solid		S		AnalyzeCheckSolidStart	MCCADUTIL.DLL	AnalyzeCheckSolidStart
+SUB	Button	53453	Check Solid	Check Solid		S		AnalyzeCheckSolidStart	MCCADUTIL.DLL	AnalyzeCheckSolidStart
+SUB	Button	53454	Solid Properties	Solid Properties		S		AnalyzeSolidPropsStart	MCCADUTIL.DLL	AnalyzeSolidPropsStart
+SUB	Button	53455	Test Surface	Test Surface		S		AnalyzeTestSurfacesStart	MCCADUTIL.DLL	AnalyzeTestSurfacesStart
+SUB	Button	53456	Curvature	Curvature		S		SurfaceCurvatureAnalysis	MCCADUTIL.DLL	SurfaceCurvatureAnalysis
+BTN	Button	53457	2D Area	2D Area		S		Analyze2dAreaStart	MCCADUTIL.DLL	Analyze2dAreaStart
+SUB	Button	53458	2D Area	2D Area		S		Analyze2dAreaStart	MCCADUTIL.DLL	Analyze2dAreaStart
+SUB	Button	53459	Surface Area	Surface Area		S		AnalyzeSurfaceAreaStart	MCCADUTIL.DLL	AnalyzeSurfaceAreaStart
+BTN	Button	53460	Statistics	Statistics		S		screen_statistics	MCCORE.DLL	screen_statistics
+GROUP	Add-Ins
+BTN	Button	53461	Run Add-In	Run Add-In		S	L	run_user_app	EXE	run_user_app
+TAB	Wireframe		W
+GROUP	Points
+BTN	Button	53462	Point Position	Point Position		S	L	sketcher_point_1	MCCAD.DLL	sketcher_point_1
+SUB	Button	53463	Point Position	Point Position		S		sketcher_point_1	MCCAD.DLL	sketcher_point_1
+SUB	Button	53464	Point Dynamic	Point Dynamic		S		sketcher_point_2	MCCAD.DLL	sketcher_point_2
+SUB	Button	53465	Point Segment	Point Segment		S		sketcher_point_4	MCCAD.DLL	sketcher_point_4
+SUB	Button	53466	Point Endpoints	Point Endpoints		S		create_point_endpoints	MCCAD.DLL	create_point_endpoints
+SUB	Button	53467	Point Nodes	Point Nodes		S		create_spline_points	MCCAD.DLL	create_spline_points
+SUB	Button	53468	Point Small Arcs	Point Small Arcs		S		sketcher_point_6	MCCAD.DLL	sketcher_point_6
+BTN	Button	53469	Bolt Circle	Bolt Circle		S	L	OnBoltCircle	MCCAD.DLL	OnBoltCircle
+GROUP	Lines
+BTN	Button	53470	Line Endpoints	Line Endpoints		S	L	sketcher_line_1	MCCAD.DLL	sketcher_line_1
+BTN	Button	53471	Line Parallel	Line Parallel		S		sketcher_line_5	MCCAD.DLL	sketcher_line_5
+BTN	Button	53472	Line Perpendicular	Line Perpendicular		S		sketcher_line_4	MCCAD.DLL	sketcher_line_4
+BTN	Button	53473	Line Closest	Line Closest		S		create_a_line_Closest	MCCAD.DLL	create_a_line_Closest
+SUB	Button	53474	Line Closest	Line Closest		S		create_a_line_Closest	MCCAD.DLL	create_a_line_Closest
+SUB	Button	53475	Line Bisect	Line Bisect		S		sketcher_line_3	MCCAD.DLL	sketcher_line_3
+SUB	Button	53476	Line Tangent Through Point	Line Tangent Through Point		S		sketcher_line_6	MCCAD.DLL	sketcher_line_6
+SUB	Button	53477	Line Normal	Line Normal		S		sketcher_line_normal	MCCAD.DLL	sketcher_line_normal
+GROUP	Arcs
+BTN	Button	53478	Circle Center Point	Circle Center Point		S	L	sketcher_arc_2	MCCAD.DLL	sketcher_arc_2
+BTN	Button	53479	Arc 3 Points	Arc 3 Points		S		sketcher_arc_5	MCCAD.DLL	sketcher_arc_5
+BTN	Button	53480	Arc Tangent	Arc Tangent		S		sketcher_arc_6	MCCAD.DLL	sketcher_arc_6
+BTN	Button	53481	Circle Edge Point	Circle Edge Point		S		sketcher_arc_1	MCCAD.DLL	sketcher_arc_1
+SUB	Button	53482	Circle Edge Point	Circle Edge Point		S		sketcher_arc_1	MCCAD.DLL	sketcher_arc_1
+SUB	Button	53483	Arc Endpoints	Arc Endpoints		S		sketcher_arc_4	MCCAD.DLL	sketcher_arc_4
+SUB	Button	53484	Arc Polar	Arc Polar		S		sketcher_arc_3	MCCAD.DLL	sketcher_arc_3
+SUB	Button	53485	Arc Polar Endpoints	Arc Polar Endpoints		S		sketcher_arc_7	MCCAD.DLL	sketcher_arc_7
+GROUP	Splines
+BTN	Button	53486	Spline Manual	Spline Manual		S	L	sketcher_spline_1	MCCAD.DLL	sketcher_spline_1
+SUB	Button	53487	Spline Manual	Spline Manual		S		sketcher_spline_1	MCCAD.DLL	sketcher_spline_1
+SUB	Button	53488	Spline Blended	Spline Blended		S		sketcher_spline_4	MCCAD.DLL	sketcher_spline_4
+SUB	Button	53489	Spline From Curves	Spline From Curves		S		sketcher_spline_3	MCCAD.DLL	sketcher_spline_3
+SUB	Button	53490	Spline Automatic	Spline Automatic		S		sketcher_spline_2	MCCAD.DLL	sketcher_spline_2
+SUB	Button	53491	Spline Convert to NURBS	Spline Convert to NURBS		S		x_2_nurbs	MCCADUTIL.DLL	x_2_nurbs
+GROUP	Shapes
+BTN	Button	53492	Rectangle	Rectangle		S	L	sketcher_rect	MCCAD.DLL	sketcher_rect
+SUB	Button	53493	Rectangle	Rectangle		S		sketcher_rect	MCCAD.DLL	sketcher_rect
+SUB	Button	53494	Rectangular Shapes	Rectangular Shapes		S		create_rectangle	MCCAD.DLL	create_rectangle
+SUB	Button	53495	Polygon	Polygon		S		create_polygon	MCCAD.DLL	create_polygon
+SUB	Button	53496	Ellipse	Ellipse		S		create_ellipse	MCCAD.DLL	create_ellipse
+SUB	Button	53497	Helix	Helix		S		create_helix	MCCAD.DLL	create_helix
+SUB	Button	53498	Spiral	Spiral		S		create_spiral	MCCAD.DLL	create_spiral
+BTN	Button	53499	Create Letters	Create Letters		S	L	create_letters	MCCAD.DLL	create_letters
+BTN	Button	53500	Bounding Box	Bounding Box		S	L	create_bbox	MCCAD.DLL	create_bbox
+BTN	Button	53501	Silhouette Boundary	Silhouette Boundary		S	L	create_SilhouetteBoundary	MCCAD.DLL	create_SilhouetteBoundary
+BTN	Button	53502	Turn Profile	Turn Profile		S	L	create_TurnProfile	MCCAD.DLL	create_TurnProfile
+BTN	Button	53503	Relief Groove	Relief Groove		S	L	MakeReliefGrooves	MCCAD.DLL	MakeReliefGrooves
+BTN	Button	53504	Raster to Vector	Raster to Vector		S	L	m_main	chooks\rast2vec.dll	m_main
+GROUP	Curves
+BTN	Button	53505	Curve One Edge	Curve One Edge		S	L	sketcher_curve_1	MCCAD.DLL	sketcher_curve_1
+BTN	Button	53506	Curve All Edges	Curve All Edges		S	L	sketcher_curve_9	MCCAD.DLL	sketcher_curve_9
+BTN	Button	53507	Curve Slice	Curve Slice		S	L	sketcher_curve_5	MCCAD.DLL	sketcher_curve_5
+SUB	Button	53508	Curve Slice	Curve Slice		S		sketcher_curve_5	MCCAD.DLL	sketcher_curve_5
+SUB	Button	53509	Curve at Intersection	Curve at Intersection		S		sketcher_curve_8	MCCAD.DLL	sketcher_curve_8
+SUB	Button	53510	Curve Flowline	Curve Flowline		S		sketcher_curve_3	MCCAD.DLL	sketcher_curve_3
+SUB	Button	53511	Curve Constant Parameter	Curve Constant Parameter		S		sketcher_curve_2	MCCAD.DLL	sketcher_curve_2
+SUB	Button	53512	Curve Parting Line	Curve Parting Line		S		sketcher_curve_7	MCCAD.DLL	sketcher_curve_7
+SUB	Button	53513	Curve Surface	Curve Surface		S		sketcher_curve_6	MCCAD.DLL	sketcher_curve_6
+SUB	Button	53514	Curve Dynamic	Curve Dynamic		S		sketcher_curve_4	MCCAD.DLL	sketcher_curve_4
+GROUP	Modify
+BTN	Button	53515	Trim Break Extend	Trim Break Extend		S	L	sketcher_trim_1	MCCADUTIL.DLL	sketcher_trim_1
+SUB	Button	53516	Trim Break Extend	Trim Break Extend		S		sketcher_trim_1	MCCADUTIL.DLL	sketcher_trim_1
+SUB	Button	53517	Break Two Pieces	Break Two Pieces		S		Break2Pieces	MCCADUTIL.DLL	Break2Pieces
+SUB	Button	53518	Join Entities	Join Entities		S		join_selected_entities	MCCADUTIL.DLL	join_selected_entities
+SUB	Button	53519	Break at Intersection	Break at Intersection		S		break_at_inters	MCCADUTIL.DLL	break_at_inters
+SUB	Button	53520	Break Many	Break Many		S		sketcher_trim_3	MCCADUTIL.DLL	sketcher_trim_3
+SUB	Button	53521	Trim Many	Trim Many		S		sketcher_trim_2	MCCADUTIL.DLL	sketcher_trim_2
+SUB	Button	53522	Break at Points	Break at Points		S		BreakAtPoints	MCCADUTIL.DLL	BreakAtPoints
+BTN	Button	53523	Fillet Entities	Fillet Entities		S	L	sketcher_fillet_1	MCCAD.DLL	sketcher_fillet_1
+SUB	Button	53524	Fillet Entities	Fillet Entities		S		sketcher_fillet_1	MCCAD.DLL	sketcher_fillet_1
+SUB	Button	53525	Fillet Chains	Fillet Chains		S		sketcher_fillet_2	MCCAD.DLL	sketcher_fillet_2
+BTN	Button	53526	Chamfer Entities	Chamfer Entities		S	L	sketcher_chamfer_1	MCCAD.DLL	sketcher_chamfer_1
+SUB	Button	53527	Chamfer Entities	Chamfer Entities		S		sketcher_chamfer_1	MCCAD.DLL	sketcher_chamfer_1
+SUB	Button	53528	Chamfer Chains	Chamfer Chains		S		sketcher_chamfer_2	MCCAD.DLL	sketcher_chamfer_2
+BTN	Button	53529	Offset	Offset		S	L	do_xform_offset	MCCADUTIL.DLL	do_xform_offset
+SUB	Button	53530	Entity	Entity		S		do_xform_offset	MCCADUTIL.DLL	do_xform_offset
+SUB	Button	53531	Chains	Chains		S		do_xform_offset_ctour	MCCADUTIL.DLL	do_xform_offset_ctour
+BTN	Button	53532	Project	Project		S	L	do_xform_project	MCCADUTIL.DLL	do_xform_project
+BTN	Button	53533	Close Arc	Close Arc		S		close_arc	MCCADUTIL.DLL	close_arc
+SUB	Button	53534	Close Arc	Close Arc		S		close_arc	MCCADUTIL.DLL	close_arc
+SUB	Button	53535	Break Circles	Break Circles		S		break_circles	MCCADUTIL.DLL	break_circles
+BTN	Button	53536	Combine Views	Combine Views		S		OnScreenCombineViews	EXE	OnScreenCombineViews
+BTN	Button	53537	Refit Spline	Refit Spline		S		RefitSpline	MCCADUTIL.DLL	RefitSpline
+SUB	Button	53538	Refit Spline	Refit Spline		S		RefitSpline	MCCADUTIL.DLL	RefitSpline
+SUB	Button	53539	Untrim Spline	Untrim Spline		S		UntrimSpline	MCCADUTIL.DLL	UntrimSpline
+SUB	Button	53540	Simplify Spline	Simplify Spline		S		simplify	MCCAD.DLL	simplify
+SUB	Button	53541	Modify Spline	Modify Spline		S		cpts_nurbs	MCCADUTIL.DLL	cpts_nurbs
+TAB	Surfaces		U
+GROUP	Simple
+BTN	Button	53542	Cylinder	Cylinder		S	L	create_cylinder_surface	MCCAD.DLL	create_cylinder_surface
+BTN	Button	53543	Block	Block		S	L	create_block_surface	MCCAD.DLL	create_block_surface
+BTN	Button	53544	Sphere	Sphere		S		create_sphere_surface	MCCAD.DLL	create_sphere_surface
+BTN	Button	53545	Cone	Cone		S		create_cone_surface	MCCAD.DLL	create_cone_surface
+BTN	Button	53546	Torus	Torus		S		create_torus_surface	MCCAD.DLL	create_torus_surface
+GROUP	Create
+BTN	Button	53547	From Solid	From Solid		S	L	sld_convert_to_surfs	MCCAD.DLL	sld_convert_to_surfs
+BTN	Button	53548	Flat Boundary	Flat Boundary		S	L	FlatBoundarySurfaces	MCCAD.DLL	FlatBoundarySurfaces
+BTN	Button	53549	Loft	Loft		S	L	RuledLoftedSurfaces	MCCAD.DLL	RuledLoftedSurfaces
+BTN	Button	53550	Extrude	Extrude		S		ExtrudeSurface	MCCAD.DLL	ExtrudeSurface
+BTN	Button	53551	Sweep	Sweep		S		SweptSurfaces	MCCAD.DLL	SweptSurfaces
+BTN	Button	53552	Revolve	Revolve		S		RevolvedSurfaces	MCCAD.DLL	RevolvedSurfaces
+BTN	Button	53553	Draft	Draft		S		DraftSurface	MCCAD.DLL	DraftSurface
+BTN	Button	53554	Net	Net		S		NetSurfCreation	MCCAD.DLL	NetSurfCreation
+SUB	Button	53555	Net	Net		S		NetSurfCreation	MCCAD.DLL	NetSurfCreation
+SUB	Button	53556	Fence	Fence		S		FenceSurfCreation	MCCAD.DLL	FenceSurfCreation
+BTN	Button	53557	Offset	Offset		S		OffsetSurfaces	MCCAD.DLL	OffsetSurfaces
+GROUP	Modify
+BTN	Button	53558	Trim to Curves	Trim to Curves		S	L	trim_surface_2	MCCAD.DLL	trim_surface_2
+SUB	Button	53559	Trim to Curves	Trim to Curves		S		trim_surface_2	MCCAD.DLL	trim_surface_2
+SUB	Button	53560	Trim to Surfaces	Trim to Surfaces		S		trim_surface_1	MCCAD.DLL	trim_surface_1
+SUB	Button	53561	Trim to Plane	Trim to Plane		S		trim_surface_3	MCCAD.DLL	trim_surface_3
+BTN	Button	53562	Fill Holes	Fill Holes		S	L	FillHoles	MCCAD.DLL	FillHoles
+BTN	Button	53563	Extend	Extend		S	L	SurfaceExtend	MCCAD.DLL	SurfaceExtend
+SUB	Button	53564	Extend	Extend		S		SurfaceExtend	MCCAD.DLL	SurfaceExtend
+SUB	Button	53565	Extend Trimmed Edges	Extend Trimmed Edges		S		ExtendTrimmedEdge	MCCAD.DLL	ExtendTrimmedEdge
+BTN	Button	53566	Fillet to Surfaces	Fillet to Surfaces		S	L	fillet_surface_1	MCCAD.DLL	fillet_surface_1
+SUB	Button	53567	Fillet to Surfaces	Fillet to Surfaces		S		fillet_surface_1	MCCAD.DLL	fillet_surface_1
+SUB	Button	53568	Fillet to Plane	Fillet to Plane		S		fillet_surface_3	MCCAD.DLL	fillet_surface_3
+SUB	Button	53569	Fillet to Curves	Fillet to Curves		S		fillet_surface_2	MCCAD.DLL	fillet_surface_2
+BTN	Button	53570	Two Surface Blend	Two Surface Blend		S		blend_2_surfs	MCCAD.DLL	blend_2_surfs
+BTN	Button	53571	Three Surface Blend	Three Surface Blend		S		blend_3_surfs	MCCAD.DLL	blend_3_surfs
+BTN	Button	53572	Three Fillet Blend	Three Fillet Blend		S		blend_3_fils	MCCAD.DLL	blend_3_fils
+BTN	Button	53573	Untrim	Untrim		S		UnTrimSurfaces	MCCAD.DLL	UnTrimSurfaces
+BTN	Button	53574	Remove Boundary	Remove Boundary		S		RemoveBoundary	MCCAD.DLL	RemoveBoundary
+BTN	Button	53575	Split	Split		S		SplitSurface	MCCAD.DLL	SplitSurface
+GROUP	Normals
+BTN	Button	53576	Change	Change		S		change_normals	MCCADUTIL.DLL	change_normals
+BTN	Button	53577	Set	Set		S		set_normals	MCCADUTIL.DLL	set_normals
+BTN	Button	53578	Orient	Orient		S		orient_normals	MCCADUTIL.DLL	orient_normals
+TAB	Solids		S
+GROUP	Simple
+BTN	Button	53579	Cylinder	Cylinder		S	L	create_cylinder_solid	MCCAD.DLL	create_cylinder_solid
+BTN	Button	53580	Block	Block		S	L	create_block_solid	MCCAD.DLL	create_block_solid
+BTN	Button	53581	Sphere	Sphere		S		create_sphere_solid	MCCAD.DLL	create_sphere_solid
+BTN	Button	53582	Cone	Cone		S		create_cone_solid	MCCAD.DLL	create_cone_solid
+BTN	Button	53583	Torus	Torus		S		create_torus_solid	MCCAD.DLL	create_torus_solid
+GROUP	Create
+BTN	Button	53584	Extrude	Extrude		S	L	sld_newExtrude	MCGEOMSLD.DLL	sld_newExtrude
+BTN	Button	53585	Revolve	Revolve		S		sld_newRevolve	MCGEOMSLD.DLL	sld_newRevolve
+BTN	Button	53586	Loft	Loft		S		sld_newLoft	MCGEOMSLD.DLL	sld_newLoft
+BTN	Button	53587	Sweep	Sweep		S		sld_newSweepV8	MCGEOMSLD.DLL	sld_newSweepV8
+BTN	Button	53588	Boolean	Boolean		S	L	sld_do_boolean	MCGEOMSLD.DLL	sld_do_boolean
+BTN	Button	53589	Impression	Impression		S	L	SldImpression	MCGEOMSLD.DLL	SldImpression
+BTN	Button	53590	Rectangular Pattern	Rectangular Pattern		S		sld_pattern_rect	MCGEOMSLD.DLL	sld_pattern_rect
+BTN	Button	53591	Circular Pattern	Circular Pattern		S		sld_pattern_circ	MCGEOMSLD.DLL	sld_pattern_circ
+BTN	Button	53592	Manual Pattern	Manual Pattern		S		sld_pattern_manual	MCGEOMSLD.DLL	sld_pattern_manual
+BTN	Button	53593	From Surfaces	From Surfaces		S	L	sld_do_stitching	MCGEOMSLD.DLL	sld_do_stitching
+GROUP	Modify
+BTN	Button	53594	Constant Fillet	Constant Fillet		S	L	sld_do_fillet	MCGEOMSLD.DLL	sld_do_fillet
+SUB	Button	53595	Constant Fillet	Constant Fillet		S		sld_do_fillet	MCGEOMSLD.DLL	sld_do_fillet
+SUB	Button	53596	Face to Face Fillet	Face to Face Fillet		S		sld_do_face_face_fillet	MCGEOMSLD.DLL	sld_do_face_face_fillet
+SUB	Button	53597	Variable Fillet	Variable Fillet		S		sld_do_variable_fillet	MCGEOMSLD.DLL	sld_do_variable_fillet
+BTN	Button	53598	One Distance Chamfer	One Distance Chamfer		S	L	sldChamferOneDist	MCGEOMSLD.DLL	sldChamferOneDist
+SUB	Button	53599	One Distance Chamfer	One Distance Chamfer		S		sldChamferOneDist	MCGEOMSLD.DLL	sldChamferOneDist
+SUB	Button	53600	Two Distance Chamfer	Two Distance Chamfer		S		sldChamferTwoDist	MCGEOMSLD.DLL	sldChamferTwoDist
+SUB	Button	53601	Distance and Angle Chamfer	Distance and Angle Chamfer		S		sldChamferDistAngle	MCGEOMSLD.DLL	sldChamferDistAngle
+BTN	Button	53602	Shell	Shell		S		sld_do_shell	MCGEOMSLD.DLL	sld_do_shell
+BTN	Button	53603	Thicken	Thicken		S		sld_do_thicken	MCGEOMSLD.DLL	sld_do_thicken
+BTN	Button	53604	Draft	Faces		S		sld_newDraftFace_0	MCGEOMSLD.DLL	sld_newDraftFace_0
+SUB	Button	53605	Draft Faces	Faces		S		sld_newDraftFace_0	MCGEOMSLD.DLL	sld_newDraftFace_0
+SUB	Button	53606	Draft Edge	Edge		S		sld_newDraftFace_2	MCGEOMSLD.DLL	sld_newDraftFace_2
+SUB	Button	53607	Draft Extrude	Extrude		S		sld_newDraftFace_3	MCGEOMSLD.DLL	sld_newDraftFace_3
+SUB	Button	53608	Draft Plane	Plane		S		sld_newDraftFace_1	MCGEOMSLD.DLL	sld_newDraftFace_1
+BTN	Button	53609	Trim by Plane	Trim by Plane		S	L	sld_newTrimByPlane	MCGEOMSLD.DLL	sld_newTrimByPlane
+SUB	Button	53610	Trim by Plane	Trim by Plane		S		sld_newTrimByPlane	MCGEOMSLD.DLL	sld_newTrimByPlane
+SUB	Button	53611	Trim to Surface/Sheet	Trim to Surface/Sheet		S		sld_newTrimToSurfSheet	MCGEOMSLD.DLL	sld_newTrimToSurfSheet
+GROUP	Drawing
+BTN	Button	53612	Layout	Layout		S	L	do_solid_layout	MCGEOMSLD.DLL	do_solid_layout
+TAB	Model Prep		P
+GROUP	Create
+BTN	Button	53613	Hole Axis	Hole Axis		S	L	sld_do_hole_axis	MCGEOMSLD.DLL	sld_do_hole_axis
+GROUP	Direct Editing
+BTN	Button	53614	Push/Pull	Push/Pull		S	L	sldPushPullOffset	MCGEOMSLD.DLL	sldPushPullOffset
+BTN	Button	53615	Move	Move		S	L	sldPushPullMove	MCGEOMSLD.DLL	sldPushPullMove
+BTN	Button	53616	Split Solid Faces	Split Solid Faces		S	L	sldSplitFace	MCGEOMSLD.DLL	sldSplitFace
+GROUP	Modify
+BTN	Button	53617	Modify Feature	Modify Feature		S	L	sld_modify_feature	MCGEOMSLD.DLL	sld_modify_feature
+BTN	Button	53618	Modify Fillet	Modify Fillet		S	L	sld_modify_blend	MCGEOMSLD.DLL	sld_modify_blend
+BTN	Button	53619	Remove Faces	Remove Faces		S	L	sld_do_face_removal	MCGEOMSLD.DLL	sld_do_face_removal
+BTN	Button	53620	Remove Fillets	Remove Fillets		S	L	sld_remove_blend	MCGEOMSLD.DLL	sld_remove_blend
+BTN	Button	53621	Remove History	Remove History		S		sld_remove_history_task	MCGEOMSLD.DLL	sld_remove_history_task
+BTN	Button	53622	Simplify Solid	Simplify Solid		S		sld_simplify	MCGEOMSLD.DLL	sld_simplify
+SUB	Button	53623	Simplify Solid	Simplify Solid		S		sld_simplify	MCGEOMSLD.DLL	sld_simplify
+SUB	Button	53624	Optimize	Optimize		S		SldOptimize	MCGEOMSLD.DLL	SldOptimize
+SUB	Button	53625	Repair Small Faces	Repair Small Faces		S		SldRepairSmallFaces	MCGEOMSLD.DLL	SldRepairSmallFaces
+BTN	Button	53626	Find Features	Find Features		S		sld_do_feature_detect	MCGEOMSLD.DLL	sld_do_feature_detect
+GROUP	Layout
+BTN	Button	53627	Disassemble	Disassemble		S	L	sld_do_solid_disassemble	MCGEOMSLD.DLL	sld_do_solid_disassemble
+BTN	Button	53628	Position	Position		S	L	sld_do_solid_position	MCGEOMSLD.DLL	sld_do_solid_position
+GROUP	Color
+BTN	Button	53629	Clear All	Clear All		S	L	sld_clearAllColor	MCGEOMSLD.DLL	sld_clearAllColor
+BTN	Button	53630	Change Face	Change Face		S		sld_changeFaceColor	MCGEOMSLD.DLL	sld_changeFaceColor
+BTN	Button	53631	Clear Feature	Clear Feature		S		sld_clearOpColor	MCGEOMSLD.DLL	sld_clearOpColor
+BTN	Button	53632	Set Feature	Set Feature		S		sld_setOpColor	MCGEOMSLD.DLL	sld_setOpColor
+TAB	Drafting		D
+GROUP	Dimension
+BTN	Button	53634	Smart Dimension	Smart Dimension		S	L	doDraft_SMART	MCCAD.DLL	doDraft_SMART
+BTN	Button	53635	Horizontal	Horizontal		S		doDraft_DIMENSION_HORIZONTAL	MCCAD.DLL	doDraft_DIMENSION_HORIZONTAL
+SUB	Button	53636	Horizontal	Horizontal		S		doDraft_DIMENSION_HORIZONTAL	MCCAD.DLL	doDraft_DIMENSION_HORIZONTAL
+SUB	Button	53637	Vertical	Vertical		S		doDraft_DIMENSION_VERTICAL	MCCAD.DLL	doDraft_DIMENSION_VERTICAL
+BTN	Button	53638	Circular	Circular		S		doDraft_DIMENSION_CIRCULAR	MCCAD.DLL	doDraft_DIMENSION_CIRCULAR
+BTN	Button	53639	Point	Point		S		doDraft_DIMENSION_POINT	MCCAD.DLL	doDraft_DIMENSION_POINT
+BTN	Button	53640	Angular	Angular		S		doDraft_DIMENSION_ANGULAR	MCCAD.DLL	doDraft_DIMENSION_ANGULAR
+BTN	Button	53641	Parallel	Parallel		S		doDraft_DIMENSION_PARALLEL	MCCAD.DLL	doDraft_DIMENSION_PARALLEL
+BTN	Button	53642	Perpendicular	Perpendicular		S		doDraft_DIMENSION_PERPENDICULAR	MCCAD.DLL	doDraft_DIMENSION_PERPENDICULAR
+BTN	Button	53643	Baseline	Baseline		S		doDraft_DIMENSION_BASELINE	MCCAD.DLL	doDraft_DIMENSION_BASELINE
+BTN	Button	53644	Chained	Chained		S		doDraft_DIMENSION_CHAINED	MCCAD.DLL	doDraft_DIMENSION_CHAINED
+BTN	Button	53645	Tangent	Tangent		S		doDraft_DIMENSION_TANGENT	MCCAD.DLL	doDraft_DIMENSION_TANGENT
+GROUP	Ordinate
+BTN	Button	53646	Horizontal	Horizontal		S		doDraft_DIMENSION_ORD_HORIZ	MCCAD.DLL	doDraft_DIMENSION_ORD_HORIZ
+BTN	Button	53647	Vertical	Vertical		S		doDraft_DIMENSION_ORD_VERT	MCCAD.DLL	doDraft_DIMENSION_ORD_VERT
+BTN	Button	53648	Add To Existing	Add To Existing		S		doDraft_DIMENSION_ORD_EXIST	MCCAD.DLL	doDraft_DIMENSION_ORD_EXIST
+BTN	Button	53649	Window	Window		S		doDraft_DIMENSION_ORD_WINDOW	MCCAD.DLL	doDraft_DIMENSION_ORD_WINDOW
+BTN	Button	53650	Align	Align		S		doDraft_DIMENSION_ORD_ALIGN	MCCAD.DLL	doDraft_DIMENSION_ORD_ALIGN
+BTN	Button	53651	Parallel	Parallel		S		doDraft_DIMENSION_ORD_PARA	MCCAD.DLL	doDraft_DIMENSION_ORD_PARA
+GROUP	Annotate
+BTN	Button	53652	Note	Note		S	L	doDraft_NOTE	MCCAD.DLL	doDraft_NOTE
+BTN	Button	53653	Cross Hatch	Cross Hatch		S		doDraft_HATCH	MCCAD.DLL	doDraft_HATCH
+BTN	Button	53654	Leader	Leader		S		doDraft_LEADER	MCCAD.DLL	doDraft_LEADER
+BTN	Button	53655	Witness Line	Witness Line		S		doDraft_WITNESS	MCCAD.DLL	doDraft_WITNESS
+GROUP	Regenerate
+BTN	Button	53656	Automatic	Automatic		S	L	doDraft_REGENERATE_AUTOMATIC	MCCAD.DLL	doDraft_REGENERATE_AUTOMATIC
+BTN	Button	53657	Validate	Validate		S		doDraft_REGENERATE_VALIDATE	MCCAD.DLL	doDraft_REGENERATE_VALIDATE
+BTN	Button	53658	Select	Select		S		doDraft_REGENERATE_SELECTION	MCCAD.DLL	doDraft_REGENERATE_SELECTION
+BTN	Button	53659	All	All		S		doDraft_REGENERATE_ALL	MCCAD.DLL	doDraft_REGENERATE_ALL
+GROUP	Modify
+BTN	Button	53660	Multi-Edit	Multi-Edit		S	L	doDraft_MULTI_EDIT	MCCAD.DLL	doDraft_MULTI_EDIT
+BTN	Button	53661	Break Into Lines	Break Into Lines		S	L	break_draft_XH_CD	MCCADUTIL.DLL	break_draft_XH_CD
+TAB	Transform		T
+GROUP	Position
+BTN	Button	53662	Dynamic	Dynamic		S	L	DynamicXform	MCCADUTIL.DLL	DynamicXform
+BTN	Button	53663	Translate	Translate		S	L	do_xform_trans	MCCADUTIL.DLL	do_xform_trans
+SUB	Button	53664	Translate	Translate		S		do_xform_trans	MCCADUTIL.DLL	do_xform_trans
+SUB	Button	53665	Translate to Plane	Translate to Plane		S		do_xform_trans3d	MCCADUTIL.DLL	do_xform_trans3d
+BTN	Button	53666	Rotate	Rotate		S	L	do_xform_rotate	MCCADUTIL.DLL	do_xform_rotate
+BTN	Button	53667	Project	Project		S	L	do_xform_project	MCCADUTIL.DLL	do_xform_project
+BTN	Button	53668	Move to Origin	Move to Origin		S	L	do_xform_movetoorigin	MCCADUTIL.DLL	do_xform_movetoorigin
+BTN	Button	53669	Mirror	Mirror		S	L	do_xform_mirror	MCCADUTIL.DLL	do_xform_mirror
+BTN	Button	53670	Roll	Roll		S	L	do_xform_roll	MCCADUTIL.DLL	do_xform_roll
+GROUP	Offset
+BTN	Button	53671	Entity	Entity		S	L	do_xform_offset	MCCADUTIL.DLL	do_xform_offset
+BTN	Button	53672	Chains	Chains		S	L	do_xform_offset_ctour	MCCADUTIL.DLL	do_xform_offset_ctour
+GROUP	Layout
+BTN	Button	53673	Geometry Nesting	Geometry Nesting		S		do_nest_g	MCCORE.DLL	do_nest_g
+BTN	Button	53674	Rectangular Array	Rectangular Array		S		do_xform_array	MCCADUTIL.DLL	do_xform_array
+BTN	Button	53675	Distribute	Distribute		S		TransformDistribute	MCCADUTIL.DLL	TransformDistribute
+GROUP	Size
+BTN	Button	53676	Stretch	Stretch		S	L	do_xform_stretch	MCCADUTIL.DLL	do_xform_stretch
+BTN	Button	53677	Scale	Scale		S	L	do_xform_scale	MCCADUTIL.DLL	do_xform_scale
+TAB	Art		A
+GROUP	Base
+BTN	Button	53678	From Image	From Image		S	L	OnImportBmp		
+BTN	Button	53679	From File	From File		S	L	OnImport		
+BTN	Button	53680	Rectangular	Rectangular		S		OnNewArtBaseSurf		
+BTN	Button	53681	Unwrap Cylinder	Unwrap Cylinder		S		OnNewUnwrappedArtBaseSurf		
+GROUP	Wireframe
+BTN	Button	53682	Raster to Vector	Raster to Vector		S	L	OnTraceImage		
+BTN	Button	53683	Trace Z Depth	Trace Z Depth		S		OnTraceAtZPlane		
+BTN	Button	53684	Design Library	Design Library		S		OnBrowseClassicDesignLibrary		
+GROUP	Surfaces
+GAL	Art Surfaces Gallery		4	64	32
+GITEM	Organic		
+GITEM	Swept		
+GITEM	Border and Plane		
+GITEM	Sculpt Organic		
+GITEM	Swept Arch/Ramp		
+GITEM	Swept Two Ends		
+GITEM	Rope		
+GITEM	Pattern on Contour		
+GITEM	Celtic Weave		
+GITEM	Elliptical		
+GITEM	Inclined		
+GITEM	Sand		
+GITEM	Brick		
+GITEM	Weave		
+GITEM	Handcrafted		
+GITEM	Custom		
+GITEM	Import		
+GROUP	Modify
+BTN	Button	53703	Smooth	Smooth		S	L	OnSmooth		
+SUB	Button	53704	Smooth	Smooth		S		OnSmooth		
+SUB	Button	53705	Scale	Scale		S		OnScale		
+SUB	Button	53706	Wrap	Wrap		S		OnWrap		
+SUB	Button	53707	Flatten	Flatten		S		OnFlatten		
+SUB	Button	53708	Slant	Slant		S		OnSlant		
+SUB	Button	53709	Filter	Filter		S		OnFilters		
+SUB	Button	53710	Decrease Resolution	Decrease Resolution		S		OnDecreaseResolution		
+GROUP	Position
+BTN	Button	53711	Translate	Translate		S	L	OnTranslate		
+SUB	Button	53712	Translate	Translate		S		OnTranslate		
+SUB	Button	53713	Shift Z	Shift Z		S		OnTopToZPlane		
+BTN	Button	53714	Mirror/Rotate	Mirror/Rotate		S	L	OnMirrorRotate		
+GROUP	Utility
+BTN	Button	53715	Export Base	Export Base		S		OnExport		
+BTN	Button	53716	Convert Surfaces	Convert Surfaces		S		OnExportAsMcamSurfaces		
+BTN	Button	53717	Save to Library	Save to Library		S		OnSaveASL		
+GROUP	Toolpath
+BTN	Button	53718	Surface	Surface		S	L	OnToolpath		
+GROUP	Licensing
+BTN	Button	53719	Start Art	Start Art		S	L	OnStartArt		
+BTN	Button	53720	Exit Art	Exit Art		S	L	OnExitArt		
+TAB	Machine		M
+GROUP	Machine Type
+BTN	Button	53721	Mill	Mill		S	L			
+BTN	Button	53722	Lathe	Lathe		S	L			
+BTN	Button	53723	Mill-Turn	Mill-Turn		S	L			
+BTN	Button	53724	Wire	Wire		S	L			
+BTN	Button	53725	Router	Router		S	L			
+BTN	Button	53726	Design	Design		S	L	MTDesign	EXE	MTDesign
+GROUP	Job Setup
+BTN	Button	53727	Control Definition	Control Definition		S	L	RunControlDefinitionManager	MCCORE.DLL	RunControlDefinitionManager
+BTN	Button	53728	Machine Definition	Machine Definition		S	L	RunMachineDefinitionManager	MCCORE.DLL	RunMachineDefinitionManager
+BTN	Button	53729	Material	Material		S	L	RunMaterialManager	MCCORE.DLL	RunMaterialManager
+GROUP	Simulator
+BTN	Button	53731	Backplot	Backplot		S	L	OMbackplotSelectedOperations	EXE	OMbackplotSelectedOperations
+BTN	Button	53732	Verify	Verify		S	L	OMverifySelectedOperations	EXE	OMverifySelectedOperations
+GROUP	Post
+BTN	Button	53733	Generate	Generate		S	L	OMpostSelectedOperations	EXE	OMpostSelectedOperations
+GROUP	Setup Sheet
+BTN	Button	53734	Create	Create		S	L	setup_sheet	MCCORE.DLL	setup_sheet
+BTN	Button	53735	Image Capture	Image Capture		S		imageRIBBON	MCCORE.DLL	imageRIBBON
+BTN	Button	53736	Clear Image List	Clear Image List		S		imageCLEAR	MCCORE.DLL	imageCLEAR
+GROUP	Machine Simulation
+BTN	Button	53738	Run	Run		S	L	m_main_fast	chooks\machsim.dll", "simulator	m_main_fast
+BTN	Button	53739	Backplot	Backplot		S		m_main_backplot	chooks\machsim.dll", "simulator	m_main_backplot
+BTN	Button	53740	Verify	Verify		S		m_main_verify	chooks\machsim.dll", "simulator	m_main_verify
+GROUP	Automatic Toolpathing
+BTN	Button	53741	ATP	ATP		S	L	Run	CHOOKS\ATP\XATP.dll	Run
+BTN	Button	53742	ATP Current File	ATP Current File		S		RunSingleFile	CHOOKS\ATP\XATP.dll	RunSingleFile
+BTN	Button	53743	ATP Reports	ATP Reports		S		RunReport	CHOOKS\ATP\XATP.dll	RunReport
+BTN	Button	53744	ATP Options	ATP Options		S		RunOptions	CHOOKS\ATP\XATP.dll	RunOptions
+TAB	View		V
+GROUP	Zoom
+BTN	Button	53745	Fit	Fit		S	L	OnScreenFit	EXE	OnScreenFit
+BTN	Button	53746	Window	Window		S	L	OnScreenZoom	EXE	OnScreenZoom
+SUB	Button	53747	Window	Window		S		OnScreenZoom	EXE	OnScreenZoom
+SUB	Button	53748	Selected	Selected		S		OnScreenZoomSelected	EXE	OnScreenZoomSelected
+BTN	Button	53749	Unzoom 50%	Unzoom Previous/50%		S		OnScreenUnzoomPrevious	EXE	OnScreenUnzoomPrevious
+BTN	Button	53750	Unzoom 80%	Unzoom 80%		S		OnScreenUnzoom	EXE	OnScreenUnzoom
+GROUP	Graphics View
+BTN	Button	53751	Top	Top		S	L	OnViewTop	EXE	OnViewTop
+BTN	Button	53752	Isometric	Isometric		S		OnViewIsometric	EXE	OnViewIsometric
+BTN	Button	53753	Right	Right		S		OnViewRight	EXE	OnViewRight
+BTN	Button	53754	Front	Front		S		OnViewFront	EXE	OnViewFront
+SUB	Button	53755	Front	Front		S		OnViewFront	EXE	OnViewFront
+SUB	Button	53756	Left	Left		S		OnViewLeft	EXE	OnViewLeft
+SUB	Button	53757	Back	Back		S		OnViewBack	EXE	OnViewBack
+SUB	Button	53758	Bottom	Bottom		S		OnViewBottom	EXE	OnViewBottom
+BTN	Button	53759	Rotate	Rotate		S		OnViewRotate	EXE	OnViewRotate
+BTN	Button	53760	= Cplane	= Cplane		S		OnViewEqualsCPlane	EXE	OnViewEqualsCPlane
+SUB	Button	53761	= Cplane	= Cplane		S		OnViewEqualsCPlane	EXE	OnViewEqualsCPlane
+SUB	Button	53762	= Tplane	= Tplane		S		OnViewEqualsTPlane	EXE	OnViewEqualsTPlane
+BTN	Button	53763	Save	Save		S		OnGViewSave	EXE	OnGViewSave
+GROUP	Appearance
+BTN	Button	53765	Wireframe	Wireframe		S	L	OnShadeWire	EXE	OnShadeWire
+SUB	Button	53766	Wireframe	Wireframe		S		OnShadeWire	EXE	OnShadeWire
+SUB	Button	53767	Dimmed	Dimmed		S		OnShadeWireDimmed	EXE	OnShadeWireDimmed
+SUB	Button	53768	No Hidden	No Hidden		S		OnShadeWireHidden	EXE	OnShadeWireHidden
+BTN	Button	53769	Outline Shaded	Outline Shaded		S	L	OnShadeShadedOutline	EXE	OnShadeShadedOutline
+SUB	Button	53770	Outline Shaded	Outline Shaded		S		OnShadeShadedOutline	EXE	OnShadeShadedOutline
+SUB	Button	53771	Shaded	Shaded		S		OnShadeShaded	EXE	OnShadeShaded
+BTN	Button	53772	Metallic	Metallic		S		OnToggleRenderingMetallic	EXE	OnToggleRenderingMetallic
+BTN	Button	53773	Plastic	Plastic		S		OnToggleRenderingPlastic	EXE	OnToggleRenderingPlastic
+BTN	Button	53774	Glossy	Glossy		S		OnToggleRenderingGlossy	EXE	OnToggleRenderingGlossy
+BTN	Button	53775	Translucency	Translucency		S		OnShadeTranslucentToggle	EXE	OnShadeTranslucentToggle
+BTN	Button	53776	Backside	Backside		S		onToggleSurfaceBacksideShading	EXE	onToggleSurfaceBacksideShading
+BTN	Button	53777	Stock Shading	Stock Shading		S	L	StockShade	MCLATHE.DLL	StockShade
+BTN	Button	53778	Stock Display	Stock Display		S	L	StockShow	MCLATHE.DLL	StockShow
+GROUP	Managers
+BTN	Button	53779	Toolpaths	Toolpaths		S		ViewOpManager	EXE	ViewOpManager
+BTN	Button	53780	Solids	Solids		S		ViewSolidsManager	EXE	ViewSolidsManager
+BTN	Button	53781	Planes	Planes		S		ViewPlanesManager	EXE	ViewPlanesManager
+BTN	Button	53782	Levels	Levels		S		OnScreenLevels	EXE	OnScreenLevels
+BTN	Button	53783	Multi-Threading	Multi-Threading		S		ToggleMultiThreadDialog	MCCore.DLL	ToggleMultiThreadDialog
+BTN	Button	53784	Art	Art		S		ViewArtManager	EXE	ViewArtManager
+BTN	Button	53785	Groups	Groups		S		run_group_dialog	EXE	run_group_dialog
+BTN	Button	53786	Recent Functions	Recent Functions		S		ViewRecentFunctionsManager	EXE	ViewRecentFunctionsManager
+GROUP	Display
+BTN	Button	53787	Show Axes	Show Axes		S	L	OnDisplayInfo	EXE	OnDisplayInfo
+SUB	Button	53788	World					OnDrawWorldAxesLinesToggle	EXE	OnDrawWorldAxesLinesToggle
+SUB	Button	53789	WCS					OnDrawWCSPlaneAxesLinesToggle	EXE	OnDrawWCSPlaneAxesLinesToggle
+SUB	Button	53790	Cplane					OnDrawCPlaneAxesLinesToggle	EXE	OnDrawCPlaneAxesLinesToggle
+SUB	Button	53791	Tplane					OnDrawTPlaneAxesLinesToggle	EXE	OnDrawTPlaneAxesLinesToggle
+BTN	Button	53792	Show Gnomons	Show Gnomons		S	L	OnWCSAxesToggle	EXE	OnWCSAxesToggle
+SUB	Button	53793	WCS					OnDrawWCSPlaneAxesGnomonToggle	EXE	OnDrawWCSPlaneAxesGnomonToggle
+SUB	Button	53794	Cplane					OnDrawCPlaneAxesGnomonToggle	EXE	OnDrawCPlaneAxesGnomonToggle
+SUB	Button	53795	Tplane					OnDrawTPlaneAxesGnomonToggle	EXE	OnDrawTPlaneAxesGnomonToggle
+GROUP	Grid
+BTN	Button	53797	Show Grid	Show Grid		S	L	OnToggleShowGrid	EXE	OnToggleShowGrid
+BTN	Button	53798	Snap to Grid	Snap to Grid		S	L	OnToggleSnapToGrid	EXE	OnToggleSnapToGrid
+GROUP	Controller
+BTN	Button	53799	Rotation Position	Rotation Position		S	L	SbSelectRotationPosition	EXE	SbSelectRotationPosition
+GROUP	Viewsheets
+BTN	Button	53800	On/Off	On/Off		S	L	ToggleWorksheetsEnabled	EXE	ToggleWorksheetsEnabled
+BTN	Button	53801	New	New		S	L	NewWorksheet	EXE	NewWorksheet
+SUB	Button	53802	New	New		S		NewWorksheet	EXE	NewWorksheet
+SUB	Button	53803	Copy	Copy		S		CopyCurrentWorksheet	EXE	CopyCurrentWorksheet
+SUB	Button	53804	Rename	Rename		S		RenameCurrentWorksheet	EXE	RenameCurrentWorksheet
+SUB	Button	53805	Delete	Delete		S		DeleteCurrentWorksheet	EXE	DeleteCurrentWorksheet
+BTN	Button	53806	Save Bookmark	Save Bookmark		S		SaveCurrentWorksheetBookmark	EXE	SaveCurrentWorksheetBookmark
+BTN	Button	53807	Restore Bookmark	Restore Bookmark		S		RestoreCurrentWorksheetBookmark	EXE	RestoreCurrentWorksheetBookmark
+TAB	Turning	Lathe	JT
+GROUP	General
+GAL	General Lathe Turning Toolpaths Gallery		4	64	32
+GITEM	Rough		
+GITEM	Finish		
+GITEM	Drill		
+GITEM	Face		
+GITEM	Cutoff		
+GITEM	Groove		
+GITEM	Dynamic Rough		
+GITEM	Thread		
+GITEM	Plunge Turn		
+GITEM	Contour Rough		
+GITEM	Manual Entry		
+GITEM	Point		
+GITEM	Rough		
+GITEM	Finish		
+GITEM	Groove		
+GITEM	Pattern Repeat		
+GROUP	C-axis
+GAL	C-axis Lathe Turning Toolpaths Gallery		4	64	32
+GITEM	Face Contour		
+GITEM	C-axis Contour		
+GITEM	Cross Contour		
+GITEM	Face Drill		
+GITEM	C-axis Drill		
+GITEM	Cross Drill		
+GROUP	Part Handling
+GAL	Part Handling Lathe Turning Toolpaths Gallery		4	64	32
+GITEM	Stock Flip		
+GITEM	Pickoff/Pull/Cutoff		
+GITEM	Stock Transfer		
+GITEM	Chuck		
+GITEM	Tailstock		
+GITEM	Stock Advance		
+GITEM	Steady Rest		
+GROUP	Utilities
+BTN	Button	53841	Lathe Tool Manager	Lathe Tool Manager		S	L	RunLatheToolManager	MCCORE.DLL	RunLatheToolManager
+BTN	Button	53842	Stock Model	Stock Model		S	L	stock_model_dialog	MCMILL.DLL	stock_model_dialog
+SUB	Button	53843	Stock Model	Stock Model		S		stock_model_dialog	MCMILL.DLL	stock_model_dialog
+SUB	Button	53844	Export as STL	Export as STL		S		stock_model_export_dialog	MCMILL.DLL	stock_model_export_dialog
+SUB	Button	53845	Convert to PMesh	Convert to PMesh		S		stock_model_convert_pmesh_dialog	MCMILL.DLL	stock_model_convert_pmesh_dialog
+SUB	Button	53846	Viewer	Viewer		S		stock_model_compare_dialog	MCMILL.DLL	stock_model_compare_dialog
+BTN	Button	53847	Toolpath Transform	Toolpath Transform		S	L	xform_toolpath_dialog	MCMILL.DLL	xform_toolpath_dialog
+BTN	Button	53848	CView	CView		S	L	MakeCView	MCLATHE.DLL	MakeCView
+BTN	Button	53849	Align Solid Body	Align Solid Body		S	L	RunAlignSolidBody	MCLATHE.DLL	RunAlignSolidBody
+TAB	Milling	Lathe	JM
+GROUP	2D
+GAL	2D Lathe Milling Toolpaths Gallery		4	64	32
+GITEM	Contour		
+GITEM	Drill		
+GITEM	Dynamic Mill		
+GITEM	Face		
+GITEM	Dynamic Contour		
+GITEM	Pocket		
+GITEM	Peel Mill		
+GITEM	Area Mill		
+GITEM	Blend Mill		
+GITEM	Slot Mill		
+GITEM	Engrave		
+GITEM	Swept 2D		
+GITEM	Swept 3D		
+GITEM	Revolved		
+GITEM	Lofted		
+GITEM	Ruled		
+GITEM	Drill		
+GITEM	Circle Mill		
+GITEM	Helix Bore		
+GITEM	Thread Mill		
+GITEM	Auto Drill		
+GITEM	Start Hole		
+GITEM	Manual Entry		
+GITEM	Point		
+GROUP	3D
+GAL	3D Lathe Milling Toolpaths Gallery		4	64	32
+GITEM	OptiRough		
+GITEM	Pocket		
+GITEM	Project		
+GITEM	Parallel		
+GITEM	Plunge		
+GITEM	Multisurface Pocket		
+GITEM	Area Roughing		
+GITEM	Waterline		
+GITEM	Raster		
+GITEM	Hybrid		
+GITEM	Pencil		
+GITEM	Blend		
+GITEM	Contour		
+GITEM	Horizontal Area		
+GITEM	Scallop		
+GITEM	Project		
+GITEM	Flowline		
+GITEM	Spiral		
+GITEM	Radial		
+GROUP	Multiaxis
+GAL	Multiaxis Lathe Milling Toolpaths Gallery		4	64	32
+GITEM	Curve		
+GITEM	Swarf Milling		
+GITEM	Parallel		
+GITEM	Drill		
+GITEM	Cuts Along Curve		
+GITEM	Morph		
+GITEM	Flow		
+GITEM	Multisurface		
+GITEM	Port		
+GITEM	Triangular Mesh		
+GITEM	Swarf		
+GITEM	Rotary		
+GITEM	Project Curve		
+GITEM	Roughing		
+GITEM	Circle Mill		
+GITEM	Port Expert		
+GITEM	Blade Expert		
+GITEM	Rotary Advanced		
+GROUP	Utilities
+BTN	Button	53914	Mill Tool Manager	Mill Tool Manager		S	L	RunMillToolManager	MCCORE.DLL	RunMillToolManager
+BTN	Button	53915	Stock Model	Stock Model		S	L	stock_model_dialog	MCMILL.DLL	stock_model_dialog
+SUB	Button	53916	Stock Model	Stock Model		S		stock_model_dialog	MCMILL.DLL	stock_model_dialog
+SUB	Button	53917	Export as STL	Export as STL		S		stock_model_export_dialog	MCMILL.DLL	stock_model_export_dialog
+SUB	Button	53918	Convert to PMesh	Convert to PMesh		S		stock_model_convert_pmesh_dialog	MCMILL.DLL	stock_model_convert_pmesh_dialog
+SUB	Button	53919	Viewer	Viewer		S		stock_model_compare_dialog	MCMILL.DLL	stock_model_compare_dialog
+BTN	Button	53920	Multiaxis Linking	Multiaxis Linking		S	L	safelink_toolpath_dialog	MCMILL.DLL	safelink_toolpath_dialog
+BTN	Button	53921	Toolpath Transform	Toolpath Transform		S	L	xform_toolpath_dialog	MCMILL.DLL	xform_toolpath_dialog
+BTN	Button	53922	Convert to 5-axis	Convert to 5-axis		S		ConvertTo5axToolpathEntry	MCUI5AX.DLL	ConvertTo5axToolpathEntry
+BTN	Button	53923	Trim	Trim		S		trim_toolpath_dialog	MCMILL.DLL	trim_toolpath_dialog
+TAB	Toolpaths	Mill	JM
+GROUP	2D
+GAL	2D Mill Toolpaths Gallery		4	64	32
+GITEM	Contour		
+GITEM	Drill		
+GITEM	Dynamic Mill		
+GITEM	Face		
+GITEM	Dynamic Contour		
+GITEM	Pocket		
+GITEM	Peel Mill		
+GITEM	Area Mill		
+GITEM	Blend Mill		
+GITEM	Slot Mill		
+GITEM	Engrave		
+GITEM	FBM Mill		
+GITEM	Swept 2D		
+GITEM	Swept 3D		
+GITEM	Revolved		
+GITEM	Lofted		
+GITEM	Ruled		
+GITEM	Drill		
+GITEM	Circle Mill		
+GITEM	Helix Bore		
+GITEM	Thread Mill		
+GITEM	FBM Drill		
+GITEM	Auto Drill		
+GITEM	Start Hole		
+GITEM	Manual Entry		
+GITEM	Point		
+GROUP	3D
+GAL	3D Mill Toolpaths Gallery		4	64	32
+GITEM	OptiRough		
+GITEM	Pocket		
+GITEM	Project		
+GITEM	Parallel		
+GITEM	Plunge		
+GITEM	Multisurface Pocket		
+GITEM	Area Roughing		
+GITEM	Waterline		
+GITEM	Raster		
+GITEM	Hybrid		
+GITEM	Pencil		
+GITEM	Blend		
+GITEM	Contour		
+GITEM	Horizontal Area		
+GITEM	Scallop		
+GITEM	Project		
+GITEM	Flowline		
+GITEM	Spiral		
+GITEM	Radial		
+GROUP	Multiaxis
+GAL	Multiaxis Mill Toolpaths Gallery		4	64	32
+GITEM	Curve		
+GITEM	Swarf Milling		
+GITEM	Parallel		
+GITEM	Drill		
+GITEM	Along Curve		
+GITEM	Morph		
+GITEM	Flow		
+GITEM	Multisurface		
+GITEM	Port		
+GITEM	Triangular Mesh		
+GITEM	Swarf		
+GITEM	Rotary		
+GITEM	Project Curve		
+GITEM	Roughing		
+GITEM	Circle Mill		
+GITEM	Port Expert		
+GITEM	Blade Expert		
+GITEM	Rotary Advanced		
+GROUP	Utilities
+BTN	Button	53991	Tool Manager	Tool Manager		S	L	RunMillToolManager	MCCORE.DLL	RunMillToolManager
+BTN	Button	53992	Stock Model	Stock Model		S	L	stock_model_dialog	MCMILL.DLL	stock_model_dialog
+SUB	Button	53993	Stock Model	Stock Model		S		stock_model_dialog	MCMILL.DLL	stock_model_dialog
+SUB	Button	53994	Export as STL	Export as STL		S		stock_model_export_dialog	MCMILL.DLL	stock_model_export_dialog
+SUB	Button	53995	Convert to PMesh	Convert to PMesh		S		stock_model_convert_pmesh_dialog	MCMILL.DLL	stock_model_convert_pmesh_dialog
+SUB	Button	53996	Viewer	Viewer		S		stock_model_compare_dialog	MCMILL.DLL	stock_model_compare_dialog
+BTN	Button	53997	Probe	Probe		S	L	probe_interface	MCPROBE.DLL	probe_interface
+BTN	Button	53998	Multiaxis Linking	Multiaxis Linking		S	L	safelink_toolpath_dialog	MCMILL.DLL	safelink_toolpath_dialog
+BTN	Button	53999	Toolpath Transform	Toolpath Transform		S	L	xform_toolpath_dialog	MCMILL.DLL	xform_toolpath_dialog
+BTN	Button	54000	Convert to 5-axis	Convert to 5-axis		S		ConvertTo5axToolpathEntry	MCUI5AX.DLL	ConvertTo5axToolpathEntry
+BTN	Button	54001	Trim	Trim		S		trim_toolpath_dialog	MCMILL.DLL	trim_toolpath_dialog
+BTN	Button	54002	Nesting	Nesting		S		do_nest_t	MCCORE.DLL	do_nest_t
+TAB	Turning	Mill-Turn	JT
+GROUP	General
+GAL	General Mill-Turn Turning Toolpaths Gallery		6	64	32
+GITEM	Rough		
+GITEM	Finish		
+GITEM	Drill		
+GITEM	Pinch Turn		
+GITEM	Face		
+GITEM	Cutoff		
+GITEM	Groove		
+GITEM	Dynamic Rough		
+GITEM	Thread		
+GITEM	Plunge Turn		
+GITEM	Contour Rough		
+GITEM	Point		
+GITEM	Manual Entry		
+GITEM	Rough		
+GITEM	Finish		
+GITEM	Groove		
+GITEM	Pattern Repeat		
+GROUP	Part Handling
+GAL	Part Handling Mill-Turn Turning Toolpaths Gallery		4	64	32
+GITEM	Pickoff/Cutoff		
+GITEM	Pickoff		
+GITEM	Stock Pull		
+GITEM	Bar Feed		
+GITEM	Turret Park		
+GITEM	Tailstock		
+GITEM	Spindle Clamp		
+GITEM	Spindle Move		
+GITEM	Spindle Sync		
+GROUP	Utilities
+BTN	Button	54032	Lathe Tool Manager	Lathe Tool Manager		S	L	RunLatheToolManager	MCCORE.DLL	RunLatheToolManager
+BTN	Button	54033	Stock Model	Stock Model		S	L	stock_model_dialog	MCMILL.DLL	stock_model_dialog
+SUB	Button	54034	Stock Model	Stock Model		S		stock_model_dialog	MCMILL.DLL	stock_model_dialog
+SUB	Button	54035	Export as STL	Export as STL		S		stock_model_export_dialog	MCMILL.DLL	stock_model_export_dialog
+SUB	Button	54036	Convert to PMesh	Convert to PMesh		S		stock_model_convert_pmesh_dialog	MCMILL.DLL	stock_model_convert_pmesh_dialog
+SUB	Button	54037	Viewer	Viewer		S		stock_model_compare_dialog	MCMILL.DLL	stock_model_compare_dialog
+BTN	Button	54038	Align Solid Body	Align Solid Body		S	L	RunAlignSolidBody	MCLATHE.DLL	RunAlignSolidBody
+TAB	Milling	Mill-Turn	JM
+GROUP	2D
+GAL	2D Mill-Turn Milling Toolpaths Gallery		4	64	32
+GITEM	Contour		
+GITEM	Drill		
+GITEM	Dynamic Mill		
+GITEM	Face		
+GITEM	Dynamic Contour		
+GITEM	Pocket		
+GITEM	Peel Mill		
+GITEM	Area Mill		
+GITEM	Blend Mill		
+GITEM	Drill		
+GITEM	Circle Mill		
+GITEM	Helix Bore		
+GITEM	Thread Mill		
+GITEM	Manual Entry		
+GITEM	Point		
+GROUP	3D
+GAL	3D Mill-Turn Milling Toolpaths Gallery		4	64	32
+GITEM	OptiRough		
+GITEM	Area Roughing		
+GITEM	Waterline		
+GITEM	Raster		
+GITEM	Hybrid		
+GITEM	Pencil		
+GITEM	Contour		
+GITEM	Horizontal Area		
+GITEM	Scallop		
+GITEM	Project		
+GITEM	Spiral		
+GITEM	Radial		
+GROUP	Multiaxis
+GAL	Multiaxis Mill-Turn Milling Toolpaths Gallery		4	64	32
+GITEM	Curve		
+GITEM	Swarf Milling		
+GITEM	Parallel		
+GITEM	Drill		
+GITEM	Along Curve		
+GITEM	Morph		
+GITEM	Flow		
+GITEM	Multisurface		
+GITEM	Port		
+GITEM	Triangular Mesh		
+GITEM	Swarf		
+GITEM	Rotary		
+GITEM	Project Curve		
+GITEM	Roughing		
+GITEM	Circle Mill		
+GITEM	Port Expert		
+GITEM	Blade Expert		
+GITEM	Rotary Advanced		
+GROUP	Utilities
+BTN	Button	54087	Mill Tool Manager	Mill Tool Manager		S	L	RunMillToolManager	MCCORE.DLL	RunMillToolManager
+BTN	Button	54088	Stock Model	Stock Model		S	L	stock_model_dialog	MCMILL.DLL	stock_model_dialog
+SUB	Button	54089	Stock Model	Stock Model		S		stock_model_dialog	MCMILL.DLL	stock_model_dialog
+SUB	Button	54090	Export as STL	Export as STL		S		stock_model_export_dialog	MCMILL.DLL	stock_model_export_dialog
+SUB	Button	54091	Convert to PMesh	Convert to PMesh		S		stock_model_convert_pmesh_dialog	MCMILL.DLL	stock_model_convert_pmesh_dialog
+SUB	Button	54092	Viewer	Viewer		S		stock_model_compare_dialog	MCMILL.DLL	stock_model_compare_dialog
+BTN	Button	54093	Toolpath Transform	Toolpath Transform		S	L	xform_toolpath_dialog	MCMILL.DLL	xform_toolpath_dialog
+BTN	Button	54094	Create Toolplanes	Create Toolplanes		S	L	CreateMtTooplanes	MCCORE.DLL	CreateMtTooplanes
+BTN	Button	54095	Convert to 5-axis	Convert to 5-axis		S	L	ConvertTo5axToolpathEntry	MCUI5AX.DLL	ConvertTo5axToolpathEntry
+TAB	Wirepaths	Wire	JW
+GROUP	Wirepaths
+GAL	Wirepaths Gallery		5	64	32
+GITEM	Contour		
+GITEM	4 Axis		
+GITEM	No Core		
+GITEM	Point		
+GITEM	Canned		
+GITEM	Collar		
+GITEM	Manual Entry		
+GROUP	Utilities
+BTN	Button	54105	Toolpath Transform	Toolpath Transform		S	L	xform_toolpath_dialog	MCMILL.DLL	xform_toolpath_dialog
+BTN	Button	54106	Trim	Trim		S		trim_toolpath_dialog	MCMILL.DLL	trim_toolpath_dialog
+BTN	Button	54107	Nesting	Nesting		S		do_nest_t	MCCORE.DLL	do_nest_t
+TAB	Toolpaths	Router	JR
+GROUP	2D
+GAL	2D Router Toolpaths Gallery		4	64	32
+GITEM	Contour		
+GITEM	Drill		
+GITEM	Dynamic Mill		
+GITEM	Face		
+GITEM	Dynamic Contour		
+GITEM	Pocket		
+GITEM	Peel Mill		
+GITEM	Area Mill		
+GITEM	Blend Mill		
+GITEM	Slot Mill		
+GITEM	Engrave		
+GITEM	FBM Mill		
+GITEM	Swept 2D		
+GITEM	Swept 3D		
+GITEM	Revolved		
+GITEM	Lofted		
+GITEM	Ruled		
+GITEM	Saw		
+GITEM	Block Drilling		
+GITEM	Drill		
+GITEM	Circle Mill		
+GITEM	Helix Bore		
+GITEM	Thread Mill		
+GITEM	FBM Drill		
+GITEM	Auto Drill		
+GITEM	Start Hole		
+GITEM	Manual Entry		
+GITEM	Point		
+GROUP	3D
+GAL	3D Router Toolpaths Gallery		4	64	32
+GITEM	OptiRough		
+GITEM	Pocket		
+GITEM	Project		
+GITEM	Parallel		
+GITEM	Plunge		
+GITEM	Multisurface Pocket		
+GITEM	Area Roughing		
+GITEM	Waterline		
+GITEM	Raster		
+GITEM	Hybrid		
+GITEM	Pencil		
+GITEM	Blend		
+GITEM	Contour		
+GITEM	Horizontal Area		
+GITEM	Scallop		
+GITEM	Project		
+GITEM	Flowline		
+GITEM	Spiral		
+GITEM	Radial		
+GROUP	Multiaxis
+GAL	Multiaxis Router Toolpaths Gallery		4	64	32
+GITEM	Curve		
+GITEM	Swarf Milling		
+GITEM	Parallel		
+GITEM	Drill		
+GITEM	Along Curve		
+GITEM	Morph		
+GITEM	Flow		
+GITEM	Multisurface		
+GITEM	Port		
+GITEM	Triangular Mesh		
+GITEM	Swarf		
+GITEM	Rotary		
+GITEM	Project Curve		
+GITEM	Roughing		
+GITEM	Circle Mill		
+GITEM	Port Expert		
+GITEM	Blade Expert		
+GITEM	Rotary Advanced		
+GROUP	Utilities
+BTN	Button	54177	Tool Manager	Tool Manager		S	L	RunMillToolManager	MCCORE.DLL	RunMillToolManager
+BTN	Button	54178	Stock Model	Stock Model		S	L	stock_model_dialog	MCMILL.DLL	stock_model_dialog
+SUB	Button	54179	Stock Model	Stock Model		S		stock_model_dialog	MCMILL.DLL	stock_model_dialog
+SUB	Button	54180	Export as STL	Export as STL		S		stock_model_export_dialog	MCMILL.DLL	stock_model_export_dialog
+SUB	Button	54181	Convert to PMesh	Convert to PMesh		S		stock_model_convert_pmesh_dialog	MCMILL.DLL	stock_model_convert_pmesh_dialog
+SUB	Button	54182	Viewer	Viewer		S		stock_model_compare_dialog	MCMILL.DLL	stock_model_compare_dialog
+BTN	Button	54183	Probe	Probe		S	L	probe_interface	MCPROBE.DLL	probe_interface
+BTN	Button	54184	Multiaxis Linking	Multiaxis Linking		S	L	safelink_toolpath_dialog	MCMILL.DLL	safelink_toolpath_dialog
+BTN	Button	54185	Toolpath Transform	Toolpath Transform		S	L	xform_toolpath_dialog	MCMILL.DLL	xform_toolpath_dialog
+BTN	Button	54186	Convert to 5-axis	Convert to 5-axis		S		ConvertTo5axToolpathEntry	MCUI5AX.DLL	ConvertTo5axToolpathEntry
+BTN	Button	54187	Trim	Trim		S		trim_toolpath_dialog	MCMILL.DLL	trim_toolpath_dialog
+BTN	Button	54188	Nesting	Nesting		S		do_nest_t	MCCORE.DLL	do_nest_t
+TBAR	800	33333	Select all operations	
+TBAR	800	33334	Select all dirty operations	
+TBAR	800	33335	Regenerate all selected operations	
+TBAR	800	33336	Regenerate all dirty operations	
+TBAR	800	33337	Backplot selected operations	
+TBAR	800	33338	Verify selected operations	
+TBAR	800	33521	Backplot/Verify Options	
+TBAR	800	33339	Post selected operations	
+TBAR	800	33340	Highfeed	
+TBAR	800	33350	Delete all operations, groups and tools	
+TBAR	800	33351	Help	
+TBAR	804	33341	Toggle locking on selected operations	
+TBAR	804	33342	Toggle display on selected operations	
+TBAR	804	33343	Toggle posting on selected operations	
+TBAR	804	33344	Move insert arrow down one item	
+TBAR	804	33345	Move insert arrow up one item	
+TBAR	804	33346	Position insert arrow after selected operation or after selected group	
+TBAR	804	33347	Scroll window so insert arrow is visible	
+TBAR	804	33348	Only display selected toolpaths	
+TBAR	804	33349	Only display associative geometry	
+TBAR	804	33547	Hide rapid retract moves	
+TBAR	804	33549	Set up tools on the machine	
+TBAR	804	33550	Edit reference positions	
+MENU	135	0	&File
+MENU	135	1	&New Ctrl+N
+MENU	135	1	&Open... Ctrl+O
+MENU	135	1	&Save Ctrl+S
+MENU	135	1	Save &As...
+MENU	135	1	Sa&ve Some...
+MENU	135	1	-
+MENU	135	1	Open in Editor... Ctrl+T
+MENU	135	1	-
+MENU	135	1	Propert&ies...
+MENU	135	1	-
+MENU	135	1	&Print... Ctrl+P
+MENU	135	1	Print Previe&w
+MENU	135	1	P&rint Setup...
+MENU	135	1	-
+MENU	135	1	I&mport folder...
+MENU	135	1	&Export folder...
+MENU	135	1	-
+MENU	135	1	Recent File
+MENU	135	1	-
+MENU	135	1	Update folder...
+MENU	135	1	E&xit
+MENU	135	0	&Edit
+MENU	135	1	&Undo Ctrl+Z
+MENU	135	1	-
+MENU	135	1	Cu&t Ctrl+X
+MENU	135	1	&Copy Ctrl+C
+MENU	135	1	&Paste Ctrl+V
+MENU	135	1	-
+MENU	135	1	Copy Screen
+MENU	135	1	-
+MENU	135	1	Delete
+MENU	135	0	&View
+MENU	135	1	&Status Bar
+MENU	135	1	&User app Bar
+MENU	135	1	T&oolpaths manager
+MENU	135	1	Soli&ds manager
+MENU	135	1	&Planes manager
+MENU	135	0	&Screen
+MENU	135	1	&Zoom
+MENU	135	1	&Unzoom
+MENU	135	1	&Pan
+MENU	135	1	Fit scree&n
+MENU	135	1	&Repaint
+MENU	135	1	&Top
+MENU	135	1	&Front
+MENU	135	1	Right &side
+MENU	135	1	Iso&metric
+MENU	135	1	&Autocursor
+MENU	135	1	Aut&ohighlight
+MENU	135	1	-
+MENU	135	1	&Grid
+MENU	135	1	&Viewports
+MENU	135	2	Viewport &1
+MENU	135	2	Viewport &2
+MENU	135	2	Viewport &3
+MENU	135	2	Viewport &4
+MENU	135	1	-
+MENU	135	1	&Combine Views
+MENU	135	0	&Tools
+MENU	135	1	&FT Customize...
+MENU	135	1	&Toolbar States...
+MENU	135	1	&Preferences...
+MENU	135	1	-
+MENU	135	1	Run Add-In...
+MENU	135	1	VBScript
+MENU	135	2	Run VBScript
+MENU	135	2	VBScript Editor
+MENU	135	0	&Window
+MENU	135	1	&New Window
+MENU	135	1	&Cascade
+MENU	135	1	&Tile
+MENU	135	1	&Arrange Icons
+MENU	135	1	S&plit
+MENU	135	0	&Help
+MENU	135	1	&Contents
+MENU	135	1	&Search...
+MENU	135	1	-
+MENU	135	1	Ti&p of the day...
+MENU	135	1	&Tech support...
+MENU	135	1	&Update...
+MENU	135	1	-
+MENU	135	1	&About apprenticeCAM...

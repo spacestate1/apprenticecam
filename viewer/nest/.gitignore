@@ -1,0 +1,7 @@
+*.o
+nest_rect_test
+nest_ts_test
+# Ghidra export used by ts/gen/regen.sh (regenerated with --export; ~7 MB)
+ts/gen/export/
+ts/gen/export.log
+nest_ts_job_test

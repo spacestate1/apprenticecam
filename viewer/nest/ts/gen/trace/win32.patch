@@ -1,0 +1,18 @@
+--- <repo>/tools/peloader/win32.c	2026-11-05 07:38:39.081239014 -0500
++++ win32.c	2026-11-05 09:28:06.669076151 -0500
+@@ -552,6 +552,7 @@
+ {
+     char p[4096]; host_path(name, p, sizeof p);
+     if (g_trace) fprintf(stderr, "peloader: DeleteFile(%s)\n", p);
++    if (getenv("KEEPTMP")) { static int kn; char q[4200]; snprintf(q, sizeof q, "kept_%03d_%s", kn++, strrchr(p, '/') ? strrchr(p, '/') + 1 : p); if (rename(p, q)) { set_err_errno(); return 0; } return 1; }
+     if (unlink(p)) { set_err_errno(); return 0; }
+     return 1;
+ }
+@@ -565,6 +566,7 @@
+ WINAPI static BOOL k_RemoveDirectoryA(const char *name)
+ {
+     char p[4096]; host_path(name, p, sizeof p);
++    if (getenv("KEEPTMP")) return 1;
+     if (rmdir(p)) { set_err_errno(); return 0; }
+     return 1;
+ }

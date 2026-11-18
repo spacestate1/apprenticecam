@@ -1,0 +1,60 @@
+# addr ret params... (d double, f float, i int, u ulonglong, p void*, s char*, v void) [+ = varargs] [! = noreturn]
+180224ab0 i s s
+180224d54 i i
+180227900 i i
+180224d90 u s
+180224e70 s s i
+180226b39 s s i
+180224f14 i p
+1802251e0 s s s u
+1802253c0 s s s
+180225460 s s s
+1802259c0 i s s +
+180225b04 i p s +
+180225024 i s s +
+1802268b0 i p s +
+18022505c s s i p
+180225ad8 s i s i
+180225c3c p u
+180225ce0 d d
+180225de4 d d
+180225ef8 d d
+180227594 d d
+180229260 d d d
+180502000 d d
+180502490 d d
+180502920 d d d
+18022ae88 d d d
+18022b93c d d
+180226700 i p
+1802269c0 p s s
+180226ae0 i s s
+180226b60 i s s u
+180227744 s s
+180227ba4 s s s
+180228fbc u p u u p
+18022904c i
+180229208 i s s u
+1802293e4 i s s p
+180229bfc u p u u p
+180229ce0 v p u u p
+18022a1c8 p u
+18022a280 v p
+18022a2c0 i i
+18022abf4 i p
+18022ae0c i p i i
+18022bc7c i s
+18022bf4c d s
+18022c018 i p
+180227464 v p p !
+18022bd90 p p i u
+180227070 p p p u
+180227048 i s i
+180228dfc i s
+18022bc50 i
+18022bc38 v i
+180227434 i s
+18022755c i s
+180226728 v p u i p p
+1802266a0 v p u i p
+18022ac4c f f

@@ -1,0 +1,23 @@
+# functions containing cvttsd2si with a 64-bit destination (objdump of n64dll.dll): only there can
+# "(longlong)d" be a numeric conversion; elsewhere gen.py treats it as a bit copy.  "<func> <count> bits <var>.." lists
+# casts checked in the asm to be raw copies; any other (longlong)d in these functions is a conversion when the
+# reference decompile has it or it is narrowed at once ((short)(longlong)d), else gen.py stops
+180009980 1
+180037840 2
+18007cd10 2
+18007e810 4
+180089f40 2
+1800d6a60 2
+1800df600 1
+1800dfb50 5
+1800e3b10 1
+1800e4b50 1
+1800e5150 1
+1800ec190 6
+1800eeb00 17
+1800f05c0 2
+1800f1a20 11
+180146520 3
+18018fdd0 2
+180190630 2
+180191080 2

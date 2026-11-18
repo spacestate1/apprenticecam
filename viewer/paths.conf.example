@@ -1,0 +1,19 @@
+# apprenticeCAM site folders (viewer/paths.h). Put this file in the config folder:
+#   Linux    ~/.config/mcamui/paths.conf        (or $XDG_CONFIG_HOME/mcamui)
+#   Windows  %APPDATA%\apprenticeCAM\paths.conf
+# MCAMUI_<KEY> environment variables override. Lists: separate with ';' (Linux also ':').
+
+# --- Linux example (a Windows partition with Mastercam's data mounted at <windows>) ---
+shared = <windows>/Users/Public/Documents/shared Mcam2017   # also %MCAMDIR% (e.g. the machine's post, mill/Posts/*.pst)
+user   = <windows>/Users/<you>/Documents/my mcam2017
+schema = <windows>/Program Files/mcamX9/common/PSLDDATA
+cad    = /home/<you>/cad;/mnt/server/cad
+posts  = /home/<you>/nc-programs
+drive_c = <windows>            # "C:\..." paths inside Mastercam's own files open from here
+
+# --- Windows example ---
+# shared = C:\Users\Public\Documents\shared Mcam2017
+# user   = C:\Users\<you>\Documents\my mcam2017
+# schema = C:\Program Files\mcam2017\common\PSLDDATA
+# cad    = D:\cad;\\server\share\cad
+# posts  = D:\nc-programs

@@ -1,0 +1,51 @@
+# NCI code reader -> sscanf format @ slot table: MP variables in field order (tools/mp_nci_fields.py decomp/mcpost_rdnci.c formats/mp/nci_slot_binds.tsv)
+rd1003 | "%lf %lf %lf" @0x18029ca20: threadx$ thready$ threadz$ || "%lf %lf %lf" @0x18029c9f0: xh$ yh$ zh$
+rd1010w | "%lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf" @0x18029ca50: overburn$ ccode$ offset$ tldia$ reg1$ reg2$ reg3$ reg4$ reg5$ reg6$ reg7$ reg8$ reg9$ reg10$
+rd1011 | "%lf %lf %lf %lf %lf %lf %lf %lf %lf %lf" @0x18029cb40: mr1$ mr2$ mr3$ mr4$ mr5$ mr6$ mr7$ mr8$ mr9$ mr10$
+rd1012 | "%lf %lf %lf %lf %lf %lf %lf %lf %lf %lf" @0x1802e7ca0: mi1$ mi2$ mi3$ mi4$ mi5$ mi6$ mi7$ mi8$ mi9$ mi10$
+rd1013 | "%lf %lf %lf %lf %lf %lf %lf %lf %lf" @0x18029ccf0: cc$ tldia$ tcr$ overburn$ wire$ power$ wox$ woy$ opcode$ || "%lf %lf %lf %lf %lf %lf %lf %lf %lf" @0x18029cc70: cc$ tcr$ tldia$ tlplnno$ tox$ toy$ toz$ opcode$ cc$ || "%lf %lf %lf %lf %lf %lf %lf %lf %lf" @0x18029cbe0: cc$ tldia$ tcr$ cctotip$ tlplnno$ tox$ toy$ toz$ opcode$
+rd1014 | "%lf %lf %lf %lf %lf %lf %lf %lf %lf" @0x1802e7d60: m1$ m2$ m3$ m4$ m5$ m6$ m7$ m8$ m9$
+rd1015 | "%lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf" @0x18029cd80: subtyp$ subno$ td_ct_flg$ tabcut$ wtrim$ skimpass$ cutx$ cuty$ trimplane1$ trimplane2$ reg1$ reg2$ reg3$ reg4$ reg5$ reg6$ reg7$ reg8$ reg9$ reg10$
+rd1016_end | "%lf %lf %lf %lf %lf %lf %lf %lf %lf" @0x1802e80d8: end_op_id$ end_workofs$ ? ? ? ? ? ? ?
+rd1017 | "%lf %lf %lf %lf %lf %lf %lf %lf %lf" @0x1802e7e10: cm1$ cm2$ cm3$ cm4$ cm5$ cm6$ cm7$ cm8$ cm9$
+rd1020 | "%lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf" @0x18029d3f0: stck_ht$ stck_wdth$ stck_thck$ stck_x$ stck_y$ stck_z$ stck_crnr$ tank$ force_tlchg$ t_wcs_m1$ t_wcs_m2$ t_wcs_m3$ || "%lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf" @0x18029d330: stck_ht$ stck_wdth$ stck_thck$ stck_x$ stck_y$ stck_z$ stck_crnr$ rotary_vecx$ rotary_vecy$ rotary_vecz$ force_tlchg$ maxss$ stck_ht$
+#   CORRECTION 2026-10-23 (objdump of rd1020 @18010d190, 18010d26e..18010d2fa; Ghidra drops sscanf_s args): mill branch fields 1-10 -> stck_ht..rotary_vecz$, field 11 -> stack dummy (not stored), 12 -> force_tlchg$, 13 -> maxss$ (= MaxToolSpindleRPM); wire branch 1-7 -> stck_*, 8-10 dummies, 11 -> tank$, 12 -> force_tlchg$. The sequential labels on the line above are wrong.
+rd1027 | "%lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf" @0x18029d480: t_wcs_m1$ t_wcs_m2$ t_wcs_m3$ t_wcs_m4$ t_wcs_m5$ t_wcs_m6$ t_wcs_m7$ t_wcs_m8$ t_wcs_m9$ t_orgin_x$ t_orgin_y$ t_orgin_z$
+rd1028 | "%lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf" @0x18029d540: ra_type$ ra_offset$ ra_vecx$ ra_vecy$ ra_vecz$ ra_svecx$ ra_svecy$ ra_svecz$ ra_block$ ra_station$ ra_head_grp$ ra_tc_type$
+rd1029 | "%lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf" @0x18029d600: ra_hvecx$ ra_hvecy$ ra_hvecz$ ra_bvecx$ ra_bvecy$ ra_bvecz$ ra_tvecx$ ra_tvecy$ ra_tvecz$ ra_translated$ ra_rot_head$
+rd1031 | "%lf %lf %lf %lf %lf %lf %lf %lf %lf %lf" @0x18029d6b0: trans_mr1$ trans_mr2$ trans_mr3$ trans_mr4$ trans_mr5$ trans_mr6$ trans_mr7$ trans_mr8$ trans_mr9$ trans_mr10$
+rd1032 | "%lf %lf %lf %lf %lf %lf %lf %lf %lf %lf" @0x1802e7ef0: trans_mi1$ trans_mi2$ trans_mi3$ trans_mi4$ trans_mi5$ trans_mi6$ trans_mi7$ trans_mi8$ trans_mi9$ trans_mi10$
+rd1050 | "%lf %lf %lf %lf %lf %lf %lf %lf" @0x1802e7fa0: vers_no$ m_vers_no$ mc_day$ mc_mon$ mc_year$ mc_hour$ mc_min$ mc_sec$
+rd11 | "%lf %lf %lf %lf %lf %lf %lf %lf %lf" @0x18029bbb0: cc$ x$ y$ z$ u$ v$ w$ fr$ drillcyc$ || "%lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf" @0x18029bb10: x$ y$ z$ u$ v$ w$ fr$ p_svec$ q_svec$ r_svec$ cc$ x$
+rd11_next | "%lf %lf %lf %lf %lf %lf %lf %lf %lf" @0x18029d8b0: nextx$ nexty$ nextz$ nextu$ nextv$ nextw$ nextx$ nexty$ nextz$
+rd1 | "%lf %lf %lf %lf %lf %lf %lf %lf %lf" @0x18029b7c0: cc$ x$ y$ z$ fr$ wt$ wc$ wc_rad$ wcc$ || "%lf %lf %lf %lf %lf %lf" @0x18029b770: cc$ x$ y$ z$ fr$ cc$
+rd1w | "%lf %lf %lf %lf %lf %lf %lf %lf %lf" @0x18029b840: wcc$ wx$ wy$ wz$ wfr$ wtpr$ wcor$ wcor_rad$ plane$
+rd200 | "%lf %lf %lf %lf %lf %lf %lf %lf" @0x18029c1a0: nspring$ thdfinish$ thdpulloff$ nstarts$ thdxclr$ thdangle$ thdequcut$ thdncuts$
+rd201 | "%lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf" @0x18029c220: thdx1$ thdx2$ thdz1$ thdz2$ thdlead$ thdfirst$ thdlast$ thdzclr$ thda1$ thda2$ thdtype$ thdx3$
+rd2 | "%lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf" @0x18029b950: plane$ cc$ x$ y$ xc$ yc$ z$ fr$ wt$ wc$ wc_rad$ warc_ctyp$ warc_rad$ full_arc_flg$ wplane$ || "%lf %lf %lf %lf %lf %lf %lf %lf %lf %lf" @0x18029b8c0: plane$ cc$ x$ y$ xc$ yc$ z$ fr$ full_arc_flg$ plane$
+rd2_next | "%lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf" @0x18029d830: nextplane$ nextx$ nexty$ nextxc$ nextyc$ nextz$ nextwc$ nextfullarcflg$ nextx$ nexty$ nextz$ || "%lf %lf %lf %lf %lf %lf %lf %lf %lf %lf" @0x18029d7c0: nextplane$ nextx$ nexty$ nextxc$ nextyc$ nextz$ nextfullarcflg$ nextplane$ nextx$ nexty$
+rd2w | "%lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf" @0x18029ba30: wplane$ wcc$ wx$ wy$ wxc$ wyc$ wz$ wfr$ wtpr$ wcor$ wcor_rad$ warc_cortyp$ warc_radius$ wfull_arc_flg$ x$
+rd4 | "%lf %lf %lf" @0x1802e7b00: dwell$ ? ? || "%lf %lf %lf" @0x1802e7ac8: dwell$ ss$ spdir$ || "%lf %lf %lf" @0x1802e7aa0: dwell$ ss$ ?
+rd82 | "%lf %lf %lf %lf %lf %lf %lf %lf %lf %lf" @0x18029be20: drl_prm1$ drl_prm2$ drl_prm3$ drl_prm4$ drl_prm5$ drl_prm6$ drl_prm7$ drl_prm8$ drl_prm9$ drl_prm10$
+rd83 | "%lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf" @0x18029bec0: bdrl_x$ bdrl_y$ bdrl_z$ bdrl_ofs_x$ bdrl_ofs_y$ bdrl_ofs_z$ bdrl_tool_grp$ bdrl_wrk_ofs$ bdrl_u$ bdrl_v$ bdrl_w$ bdrl_tool_no$ bdrl_tool_no2$ bdrl_tool_no3$ bdrl_tool_no4$ bdrl_tool_no5$ bdrl_tool_no6$ bdrl_tool_no7$ bdrl_tool_no8$ bdrl_tool_no9$
+rd900 | "%lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf" @0x18029c2e0: stck_spindle$ stck_init_z$ stck_final_z$ stck_chuk_st_z$ stck_chuk_st_x$ stck_chuk_end_z$ stck_chuk_end_x$ stck_chuk_st_dz$ stck_chuk_st_dx$ stck_chuk_end_dz$ stck_chuk_end_dx$
+rd901 | "%lf %lf %lf %lf %lf %lf %lf" @0x18029c390: stck_spindle$ stck_init_z$ stck_final_z$ stck_chuk_st_z$ stck_chuk_st_x$ stck_chuk_end_z$ stck_chuk_end_x$
+rd902 | "%lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf" @0x18029c400: stck_spindle$ stck_op$ stck_clear$ stck_grip$ stck_tool_x$ stck_init_z$ stck_final_z$ stck_appr_fr$ stck_adv_fr$ stck_chuk_st_z$ stck_chuk_st_x$ stck_chuk_end_z$ stck_chuk_end_x$
+rd903 | "%lf %lf %lf %lf %lf %lf" @0x18029c4d0: clmp_spindle$ clmp_op$ stck_chuk_st_z$ stck_chuk_st_x$ stck_chuk_end_z$ stck_chuk_end_x$
+rd904 | "%lf %lf %lf" @0x18029c530: tlstck_on$ stck_init_z$ stck_final_z$
+rd911 | "%lf %lf %lf %lf %lf %lf %lf %lf %lf %lf" @0x18029c5b0: miscops_mr1$ miscops_mr2$ miscops_mr3$ miscops_mr4$ miscops_mr5$ miscops_mr6$ miscops_mr7$ miscops_mr8$ miscops_mr9$ miscops_mr10$
+rd912 | "%lf %lf %lf %lf %lf %lf %lf %lf %lf %lf" @0x1802e7bb0: miscops_mi1$ miscops_mi2$ miscops_mi3$ miscops_mi4$ miscops_mi5$ miscops_mi6$ miscops_mi7$ miscops_mi8$ miscops_mi9$ miscops_mi10$
+rd950 | "%lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf" @0x18029c650: synclath$ syncbfor$ syncmode$ syncaxis$ syncstream$ syncmodebfor$ dum$ progno$ t$ tloffno$ tlngno$ plane$ ss$ fr$ coolant$ xr$ yr$ zr$ xh$ yh$ zh$ rotaxis$ rotdia$ progno$ t$ tloffno$
+rd999 | "%lf %lf %lf" @0x18029c560: synctool_op$ syncstream$ syncop_id$
+# --- writer side (Mastercam's ASCII NCI, mccore formatters; viewer/mp/nci_ascii.c, formats/mp_engine.md "ASCII NCI"):
+# w0/1  : cc x y z fr pos          (fr: 0 -> -2; 1 -> -1 when equal to the previous feed; pos = pos_to_ascii(0, +0x40) contour code)
+# w2/3  : plane cc x y xc yc z fr pos bool   (pos = contour code of +0x58, bool = +0x5a == 1; x y xc yc z plane-local)
+# w81   : drl_sel(+0x18) 16 reals(+0x20..+0x98) pos(+0xa0) short(+0xa4) real(+0xa8)
+# w100  : 0 x y z (+0x20..) 7 reals(+0x38..+0x68) pos(+0x70) short(+0x74) real(+0x78) 9 reals(1014 matrix) real(+0xc8)
+# w1000-1002: 6 longs(+0x18..+0x2c: +0x1c / +0x20 = machine seq start / inc) short(+0x30) long rpm(+0x38) real fr(+0x40)
+#             short(+0x48 mapped 0x10/0x20/0x40 -> 1/2/3) p3d first(+0x50) p3d home(+0x68) short(+0x80) real(+0x88)
+# w1016 : the 19 slots of rd1016 (op_id tool_typ tool_op cplnno corgx..z cc_computer workofs met_tool n_flutes spindle_no
+#         n_tap_thds lstation lturret ltool_id xform_op_id tap_pitch nesting_op_id) = +0x64 +0x1c +0x1e +0x20 +0x28.. +0x40
+#         +0x42 +0x44 +0x46 +0x48 +0x50 +0x58 +0x5c +0x60 +0x18 +0x70 +0x78
+# w1020 : size(3) origin(3) corner rotary_vec(+0x50..+0x60) 0. +0x70(= op +0x289 force tool change, bnci_wr_1020) MaxToolSpindleRPM
+#         " " material  -> rd1020 assigns 12 fields: force_tlchg$ = 0., maxss$ = the force flag; the 13th (rpm) is not assigned   [SUPERSEDED: see the rd1020 CORRECTION line; field 12 -> force_tlchg$, field 13 (rpm) -> maxss$]

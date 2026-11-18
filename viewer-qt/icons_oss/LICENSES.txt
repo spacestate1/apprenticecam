@@ -1,0 +1,209 @@
+sc_*.svg are from SolidCraft (https://github.com/tangency-labs/solidcraft, assets/icons/ui/design/svg), original artwork
+of the SolidCraft contributors (their ATTRIBUTION.md), licensed MIT OR Apache-2.0; used here under the MIT licence below.
+Modified by tools/oss_icons.py: currentColor set to the light-theme line colour #34465b (their design/palette.toml), and
+each "gap" (#ffffff) shape turned into an SVG mask over the artwork before it (their renderer erases it to transparency).
+
+MIT License
+
+Copyright (c) 2026 SolidCraft contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+sc_flat_eye.svg	assets/icons/ui/design/svg/flat/eye.svg	MIT OR Apache-2.0
+sc_flat_fit.svg	assets/icons/ui/design/svg/flat/fit.svg	MIT OR Apache-2.0
+sc_flat_grid.svg	assets/icons/ui/design/svg/flat/grid.svg	MIT OR Apache-2.0
+sc_flat_prefs_plugins.svg	assets/icons/ui/design/svg/flat/prefs_plugins.svg	MIT OR Apache-2.0
+sc_flat_style.svg	assets/icons/ui/design/svg/flat/style.svg	MIT OR Apache-2.0
+sc_flat_style_hidden_edges.svg	assets/icons/ui/design/svg/flat/style_hidden_edges.svg	MIT OR Apache-2.0
+sc_flat_style_shaded.svg	assets/icons/ui/design/svg/flat/style_shaded.svg	MIT OR Apache-2.0
+sc_flat_style_translucent.svg	assets/icons/ui/design/svg/flat/style_translucent.svg	MIT OR Apache-2.0
+sc_flat_style_wireframe.svg	assets/icons/ui/design/svg/flat/style_wireframe.svg	MIT OR Apache-2.0
+sc_model_arc3.svg	assets/icons/ui/design/svg/model/arc3.svg	MIT OR Apache-2.0
+sc_model_arc_center.svg	assets/icons/ui/design/svg/model/arc_center.svg	MIT OR Apache-2.0
+sc_model_arc_tangent.svg	assets/icons/ui/design/svg/model/arc_tangent.svg	MIT OR Apache-2.0
+sc_model_axis_through_cylinder.svg	assets/icons/ui/design/svg/model/axis_through_cylinder.svg	MIT OR Apache-2.0
+sc_model_blend.svg	assets/icons/ui/design/svg/model/blend.svg	MIT OR Apache-2.0
+sc_model_blend_surface.svg	assets/icons/ui/design/svg/model/blend_surface.svg	MIT OR Apache-2.0
+sc_model_boundary.svg	assets/icons/ui/design/svg/model/boundary.svg	MIT OR Apache-2.0
+sc_model_boundary_fill.svg	assets/icons/ui/design/svg/model/boundary_fill.svg	MIT OR Apache-2.0
+sc_model_bounding_solid.svg	assets/icons/ui/design/svg/model/bounding_solid.svg	MIT OR Apache-2.0
+sc_model_box.svg	assets/icons/ui/design/svg/model/box.svg	MIT OR Apache-2.0
+sc_model_break.svg	assets/icons/ui/design/svg/model/break.svg	MIT OR Apache-2.0
+sc_model_center_of_mass.svg	assets/icons/ui/design/svg/model/center_of_mass.svg	MIT OR Apache-2.0
+sc_model_chain.svg	assets/icons/ui/design/svg/model/chain.svg	MIT OR Apache-2.0
+sc_model_chamfer.svg	assets/icons/ui/design/svg/model/chamfer.svg	MIT OR Apache-2.0
+sc_model_circle.svg	assets/icons/ui/design/svg/model/circle.svg	MIT OR Apache-2.0
+sc_model_circle3.svg	assets/icons/ui/design/svg/model/circle3.svg	MIT OR Apache-2.0
+sc_model_coil.svg	assets/icons/ui/design/svg/model/coil.svg	MIT OR Apache-2.0
+sc_model_combine.svg	assets/icons/ui/design/svg/model/combine.svg	MIT OR Apache-2.0
+sc_model_cone.svg	assets/icons/ui/design/svg/model/cone.svg	MIT OR Apache-2.0
+sc_model_construction_line_bisector.svg	assets/icons/ui/design/svg/model/construction_line_bisector.svg	MIT OR Apache-2.0
+sc_model_construction_line_parallel.svg	assets/icons/ui/design/svg/model/construction_line_parallel.svg	MIT OR Apache-2.0
+sc_model_construction_line_perpendicular.svg	assets/icons/ui/design/svg/model/construction_line_perpendicular.svg	MIT OR Apache-2.0
+sc_model_construction_line_tangent_at.svg	assets/icons/ui/design/svg/model/construction_line_tangent_at.svg	MIT OR Apache-2.0
+sc_model_copy.svg	assets/icons/ui/design/svg/model/copy.svg	MIT OR Apache-2.0
+sc_model_curvature_map.svg	assets/icons/ui/design/svg/model/curvature_map.svg	MIT OR Apache-2.0
+sc_model_cut.svg	assets/icons/ui/design/svg/model/cut.svg	MIT OR Apache-2.0
+sc_model_cylinder.svg	assets/icons/ui/design/svg/model/cylinder.svg	MIT OR Apache-2.0
+sc_model_delete.svg	assets/icons/ui/design/svg/model/delete.svg	MIT OR Apache-2.0
+sc_model_delete_face.svg	assets/icons/ui/design/svg/model/delete_face.svg	MIT OR Apache-2.0
+sc_model_dimension.svg	assets/icons/ui/design/svg/model/dimension.svg	MIT OR Apache-2.0
+sc_model_draft.svg	assets/icons/ui/design/svg/model/draft.svg	MIT OR Apache-2.0
+sc_model_draft_analysis.svg	assets/icons/ui/design/svg/model/draft_analysis.svg	MIT OR Apache-2.0
+sc_model_edit.svg	assets/icons/ui/design/svg/model/edit.svg	MIT OR Apache-2.0
+sc_model_ellipse.svg	assets/icons/ui/design/svg/model/ellipse.svg	MIT OR Apache-2.0
+sc_model_explode.svg	assets/icons/ui/design/svg/model/explode.svg	MIT OR Apache-2.0
+sc_model_extend.svg	assets/icons/ui/design/svg/model/extend.svg	MIT OR Apache-2.0
+sc_model_extrude.svg	assets/icons/ui/design/svg/model/extrude.svg	MIT OR Apache-2.0
+sc_model_fillet.svg	assets/icons/ui/design/svg/model/fillet.svg	MIT OR Apache-2.0
+sc_model_intersection_curve.svg	assets/icons/ui/design/svg/model/intersection_curve.svg	MIT OR Apache-2.0
+sc_model_iso_curve.svg	assets/icons/ui/design/svg/model/iso_curve.svg	MIT OR Apache-2.0
+sc_model_line.svg	assets/icons/ui/design/svg/model/line.svg	MIT OR Apache-2.0
+sc_model_list.svg	assets/icons/ui/design/svg/model/list.svg	MIT OR Apache-2.0
+sc_model_loft.svg	assets/icons/ui/design/svg/model/loft.svg	MIT OR Apache-2.0
+sc_model_material.svg	assets/icons/ui/design/svg/model/material.svg	MIT OR Apache-2.0
+sc_model_measure.svg	assets/icons/ui/design/svg/model/measure.svg	MIT OR Apache-2.0
+sc_model_mirror.svg	assets/icons/ui/design/svg/model/mirror.svg	MIT OR Apache-2.0
+sc_model_move.svg	assets/icons/ui/design/svg/model/move.svg	MIT OR Apache-2.0
+sc_model_offset.svg	assets/icons/ui/design/svg/model/offset.svg	MIT OR Apache-2.0
+sc_model_origin.svg	assets/icons/ui/design/svg/model/origin.svg	MIT OR Apache-2.0
+sc_model_paste.svg	assets/icons/ui/design/svg/model/paste.svg	MIT OR Apache-2.0
+sc_model_patch.svg	assets/icons/ui/design/svg/model/patch.svg	MIT OR Apache-2.0
+sc_model_pattern.svg	assets/icons/ui/design/svg/model/pattern.svg	MIT OR Apache-2.0
+sc_model_pattern_circ.svg	assets/icons/ui/design/svg/model/pattern_circ.svg	MIT OR Apache-2.0
+sc_model_pattern_path.svg	assets/icons/ui/design/svg/model/pattern_path.svg	MIT OR Apache-2.0
+sc_model_pattern_rect.svg	assets/icons/ui/design/svg/model/pattern_rect.svg	MIT OR Apache-2.0
+sc_model_plane.svg	assets/icons/ui/design/svg/model/plane.svg	MIT OR Apache-2.0
+sc_model_point.svg	assets/icons/ui/design/svg/model/point.svg	MIT OR Apache-2.0
+sc_model_point_along_path.svg	assets/icons/ui/design/svg/model/point_along_path.svg	MIT OR Apache-2.0
+sc_model_point_center.svg	assets/icons/ui/design/svg/model/point_center.svg	MIT OR Apache-2.0
+sc_model_point_vertex.svg	assets/icons/ui/design/svg/model/point_vertex.svg	MIT OR Apache-2.0
+sc_model_polygon.svg	assets/icons/ui/design/svg/model/polygon.svg	MIT OR Apache-2.0
+sc_model_presspull.svg	assets/icons/ui/design/svg/model/presspull.svg	MIT OR Apache-2.0
+sc_model_project.svg	assets/icons/ui/design/svg/model/project.svg	MIT OR Apache-2.0
+sc_model_rect.svg	assets/icons/ui/design/svg/model/rect.svg	MIT OR Apache-2.0
+sc_model_rect_rounded.svg	assets/icons/ui/design/svg/model/rect_rounded.svg	MIT OR Apache-2.0
+sc_model_restore.svg	assets/icons/ui/design/svg/model/restore.svg	MIT OR Apache-2.0
+sc_model_reverse_normal.svg	assets/icons/ui/design/svg/model/reverse_normal.svg	MIT OR Apache-2.0
+sc_model_revolve.svg	assets/icons/ui/design/svg/model/revolve.svg	MIT OR Apache-2.0
+sc_model_ruled.svg	assets/icons/ui/design/svg/model/ruled.svg	MIT OR Apache-2.0
+sc_model_scale.svg	assets/icons/ui/design/svg/model/scale.svg	MIT OR Apache-2.0
+sc_model_section.svg	assets/icons/ui/design/svg/model/section.svg	MIT OR Apache-2.0
+sc_model_shell.svg	assets/icons/ui/design/svg/model/shell.svg	MIT OR Apache-2.0
+sc_model_silhouette.svg	assets/icons/ui/design/svg/model/silhouette.svg	MIT OR Apache-2.0
+sc_model_sketch_chamfer.svg	assets/icons/ui/design/svg/model/sketch_chamfer.svg	MIT OR Apache-2.0
+sc_model_sketch_fillet.svg	assets/icons/ui/design/svg/model/sketch_fillet.svg	MIT OR Apache-2.0
+sc_model_sphere.svg	assets/icons/ui/design/svg/model/sphere.svg	MIT OR Apache-2.0
+sc_model_spline.svg	assets/icons/ui/design/svg/model/spline.svg	MIT OR Apache-2.0
+sc_model_spline_cv.svg	assets/icons/ui/design/svg/model/spline_cv.svg	MIT OR Apache-2.0
+sc_model_split_body.svg	assets/icons/ui/design/svg/model/split_body.svg	MIT OR Apache-2.0
+sc_model_split_face.svg	assets/icons/ui/design/svg/model/split_face.svg	MIT OR Apache-2.0
+sc_model_stitch.svg	assets/icons/ui/design/svg/model/stitch.svg	MIT OR Apache-2.0
+sc_model_surface.svg	assets/icons/ui/design/svg/model/surface.svg	MIT OR Apache-2.0
+sc_model_sweep.svg	assets/icons/ui/design/svg/model/sweep.svg	MIT OR Apache-2.0
+sc_model_text.svg	assets/icons/ui/design/svg/model/text.svg	MIT OR Apache-2.0
+sc_model_thicken.svg	assets/icons/ui/design/svg/model/thicken.svg	MIT OR Apache-2.0
+sc_model_torus.svg	assets/icons/ui/design/svg/model/torus.svg	MIT OR Apache-2.0
+sc_model_trim.svg	assets/icons/ui/design/svg/model/trim.svg	MIT OR Apache-2.0
+sc_model_untrim.svg	assets/icons/ui/design/svg/model/untrim.svg	MIT OR Apache-2.0
+
+The other icons are from FreeCAD (https://github.com/FreeCAD/FreeCAD), each under the GNU Lesser General Public License
+as stated in its own SVG metadata (version 2 or later for "FreeCAD LGPL2+"). They are shipped unmodified as separate
+assets; the LGPL text: https://www.gnu.org/licenses/lgpl-2.1.html / lgpl-3.0.html. Source path and licence per file:
+
+CAM_3DPocket.svg	src/Mod/CAM/Gui/Resources/icons/CAM_3DPocket.svg	FreeCAD LGPL2+
+CAM_3DSurface.svg	src/Mod/CAM/Gui/Resources/icons/CAM_3DSurface.svg	FreeCAD LGPL2+
+CAM_Adaptive.svg	src/Mod/CAM/Gui/Resources/icons/CAM_Adaptive.svg	FreeCAD LGPL2+
+CAM_Array.svg	src/Mod/CAM/Gui/Resources/icons/CAM_Array.svg	FreeCAD LGPL2+
+CAM_BaseGeometry.svg	src/Mod/CAM/Gui/Resources/icons/CAM_BaseGeometry.svg	FreeCAD LGPL2+
+CAM_Custom.svg	src/Mod/CAM/Gui/Resources/icons/CAM_Custom.svg	FreeCAD LGPL2+
+CAM_Datums.svg	src/Mod/CAM/Gui/Resources/icons/CAM_Datums.svg	FreeCAD LGPL2+
+CAM_Drilling.svg	src/Mod/CAM/Gui/Resources/icons/CAM_Drilling.svg	FreeCAD LGPL2+
+CAM_Engrave.svg	src/Mod/CAM/Gui/Resources/icons/CAM_Engrave.svg	FreeCAD LGPL2+
+CAM_Face.svg	src/Mod/CAM/Gui/Resources/icons/CAM_Face.svg	FreeCAD LGPL2+
+CAM_FacePocket.svg	src/Mod/CAM/Gui/Resources/icons/CAM_FacePocket.svg	FreeCAD LGPL2+
+CAM_Helix.svg	src/Mod/CAM/Gui/Resources/icons/CAM_Helix.svg	FreeCAD LGPL2+
+CAM_InactiveOp.svg	src/Mod/CAM/Gui/Resources/icons/CAM_InactiveOp.svg	FreeCAD LGPL2+
+CAM_Inspect.svg	src/Mod/CAM/Gui/Resources/icons/CAM_Inspect.svg	FreeCAD LGPL2+
+CAM_Job.svg	src/Mod/CAM/Gui/Resources/icons/CAM_Job.svg	FreeCAD LGPL2+
+CAM_MachineLathe.svg	src/Mod/CAM/Gui/Resources/icons/CAM_MachineLathe.svg	FreeCAD LGPL2+
+CAM_MachineMill.svg	src/Mod/CAM/Gui/Resources/icons/CAM_MachineMill.svg	FreeCAD LGPL2+
+CAM_OpActive.svg	src/Mod/CAM/Gui/Resources/icons/CAM_OpActive.svg	FreeCAD LGPL2+
+CAM_Pocket.svg	src/Mod/CAM/Gui/Resources/icons/CAM_Pocket.svg	FreeCAD LGPL2+
+CAM_Post.svg	src/Mod/CAM/Gui/Resources/icons/CAM_Post.svg	FreeCAD LGPL2+
+CAM_Probe.svg	src/Mod/CAM/Gui/Resources/icons/CAM_Probe.svg	FreeCAD LGPL2+
+CAM_Profile.svg	src/Mod/CAM/Gui/Resources/icons/CAM_Profile.svg	FreeCAD LGPL2+
+CAM_SetupSheet.svg	src/Mod/CAM/Gui/Resources/icons/CAM_SetupSheet.svg	FreeCAD LGPL2+
+CAM_Shape.svg	src/Mod/CAM/Gui/Resources/icons/CAM_Shape.svg	FreeCAD LGPL2+
+CAM_SimulatorGL.svg	src/Mod/CAM/Gui/Resources/icons/CAM_SimulatorGL.svg	FreeCAD LGPL2+
+CAM_Slot.svg	src/Mod/CAM/Gui/Resources/icons/CAM_Slot.svg	FreeCAD LGPL2+
+CAM_Speed.svg	src/Mod/CAM/Gui/Resources/icons/CAM_Speed.svg	FreeCAD LGPL2+
+CAM_ThreadMilling.svg	src/Mod/CAM/Gui/Resources/icons/CAM_ThreadMilling.svg	FreeCAD LGPL2+
+CAM_ToolBit.svg	src/Mod/CAM/Gui/Resources/icons/CAM_ToolBit.svg	FreeCAD LGPL2+
+CAM_ToolChange.svg	src/Mod/CAM/Gui/Resources/icons/CAM_ToolChange.svg	FreeCAD LGPL2+
+CAM_ToolTable.svg	src/Mod/CAM/Gui/Resources/icons/CAM_ToolTable.svg	FreeCAD LGPL2+
+CAM_Toolpath.svg	src/Mod/CAM/Gui/Resources/icons/CAM_Toolpath.svg	FreeCAD LGPL2+
+CAM_Waterline.svg	src/Mod/CAM/Gui/Resources/icons/CAM_Waterline.svg	FreeCAD LGPL2+
+Draft_Arc.svg	src/Mod/Draft/Resources/icons/Draft_Arc.svg	FreeCAD LGPL2+
+Draft_Circle.svg	src/Mod/Draft/Resources/icons/Draft_Circle.svg	FreeCAD LGPL2+
+Draft_Hatch.svg	src/Mod/Draft/Resources/icons/Draft_Hatch.svg	FreeCAD LGPL2+
+Draft_Join.svg	src/Mod/Draft/Resources/icons/Draft_Join.svg	FreeCAD LGPL2+
+Draft_LayerManager.svg	src/Mod/Draft/Resources/icons/Draft_LayerManager.svg	FreeCAD LGPL2+
+Draft_Rotate.svg	src/Mod/Draft/Resources/icons/Draft_Rotate.svg	FreeCAD LGPL2+
+Draft_SelectPlane.svg	src/Mod/Draft/Resources/icons/Draft_SelectPlane.svg	FreeCAD LGPL2+
+Draft_Snap_Grid.svg	src/Mod/Draft/Resources/icons/Draft_Snap_Grid.svg	FreeCAD LGPL2+
+Draft_Snap_Intersection.svg	src/Mod/Draft/Resources/icons/Draft_Snap_Intersection.svg	FreeCAD LGPL2+
+Draft_Snap_Near.svg	src/Mod/Draft/Resources/icons/Draft_Snap_Near.svg	FreeCAD LGPL2+
+Draft_Stretch.svg	src/Mod/Draft/Resources/icons/Draft_Stretch.svg	FreeCAD LGPL2+
+Measurement-Angle.svg	src/Mod/Measure/Gui/Resources/icons/Measurement-Angle.svg	FreeCAD LGPL2+
+Measurement-Area.svg	src/Mod/Measure/Gui/Resources/icons/Measurement-Area.svg	FreeCAD LGPL2+
+Measurement-Position.svg	src/Mod/Measure/Gui/Resources/icons/Measurement-Position.svg	FreeCAD LGPL2+
+Part_CheckGeometry.svg	src/Mod/Part/Gui/Resources/icons/booleans/Part_CheckGeometry.svg	FreeCAD LGPL2+
+Part_Refine_Shape.svg	src/Mod/Part/Gui/Resources/icons/tools/Part_Refine_Shape.svg	FreeCAD LGPL2+
+Part_Revolve.svg	src/Mod/Part/Gui/Resources/icons/tools/Part_Revolve.svg	FreeCAD LGPL2+
+Part_ShapeInfo.svg	src/Mod/Part/Gui/Resources/icons/tools/Part_ShapeInfo.svg	FreeCAD LGPL2+
+Part_Spiral_Parametric.svg	src/Mod/Part/Gui/Resources/icons/parametric/Part_Spiral_Parametric.svg	FreeCAD LGPL2+
+Sketcher_BSplineConvertToNURBS.svg	src/Mod/Sketcher/Gui/Resources/icons/splines/Sketcher_BSplineConvertToNURBS.svg	FreeCAD LGPL2+
+Std_AxisCross.svg	src/Gui/Icons/Std_AxisCross.svg	FreeCAD LGPL2+
+Std_CoordinateSystem_alt.svg	src/Gui/Icons/Std_CoordinateSystem_alt.svg	FreeCAD LGPL2+
+Std_HideObjects.svg	src/Gui/Icons/Std_HideObjects.svg	FreeCAD LGPL2+
+Std_HideSelection.svg	src/Gui/Icons/Std_HideSelection.svg	FreeCAD LGPL2+
+Std_SelectVisibleObjects.svg	src/Gui/Icons/Std_SelectVisibleObjects.svg	FreeCAD LGPL2+
+Std_ShowSelection.svg	src/Gui/Icons/Std_ShowSelection.svg	FreeCAD LGPL2+
+Std_TransformManip.svg	src/Gui/Icons/Std_TransformManip.svg	FreeCAD LGPL2+
+Std_ViewDimetric.svg	src/Gui/Icons/Std_ViewDimetric.svg	FreeCAD LGPL2+
+TechDraw_AngleDimension.svg	src/Mod/TechDraw/Gui/Resources/icons/TechDraw_AngleDimension.svg	FreeCAD LGPL2+
+TechDraw_Balloon.svg	src/Mod/TechDraw/Gui/Resources/icons/TechDraw_Balloon.svg	FreeCAD LGPL2+
+TechDraw_DiameterDimension.svg	src/Mod/TechDraw/Gui/Resources/icons/TechDraw_DiameterDimension.svg	FreeCAD LGPL2+
+TechDraw_HorizontalDimension.svg	src/Mod/TechDraw/Gui/Resources/icons/TechDraw_HorizontalDimension.svg	FreeCAD LGPL2+
+TechDraw_LengthDimension.svg	src/Mod/TechDraw/Gui/Resources/icons/TechDraw_LengthDimension.svg	FreeCAD LGPL2+
+TechDraw_ProjBottom.svg	src/Mod/TechDraw/Gui/Resources/icons/TechDraw_ProjBottom.svg	FreeCAD LGPL2+
+TechDraw_ProjFront.svg	src/Mod/TechDraw/Gui/Resources/icons/TechDraw_ProjFront.svg	FreeCAD LGPL2+
+TechDraw_ProjLeft.svg	src/Mod/TechDraw/Gui/Resources/icons/TechDraw_ProjLeft.svg	FreeCAD LGPL2+
+TechDraw_ProjRear.svg	src/Mod/TechDraw/Gui/Resources/icons/TechDraw_ProjRear.svg	FreeCAD LGPL2+
+TechDraw_ProjRight.svg	src/Mod/TechDraw/Gui/Resources/icons/TechDraw_ProjRight.svg	FreeCAD LGPL2+
+TechDraw_ProjTop.svg	src/Mod/TechDraw/Gui/Resources/icons/TechDraw_ProjTop.svg	FreeCAD LGPL2+
+TechDraw_VerticalDimension.svg	src/Mod/TechDraw/Gui/Resources/icons/TechDraw_VerticalDimension.svg	FreeCAD LGPL2+
+arrow-down.svg	src/Mod/CAM/Gui/Resources/icons/arrow-down.svg	FreeCAD LGPL2+
+arrow-up.svg	src/Mod/CAM/Gui/Resources/icons/arrow-up.svg	FreeCAD LGPL2+
+colors.svg	src/Gui/Icons/colors.svg	FreeCAD LGPL2+
+document-properties.svg	src/Gui/Icons/document-properties.svg	FreeCAD LGPL2+
+preferences-cam.svg	src/Mod/CAM/Gui/Resources/icons/preferences-cam.svg	FreeCAD LGPL2+
+sel-forward.svg	src/Gui/Icons/sel-forward.svg	FreeCAD LGPL2+
+view-refresh.svg	src/Gui/Icons/view-refresh.svg	FreeCAD LGPL2+

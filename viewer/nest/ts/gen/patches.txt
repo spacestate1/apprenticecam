@@ -1,0 +1,116 @@
+# patches.txt - corrections to the Ghidra decompile text before gen.py transliterates it.  Each block: "@<function
+# address> reason", then pairs of lines "- <exact text in the export>" / "+ <replacement>"; the old text must occur
+# exactly once in the function; or "~ <python regex>" / "= <replacement>" (whitespace-tolerant, must match once).
+# Every patch cites the asm that justifies it.
+@1800b4170 arc record read back from the drawing file: the asm copies all 5 doubles read by fread (asm 0x1800b4611..
+0x1800b4649: [rsp+0x2c0..0x2e0] -> [rsp+0x78..0x98], i.e. local_d8..local_b8 -> local_320..local_300); the decompile
+drops the 5th store (local_300 = the arc sweep, entity +0x68), so it is added here (local_300 = local_308 + 8)
+- uVar1 = FUN_180229bfc(&local_d8,8,5,param_1);
++ uVar1 = FUN_180229bfc(&local_d8,8,5,param_1); memcpy((char *)&local_308 + 8, &local_b8, 8);
+@18003a2a0 right-nested float sums printed without parentheses (fpassoc.tsv): the asm adds the part offset term to
+*(param_1 + 0x2b8 / 0x2c0) first and then the local: 0x18003b08b / 0x18003b368 / 0x18003b3b2 / 0x18003b687 (frame
+rsp = entry - 0xc28: [rsp+0x98] = local_b90, [rsp+0xa0] = local_b88)
+~ local_b90 \+\s+\*\(double \*\)\(param_1 \+ 0x2c0\) \+ \*\(double \*\)\(param_2 \+ 0x838\) / 2\.0
+= local_b90 + (*(double *)(param_1 + 0x2c0) + *(double *)(param_2 + 0x838) / 2.0)
+~ local_b90 \+\s+\*\(double \*\)\(param_1 \+ 0x2b8\) \+ \*\(double \*\)\(param_2 \+ 0x838\) / 2\.0
+= local_b90 + (*(double *)(param_1 + 0x2b8) + *(double *)(param_2 + 0x838) / 2.0)
+~ local_b88 \+\s+\*\(double \*\)\(param_1 \+ 0x2c0\) \+ \*\(double \*\)\(param_2 \+ 0x838\) / 2\.0
+= local_b88 + (*(double *)(param_1 + 0x2c0) + *(double *)(param_2 + 0x838) / 2.0)
+~ local_b88 \+\s+\*\(double \*\)\(param_1 \+ 0x2b8\) \+ \*\(double \*\)\(param_2 \+ 0x838\) / 2\.0
+= local_b88 + (*(double *)(param_1 + 0x2b8) + *(double *)(param_2 + 0x838) / 2.0)
+@18007e810 right-nested float sums: asm 0x18007fff6..0x180080010 and 0x1800800dc..0x1800800f6 add local_60 / local_48
+([rsp+0x2128] / [rsp+0x2140], rsp = entry - 0x2188) to the product first, then local_1948 ([rsp+0x840])
+~ local_1948 = local_1948 \+ local_60 \+ \*\(double \*\)\(local_58 \+ 8\) \* dVar8;
+= local_1948 = local_1948 + (local_60 + *(double *)(local_58 + 8) * dVar8);
+~ local_1948 = local_1948 \+ local_48 \+ \*\(double \*\)\(local_40 \+ 0x28\) \* dVar8;
+= local_1948 = local_1948 + (local_48 + *(double *)(local_40 + 0x28) * dVar8);
+@1800bcf30 right-nested float sums: asm 0x1800bd037..0x1800bd06c / 0x1800bd15d: the two products are added first
+(stored at [rsp+0x78] / [rsp+0x28]), then dVar3 ([rsp+0x88]) is added
+~ param_2\[1\] = dVar3 \+ dVar1 \* dVar7 \+ dVar4 \* 0\.0;
+= param_2[1] = dVar3 + (dVar1 * dVar7 + dVar4 * 0.0);
+~ param_3\[1\] = dVar3 \+ dVar1 \* dVar11 \+ dVar8 \* 0\.0;
+= param_3[1] = dVar3 + (dVar1 * dVar11 + dVar8 * 0.0);
+@180140140 right-nested float sums printed without parentheses (fpassoc.tsv), as FUN_18003a2a0: the asm adds
+*(param_1 + 0x2b8 / 0x2c0) + param_2[0x107] + param_2[0x104] / 2.0 first and then the local: 0x180140e22 / 0x18014117b
+([rsp+0x68] = local_620) and 0x1801411d6 / 0x180141527 ([rsp+0x70] = local_618)
+~ local_620 \+\s+\*\(double \*\)\(param_1 \+ 0x2c0\) \+ param_2\[0x107\] \+ param_2\[0x104\] / 2\.0
+= local_620 + (*(double *)(param_1 + 0x2c0) + param_2[0x107] + param_2[0x104] / 2.0)
+~ local_620 \+\s+\*\(double \*\)\(param_1 \+ 0x2b8\) \+ param_2\[0x107\] \+ param_2\[0x104\] / 2\.0
+= local_620 + (*(double *)(param_1 + 0x2b8) + param_2[0x107] + param_2[0x104] / 2.0)
+~ local_618 \+\s+\*\(double \*\)\(param_1 \+ 0x2c0\) \+ param_2\[0x107\] \+ param_2\[0x104\] / 2\.0
+= local_618 + (*(double *)(param_1 + 0x2c0) + param_2[0x107] + param_2[0x104] / 2.0)
+~ local_618 \+\s+\*\(double \*\)\(param_1 \+ 0x2b8\) \+ param_2\[0x107\] \+ param_2\[0x104\] / 2\.0
+= local_618 + (*(double *)(param_1 + 0x2b8) + param_2[0x107] + param_2[0x104] / 2.0)
+@1800fb1e0 a 9th (stack) parameter Ghidra did not commit: the asm reads [entry rsp+0x40] (decompile in_stack_00000040)
+and passes it on to FUN_1800fc150 as its 11th argument; the caller FUN_1800fad60 stores its own 8th parameter there
+(asm 0x1800fadd3..0x1800faddc movsd [rsp+0x98] -> [rsp+0x38])
+~ undefined4 \*param_6,int param_7\)
+= undefined4 *param_6,int param_7,undefined8 in_stack_00000040)
+~ \n  undefined8 in_stack_00000040;
+= 
+@1800fad60 passes its 8th parameter to FUN_1800fb1e0 as the 9th (see @1800fb1e0)
+~ param_6,param_7\);
+= param_6,param_7,param_8);
+@1800ff110 a 9th (stack) parameter Ghidra did not commit: the asm reads [entry rsp+0x48] (in_stack_00000048) and
+passes it on; the caller FUN_1800fea00 stores the saved DAT_1802f3f60 there (asm 0x1800fef6d..0x1800fef75 [rsp+0x50]
+= DAT_1802f3f60 = uVar2, 0x1800ff013..0x1800ff019 [rsp+0x50] -> [rsp+0x40])
+~ double \*param_7,double \*param_8\)
+= double *param_7,double *param_8,undefined8 in_stack_00000048)
+~ \n  undefined8 in_stack_00000048;
+= 
+@1800fea00 passes the saved DAT_1802f3f60 (uVar2) to FUN_1800ff110 as the 9th argument (see @1800ff110)
+~ FUN_1800ff110\(local_40,local_a94,param_5,param_6,local_58,local_48,local_ab8\s*,param_7\)
+= FUN_1800ff110(local_40,local_a94,param_5,param_6,local_58,local_48,local_ab8,param_7,uVar2)
+@180079eb0 arc record copy: the asm copies all 5 doubles of an arc (type 6, asm 0x18007a30f..0x18007a360: [rsp+0x408..
+0x428] -> [rsp+0x88..0xa8], rsp = entry - 0x708, i.e. local_300..local_2e0 -> local_680..local_660); the decompile drops
+the 5th store (local_660 = local_2e0, the arc sweep, record +0x68), so it is added here
+~ (local_340 == '\\x06'\) \{\s*local_680 = local_300;\s*local_678 = local_2f8;\s*local_670 = local_2f0;\s*local_668 = local_2e8;)
+= \1 memcpy((char *)&local_668 + 8, (char *)&local_2e8 + 8, 8);
+@1800cda00 right-nested float sums (fpassoc.tsv; reached by cluster / Optimized-pair placement): the element offset's
+y term is formed first (ex * sin + ey * cos) and then added to [rsp+0xa0] = dStack_2338: asm 0x1800cdde3 / 0x1800ce170 /
+0x1800ce792 / 0x1800ce90a / 0x1800ceef9 / 0x1800cf376 (the x terms are already parenthesised)
+~ dStack_2338 = dStack_2338 \+ dStack_160 \+ dStack_158 \* dVar7;
+= dStack_2338 = dStack_2338 + (dStack_160 + dStack_158 * dVar7);
+~ dStack_2338 = dStack_2338 \+ dStack_128 \+ dStack_120 \* dVar7;
+= dStack_2338 = dStack_2338 + (dStack_128 + dStack_120 * dVar7);
+~ dStack_2338 = dStack_2338 \+ dStack_100 \+ dStack_f8 \* dVar7;
+= dStack_2338 = dStack_2338 + (dStack_100 + dStack_f8 * dVar7);
+~ dStack_2338 = dStack_2338 \+ dStack_d0 \+ dStack_c8 \* dVar7;
+= dStack_2338 = dStack_2338 + (dStack_d0 + dStack_c8 * dVar7);
+~ dStack_2338 = dStack_2338 \+ dStack_98 \+ dStack_90 \* dVar7;
+= dStack_2338 = dStack_2338 + (dStack_98 + dStack_90 * dVar7);
+~ dStack_2338 = dStack_2338 \+ dStack_40 \+ local_1c08 \* dVar7;
+= dStack_2338 = dStack_2338 + (dStack_40 + local_1c08 * dVar7);
+@18001d0b0 C++ catch ported in place (gen/eh.py, ehfix.txt INLINE): the try block (state 1, asm 0x18001d436..0x18001d4c2)
+holds only this throw; its catch (nestErrorGen, Catch@180258a70 n64dll_all.c L282650; S = 0x1938) releases the PRF
+reader FUN_1801ec710([rsp+0xcd8] = local_c60), reports the error (FUN_180053920), sets DAT_1802b3010 = 1 and
+[rsp+0x10e8] = 0; the continuation 0x18001d4c4 destroys local_db8 ([rsp+0xb80], FUN_1800065d0) and returns that 0
+- FUN_180227464(local_18f8,&DAT_18028db30);
++ FUN_1801ec710(local_c60); FUN_180053920((undefined8)(uintptr_t)local_18f8, (undefined4 *)local_18f8); TS_G(uint32_t, 0x1802b3010ULL) = 1; FUN_1800065d0(local_db8); return 0;
+@1800bf170 C++ catch ported in place (gen/eh.py, ehfix.txt INLINE): the try block (state 0, asm 0x1800bf4af..0x1800bf537)
+holds only this throw; its catch (nestErrorGen, Catch@18025cf00 n64dll_all.c L286880) reports the error
+(FUN_180053920) and sets DAT_1802b3010 = 1; the continuation 0x1800bf83d is the end of the do-loop body (cmp
+[rsp+0x848] = local_cd0 (S = 0x1518), 1: FUN_1800bba20, free local_cc8, loop while DAT_1802b3010 != 1 - so it leaves)
+- FUN_180227464(local_14d8,&DAT_18028db30);
++ FUN_180053920((undefined8)(uintptr_t)local_14d8, (undefined4 *)local_14d8); TS_G(uint32_t, 0x1802b3010ULL) = 1; goto LAB_1800bf83d;
+- if (1 < local_cd0) {
++ LAB_1800bf83d: if (1 < local_cd0) {
+@18010df80 image address folded into a constant: local_600 = index after the last '\' ('/') of the path DAT_1802b3fb0;
+the asm (0x1801103bd..0x1801103d5) is lea rax,[DAT_1802b3fb0]; sub rcx,rax; inc rax - the decompile folded the DLL's
+address of DAT_1802b3fb0 into "+ 0x7fd4c051" (= 1 - 0x802b3fb0), which is wrong for the port's image
+~ (0x5c\);\s+local_600 = )\(int\)local_608 \+ 0x7fd4c051;
+= \1(int)(local_608 - (char *)&DAT_1802b3fb0 + 1);
+~ (0x2f\);\s+local_600 = )\(int\)local_608 \+ 0x7fd4c051;
+= \1(int)(local_608 - (char *)&DAT_1802b3fb0 + 1);
+@18001d0b0 pointer difference written as the difference of the truncated pointers; the asm (0x18001d33d..0x18001d356)
+subtracts the 64-bit pointers (sub rcx,rax) - the same low 32 bits, written so (no pointer-to-int cast: regen.sh checks)
+- iVar1 = (int)local_d80 - (int)param_1;
++ iVar1 = (int)(local_d80 - param_1);
+@1800f8770 param_4 is an int (asm 0x1800f8770: mov DWORD PTR [rsp+0x20],r9d; the callers pass 0 / an int) that
+Ghidra typed as a pointer: its low 32 bits, written without a pointer-to-int cast
+- iVar3 = (int)param_4;
++ iVar3 = (int)(uintptr_t)param_4;
+@1801b0d50 param_4 is an int (asm 0x1801b0d50: mov DWORD PTR [rsp+0x20],r9d; the caller passes (double *)(ulonglong)
+param_5) that Ghidra typed as a pointer: its low 32 bits, written without a pointer-to-int cast
+- iVar8 = (int)param_4;
++ iVar8 = (int)(uintptr_t)param_4;

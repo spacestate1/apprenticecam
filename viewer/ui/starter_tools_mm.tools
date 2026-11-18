@@ -1,0 +1,53 @@
+MCAMUI-TOOLS 1
+# apprenticeCAM starter library - standard metric tools (our own data, not from Mastercam).
+# Geometry: jobber drills DIN 338, stub carbide end mills DIN 6527 K, taps ISO metric coarse, typical catalogue
+# spot / chamfer / ball sizes. 'BASE defaults': speeds, feeds, holder and the other fields come from each type's
+# default tool in your Mastercam DatabaseDefaults.tooldb at load (viewer/toollib.c load_text), as a new tool would.
+UNITS mm
+BASE defaults
+TOOL num=1 type=2 dia=6 flutes=2 flute_len=12 shoulder_len=12 oal=66 arbor_dia=6 dia_off=1 len_off=1 is_metric=1 tip_angle=90 name=SPOT DRILL 6mm 90deg
+TOOL num=2 type=2 dia=10 flutes=2 flute_len=15 shoulder_len=15 oal=89 arbor_dia=10 dia_off=2 len_off=2 is_metric=1 tip_angle=90 name=SPOT DRILL 10mm 90deg
+TOOL num=3 type=3 dia=1 flutes=2 flute_len=12 shoulder_len=12 oal=34 arbor_dia=1 dia_off=3 len_off=3 is_metric=1 tip_angle=118 name=DRILL 1mm
+TOOL num=4 type=3 dia=1.5 flutes=2 flute_len=18 shoulder_len=18 oal=40 arbor_dia=1.5 dia_off=4 len_off=4 is_metric=1 tip_angle=118 name=DRILL 1.5mm
+TOOL num=5 type=3 dia=2 flutes=2 flute_len=24 shoulder_len=24 oal=49 arbor_dia=2 dia_off=5 len_off=5 is_metric=1 tip_angle=118 name=DRILL 2mm
+TOOL num=6 type=3 dia=2.5 flutes=2 flute_len=30 shoulder_len=30 oal=57 arbor_dia=2.5 dia_off=6 len_off=6 is_metric=1 tip_angle=118 name=DRILL 2.5mm (M3 tap drill)
+TOOL num=7 type=3 dia=3 flutes=2 flute_len=33 shoulder_len=33 oal=61 arbor_dia=3 dia_off=7 len_off=7 is_metric=1 tip_angle=118 name=DRILL 3mm
+TOOL num=8 type=3 dia=3.3 flutes=2 flute_len=36 shoulder_len=36 oal=65 arbor_dia=3.3 dia_off=8 len_off=8 is_metric=1 tip_angle=118 name=DRILL 3.3mm (M4 tap drill)
+TOOL num=9 type=3 dia=3.5 flutes=2 flute_len=39 shoulder_len=39 oal=70 arbor_dia=3.5 dia_off=9 len_off=9 is_metric=1 tip_angle=118 name=DRILL 3.5mm
+TOOL num=10 type=3 dia=4 flutes=2 flute_len=43 shoulder_len=43 oal=75 arbor_dia=4 dia_off=10 len_off=10 is_metric=1 tip_angle=118 name=DRILL 4mm
+TOOL num=11 type=3 dia=4.2 flutes=2 flute_len=43 shoulder_len=43 oal=75 arbor_dia=4.2 dia_off=11 len_off=11 is_metric=1 tip_angle=118 name=DRILL 4.2mm (M5 tap drill)
+TOOL num=12 type=3 dia=4.5 flutes=2 flute_len=47 shoulder_len=47 oal=80 arbor_dia=4.5 dia_off=12 len_off=12 is_metric=1 tip_angle=118 name=DRILL 4.5mm
+TOOL num=13 type=3 dia=5 flutes=2 flute_len=52 shoulder_len=52 oal=86 arbor_dia=5 dia_off=13 len_off=13 is_metric=1 tip_angle=118 name=DRILL 5mm (M6 tap drill)
+TOOL num=14 type=3 dia=5.5 flutes=2 flute_len=57 shoulder_len=57 oal=93 arbor_dia=5.5 dia_off=14 len_off=14 is_metric=1 tip_angle=118 name=DRILL 5.5mm
+TOOL num=15 type=3 dia=6 flutes=2 flute_len=57 shoulder_len=57 oal=93 arbor_dia=6 dia_off=15 len_off=15 is_metric=1 tip_angle=118 name=DRILL 6mm
+TOOL num=16 type=3 dia=6.8 flutes=2 flute_len=69 shoulder_len=69 oal=109 arbor_dia=6.8 dia_off=16 len_off=16 is_metric=1 tip_angle=118 name=DRILL 6.8mm (M8 tap drill)
+TOOL num=17 type=3 dia=7 flutes=2 flute_len=69 shoulder_len=69 oal=109 arbor_dia=7 dia_off=17 len_off=17 is_metric=1 tip_angle=118 name=DRILL 7mm
+TOOL num=18 type=3 dia=8 flutes=2 flute_len=75 shoulder_len=75 oal=117 arbor_dia=8 dia_off=18 len_off=18 is_metric=1 tip_angle=118 name=DRILL 8mm
+TOOL num=19 type=3 dia=8.5 flutes=2 flute_len=75 shoulder_len=75 oal=117 arbor_dia=8.5 dia_off=19 len_off=19 is_metric=1 tip_angle=118 name=DRILL 8.5mm (M10 tap drill)
+TOOL num=20 type=3 dia=9 flutes=2 flute_len=81 shoulder_len=81 oal=125 arbor_dia=9 dia_off=20 len_off=20 is_metric=1 tip_angle=118 name=DRILL 9mm
+TOOL num=21 type=3 dia=10 flutes=2 flute_len=87 shoulder_len=87 oal=133 arbor_dia=10 dia_off=21 len_off=21 is_metric=1 tip_angle=118 name=DRILL 10mm
+TOOL num=22 type=3 dia=10.2 flutes=2 flute_len=87 shoulder_len=87 oal=133 arbor_dia=10.2 dia_off=22 len_off=22 is_metric=1 tip_angle=118 name=DRILL 10.2mm (M12 tap drill)
+TOOL num=23 type=3 dia=11 flutes=2 flute_len=94 shoulder_len=94 oal=142 arbor_dia=11 dia_off=23 len_off=23 is_metric=1 tip_angle=118 name=DRILL 11mm
+TOOL num=24 type=3 dia=12 flutes=2 flute_len=101 shoulder_len=101 oal=151 arbor_dia=12 dia_off=24 len_off=24 is_metric=1 tip_angle=118 name=DRILL 12mm
+TOOL num=25 type=10 dia=2 flutes=2 flute_len=7 shoulder_len=7 oal=57 arbor_dia=6 dia_off=25 len_off=25 is_metric=1 name=FLAT ENDMILL 2mm
+TOOL num=26 type=10 dia=3 flutes=2 flute_len=8 shoulder_len=8 oal=57 arbor_dia=6 dia_off=26 len_off=26 is_metric=1 name=FLAT ENDMILL 3mm
+TOOL num=27 type=10 dia=4 flutes=3 flute_len=11 shoulder_len=11 oal=57 arbor_dia=6 dia_off=27 len_off=27 is_metric=1 name=FLAT ENDMILL 4mm
+TOOL num=28 type=10 dia=5 flutes=3 flute_len=13 shoulder_len=13 oal=57 arbor_dia=6 dia_off=28 len_off=28 is_metric=1 name=FLAT ENDMILL 5mm
+TOOL num=29 type=10 dia=6 flutes=3 flute_len=13 shoulder_len=13 oal=57 arbor_dia=6 dia_off=29 len_off=29 is_metric=1 name=FLAT ENDMILL 6mm
+TOOL num=30 type=10 dia=8 flutes=3 flute_len=19 shoulder_len=19 oal=63 arbor_dia=8 dia_off=30 len_off=30 is_metric=1 name=FLAT ENDMILL 8mm
+TOOL num=31 type=10 dia=10 flutes=3 flute_len=22 shoulder_len=22 oal=72 arbor_dia=10 dia_off=31 len_off=31 is_metric=1 name=FLAT ENDMILL 10mm
+TOOL num=32 type=10 dia=12 flutes=3 flute_len=26 shoulder_len=26 oal=83 arbor_dia=12 dia_off=32 len_off=32 is_metric=1 name=FLAT ENDMILL 12mm
+TOOL num=33 type=10 dia=16 flutes=3 flute_len=32 shoulder_len=32 oal=92 arbor_dia=16 dia_off=33 len_off=33 is_metric=1 name=FLAT ENDMILL 16mm
+TOOL num=34 type=10 dia=20 flutes=3 flute_len=38 shoulder_len=38 oal=104 arbor_dia=20 dia_off=34 len_off=34 is_metric=1 name=FLAT ENDMILL 20mm
+TOOL num=35 type=11 dia=3 flutes=2 flute_len=8 shoulder_len=8 oal=57 arbor_dia=6 dia_off=35 len_off=35 is_metric=1 corner_r=1.5 name=BALL ENDMILL 3mm
+TOOL num=36 type=11 dia=6 flutes=2 flute_len=13 shoulder_len=13 oal=57 arbor_dia=6 dia_off=36 len_off=36 is_metric=1 corner_r=3 name=BALL ENDMILL 6mm
+TOOL num=37 type=11 dia=10 flutes=2 flute_len=22 shoulder_len=22 oal=72 arbor_dia=10 dia_off=37 len_off=37 is_metric=1 corner_r=5 name=BALL ENDMILL 10mm
+TOOL num=38 type=12 dia=6 flutes=4 flute_len=6 shoulder_len=6 oal=50 arbor_dia=6 dia_off=38 len_off=38 is_metric=1 tip_angle=45 name=CHAMFER MILL 6mm 90deg
+TOOL num=39 type=12 dia=10 flutes=4 flute_len=10 shoulder_len=10 oal=63 arbor_dia=10 dia_off=39 len_off=39 is_metric=1 tip_angle=45 name=CHAMFER MILL 10mm 90deg
+TOOL num=40 type=4 dia=3 flutes=3 flute_len=9 shoulder_len=9 oal=56 arbor_dia=3.5 dia_off=40 len_off=40 is_metric=1 pitch=0.5 name=TAP RH M3x0.5
+TOOL num=41 type=4 dia=4 flutes=3 flute_len=11 shoulder_len=11 oal=63 arbor_dia=4.5 dia_off=41 len_off=41 is_metric=1 pitch=0.7 name=TAP RH M4x0.7
+TOOL num=42 type=4 dia=5 flutes=3 flute_len=13 shoulder_len=13 oal=70 arbor_dia=6 dia_off=42 len_off=42 is_metric=1 pitch=0.8 name=TAP RH M5x0.8
+TOOL num=43 type=4 dia=6 flutes=3 flute_len=15 shoulder_len=15 oal=80 arbor_dia=6 dia_off=43 len_off=43 is_metric=1 pitch=1 name=TAP RH M6x1
+TOOL num=44 type=4 dia=8 flutes=3 flute_len=18 shoulder_len=18 oal=90 arbor_dia=8 dia_off=44 len_off=44 is_metric=1 pitch=1.25 name=TAP RH M8x1.25
+TOOL num=45 type=4 dia=10 flutes=3 flute_len=20 shoulder_len=20 oal=100 arbor_dia=10 dia_off=45 len_off=45 is_metric=1 pitch=1.5 name=TAP RH M10x1.5
+TOOL num=46 type=4 dia=12 flutes=3 flute_len=22 shoulder_len=22 oal=110 arbor_dia=9 dia_off=46 len_off=46 is_metric=1 pitch=1.75 name=TAP RH M12x1.75

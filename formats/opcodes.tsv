@@ -1,0 +1,139 @@
+1	0x1	5015	Contour
+2	0x2	4328	Canned Cycle
+3	0x3	5016	Pocket
+4	0x4	4329	Transform
+5	0x5	4330	Surface Rough Parallel
+6	0x6	4331	Surface Rough Radial
+7	0x7	4332	Surface Rough Project
+8	0x8	4333	Surface Rough Flowline
+9	0x9	4334	Surface Rough Contour
+10	0xa	4335	Surface Rough Pocket
+11	0xb	4336	Surface Finish Parallel
+12	0xc	4337	Surface Finish Radial
+13	0xd	4338	Surface Finish Project
+14	0xe	4339	Surface Finish Flowline
+15	0xf	4340	Surface Finish Contour
+16	0x10	5219	Chook operation
+17	0x11	4342	Manual Entry
+18	0x12	4343	Circle Mill
+19	0x13	4423	Point
+20	0x14	7399	Trim
+21	0x15	7397	Ruled
+22	0x16	7398	Revolve
+23	0x17	4344	Letters
+24	0x18	4345	Swept 2D
+25	0x19	4346	Swept 3D
+26	0x1a	4347	Coons Patch
+27	0x1b	4348	Lofted
+28	0x1c	4349	Drill 5 Axis
+29	0x1d	4350	Curve 5 Axis
+30	0x1e	4351	Project-Plane
+31	0x1f	4352	Project-Cylinder
+32	0x20	4353	Project-Sphere
+33	0x21	4354	Project-Cone
+34	0x22	4355	Project-X
+35	0x23	4356	Project-NCI
+36	0x24	4357	Non-Assoc Contour
+37	0x25	4358	Non-Assoc Drill
+38	0x26	4359	Non-Assoc Pocket
+39	0x27	4360	Surface Finish Pencil
+40	0x28	4361	Surface Finish Leftover
+41	0x29	4362	Surface Finish Parallel Steep
+42	0x2a	4363	Surface Finish Shallow
+43	0x2b	4364	Surface Finish Constant Scallop
+44	0x2c	4365	Surface Rough Plunge
+45	0x2d	4366	Flow 5 Axis
+46	0x2e	4367	Rotary 4-Axis
+47	0x2f	4368	Merged NCI
+48	0x30	4369	Swarf 5 Axis
+49	0x31	4370	Rolldie 5 Axis
+51	0x33	4372	C-Axis Face Contour
+52	0x34	4373	C-Axis Cross Contour
+53	0x35	4374	C-Axis Contour
+55	0x37	4375	C-Axis Face Drill
+56	0x38	4376	C-Axis Cross Drill
+57	0x39	4377	C-Axis Drill
+60	0x3c	4378	Lathe Rough
+61	0x3d	4379	Lathe Finish
+62	0x3e	4380	Lathe Groove
+63	0x3f	4381	Lathe Thread
+64	0x40	4382	Lathe Drill
+65	0x41	4383	Lathe Point
+66	0x42	4384	Lathe Face
+67	0x43	4385	Lathe Cutoff
+68	0x44	4386	Lathe Groove (Chain)
+71	0x47	4640	Lathe Dynamic Rough
+72	0x48	4647	Lathe Contour Rough
+74	0x4a	4387	Wire Contour
+75	0x4b	4388	Wire Canned Cycle
+76	0x4c	4389	Wire No Core
+77	0x4d	4390	Wire Manual Entry
+78	0x4e	4391	Wire Point
+79	0x4f	4392	Wire 4-Axis
+80	0x50	4329	Transform
+81	0x51	4393	Trimmed
+83	0x53	4580	Wire Collar
+100	0x64	4394	Thread Mill
+102	0x66	7591	Facing
+103	0x67	4395	Trimmed
+104	0x68	4396	Solid Drilling
+105	0x69	7592	Slot milling
+106	0x6a	4397	Helix Bore
+107	0x6b	4398	Surface Restmill
+108	0x6c	7593	Nesting
+109	0x6d	4428	Surface Finish Blend
+110	0x6e	4399	Multisurface 5 axis
+111	0x6f	4427	Slice 5 Axis
+112	0x70	4433	Port 5 Axis
+113	0x71	4466	Circle 5 Axis
+130	0x82	4415	Tab Cutoff
+131	0x83	4432	Multisurface Rough Pocket
+132	0x84	4434	Surface High Speed
+133	0x85	254	Onion skin
+134	0x86	4436	2D High Speed
+135	0x87	4371	Saw
+136	0x88	336	FBM Drill
+137	0x89	340	FBM Mill
+138	0x8a	341	FBM Contour
+139	0x8b	4467	Stock model
+150	0x96	4468	Probe
+154	0x9a	404	Multiaxis Link
+201	0xc9	4400	Lathe Canned Finish
+202	0xca	4401	Lathe Canned Rough
+204	0xcc	4402	Lathe Canned Face Rough
+206	0xce	4403	Lathe Pattern Repeat
+208	0xd0	4404	Lathe Canned Groove
+210	0xd2	4405	Lathe Quick Rough
+211	0xd3	4406	Lathe Quick Finish
+212	0xd4	4407	Lathe Quick Groove
+213	0xd5	4408	Lathe C-Hook
+214	0xd6	4409	Lathe Stock Transfer
+215	0xd7	4410	Lathe Stock Flip
+216	0xd8	4411	Lathe Stock Advance
+217	0xd9	4412	Lathe Chuck
+218	0xda	4413	Lathe Tailstock
+219	0xdb	4414	Lathe Steady Rest
+220	0xdc	4431	Pinch Turn Associated
+224	0xe0	11115	Plunge Turn
+225	0xe1	11115	Plunge Turn
+230	0xe6	25574	Bar Feed
+231	0xe7	25574	Bar Feed
+232	0xe8	25575	Spindle Clamping
+233	0xe9	25576	Spindle Move
+234	0xea	25577	Spindle Sync
+235	0xeb	25580	Tailstock
+236	0xec	25582	Turret Park
+306	0x132	4417	Router Block Drill
+416	0x1a0	277	Engrave
+440	0x1b8	4435	5-Axis Multi Surface
+441	0x1b9	4435	5-Axis Multi Surface
+442	0x1ba	4435	5-Axis Multi Surface
+443	0x1bb	4435	5-Axis Multi Surface
+444	0x1bc	4435	5-Axis Multi Surface
+445	0x1bd	4435	5-Axis Multi Surface
+446	0x1be	4435	5-Axis Multi Surface
+447	0x1bf	4435	5-Axis Multi Surface
+448	0x1c0	4435	5-Axis Multi Surface
+449	0x1c1	4435	5-Axis Multi Surface
+450	0x1c2	4435	5-Axis Multi Surface
+451	0x1c3	4435	5-Axis Multi Surface

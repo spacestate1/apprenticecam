@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <title>Fit-point spline</title>
+  <g mask="url(#scgap4)"><g mask="url(#scgap3)"><g mask="url(#scgap2)"><g mask="url(#scgap1)"><path d="M9 44C17 14 27 14 32 30C37 46 47 46 55 20" fill="none" stroke="#236ead" stroke-width="4.25" stroke-linejoin="round" stroke-linecap="round" />
+  </g><circle cx="9" cy="44" r="3.4" fill="#236ead" />
+  </g><circle cx="21.6" cy="19.75" r="3.4" fill="#236ead" />
+  </g><circle cx="42.4" cy="40.75" r="3.4" fill="#236ead" />
+  </g><circle cx="55" cy="20" r="3.4" fill="#236ead" />
+<defs><mask id="scgap1" maskUnits="userSpaceOnUse" x="-10" y="-10" width="84" height="84"><rect x="-10" y="-10" width="84" height="84" fill="white" /><circle cx="9" cy="44" r="5.8" fill="black" /></mask></defs><defs><mask id="scgap2" maskUnits="userSpaceOnUse" x="-10" y="-10" width="84" height="84"><rect x="-10" y="-10" width="84" height="84" fill="white" /><circle cx="21.6" cy="19.75" r="5.8" fill="black" /></mask></defs><defs><mask id="scgap3" maskUnits="userSpaceOnUse" x="-10" y="-10" width="84" height="84"><rect x="-10" y="-10" width="84" height="84" fill="white" /><circle cx="42.4" cy="40.75" r="5.8" fill="black" /></mask></defs><defs><mask id="scgap4" maskUnits="userSpaceOnUse" x="-10" y="-10" width="84" height="84"><rect x="-10" y="-10" width="84" height="84" fill="white" /><circle cx="55" cy="20" r="5.8" fill="black" /></mask></defs></svg>

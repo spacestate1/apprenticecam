@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <title>Centre circle</title>
+  <g mask="url(#scgap2)"><g mask="url(#scgap1)"><path d="M10 32A22 22 0 1 0 54 32A22 22 0 1 0 10 32Z" fill="#b9ddf8" stroke="#236ead" stroke-width="4.25" stroke-linejoin="round" stroke-linecap="round" />
+  </g><circle cx="32" cy="32" r="3.4" fill="#236ead" />
+  </g><circle cx="51.05" cy="21" r="3.4" fill="#236ead" />
+<defs><mask id="scgap1" maskUnits="userSpaceOnUse" x="-10" y="-10" width="84" height="84"><rect x="-10" y="-10" width="84" height="84" fill="white" /><circle cx="32" cy="32" r="5.8" fill="black" /></mask></defs><defs><mask id="scgap2" maskUnits="userSpaceOnUse" x="-10" y="-10" width="84" height="84"><rect x="-10" y="-10" width="84" height="84" fill="white" /><circle cx="51.05" cy="21" r="5.8" fill="black" /></mask></defs></svg>

@@ -1,0 +1,45 @@
+param_id	post_variable	comment
+10010	xy_stock	Capture stock to leave (XY)
+10068	z_stock	Capture stock to leave (Z)
+10101	depthcc	
+10102	xstckcc	
+10103	zstckcc	
+10202	xstckcc	
+10203	zstckcc	
+10214	directcc	
+10316	depthcc	
+10407	clearcc	
+10811	xmaj_thd	
+10813	zstrt_thd	
+10814	zend_thd	
+10819	face_thd	
+12025	rotary_axis2	Capture the axis of rotation in Multiaxis Drill and Curve 5 Axis
+13138	directcc	
+13149	anglelcc	
+13341	ncutscc	
+13343	depthcc	
+13352	dopeckcc	
+13358	stepcc	
+13364	clearcc	
+15332	wrkofs_num	Capture the Transform Work Offset setting.
+15346	comp_type	Cutter compensation type - 0=computer, 1=control, 2=wear, 3=reverse wear, 4=off
+17055	maxfeedpm	Limit for feed in inch/min
+17058	maxfrinv	Maximum feedrate - inverse time - inch - Minimum value from MD as this is inverse time
+17063	maxfeedpm_m	Limit for feed in mm/min
+17066	maxfrinv_m	Maximum feedrate - inverse time - metric - Minimum value from MD as this is inverse time
+17101	all_cool_off	First coolant off command shuts off ALL coolant options
+17102	v9_coolant	Use V9 coolant option
+17391	axis_label	Axis label - 1=X,2=Y,3=Z
+17397	srot_label	Rotary Axis label (Generally A, B or C) - Not yet available.
+17401	rot_zero	Rotary zero degree position
+17402	rot_dir	Rotary direction
+17408	rot_index	Index or continuous
+17409	rot_angle	Index step
+17410	rot_type	Rotary type
+17605	min_speed	Minimum spindle speed
+17992	maxfrdeg	Maximum feedrate deg/min
+18713	subs_before	Subprograms output before or after main program
+18803	feed_out	Capture the Control Def setting for "Use feedrate in NC output"
+20007		Tool definition - holder parameters
+20008		Aggregate head parameters
+29999		Only output tool insp comment if one was entered with this insp point

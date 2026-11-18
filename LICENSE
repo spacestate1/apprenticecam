@@ -1,0 +1,44 @@
+MIT License
+
+apprenticeCAM
+
+Copyright (c) 2026 cmcrann
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-------------------------------------------------------------------------------
+WARNING - READ THIS BEFORE YOU RUN ANYTHING THIS SOFTWARE PRODUCES ON A MACHINE
+-------------------------------------------------------------------------------
+
+YOU ARE INSANE IF YOU USE THIS ON A REAL MACHINE RIGHT NOW. USE AT YOUR OWN RISK.
+
+This is an experimental, unfinished reverse-engineering project. It is NOT
+Mastercam and is not affiliated with or endorsed by CNC Software, Inc. The
+toolpaths, G-code, posted programs and part files it generates are UNVERIFIED
+and may be WRONG: wrong depths, wrong heights, rapids through stock or
+fixtures, wrong tool numbers or offsets, wrong spindle direction, missing
+coolant, or anything else.
+
+Running its output on a CNC machine can crash the machine, break tools, ruin
+parts and fixtures, start fires, and seriously injure or kill people. If you do
+it anyway, you alone are responsible. Always verify every program yourself
+(simulation, dry run above the part, single block, feed override at zero) before
+cutting anything.
+
+The program asks you to agree to this warning every time it starts.

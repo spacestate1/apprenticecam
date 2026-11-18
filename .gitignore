@@ -1,0 +1,76 @@
+# apprenticeCAM - MIT licensed. Material derived from Mastercam's own files stays local and is never committed.
+
+# research dumps (decompiled code, resource / string / symbol dumps)
+/decomp/
+/exports/
+/pe_inventory.tsv
+/formats/mccadres_strings.tsv
+/formats/mccadutilres_strings.tsv
+/formats/ui_ribbon.json
+/formats/ui_opmanres.json
+/formats/ui_commands.tsv
+/formats/ui_fields_*.tsv
+/formats/dynamic_ui_fields.tsv
+/formats/mastercam_palette.tsv
+
+# screenshots show Mastercam's icons
+/screenshots/
+/tools/tests/screenshots/
+
+# icon / text packs are built from the user's own installation (tools/extract_icons.py)
+*.pack
+
+# build output
+/viewer/*.o
+/viewer/core_obj/
+/viewer/cam_cli
+/viewer/tool_cli
+/viewer/ifk_cli
+/viewer/ifk_stl_port
+/viewer/msm_port
+/viewer/cs_port
+/viewer/cfb_port
+/viewer/ifk_hbechain_cli
+/viewer/ifk_arcfit_test
+/viewer/ifk_sil_test
+/viewer/ifk_planecut_test
+/viewer/ifk_s2_test
+/viewer/ifk_silrun_test
+/viewer/ifk_hbefilter_test
+/viewer/mcamview
+/viewer/xt2obj
+/viewer/nc_dev
+/viewer/win/
+/viewer-qt/build*/
+__pycache__/
+
+# post engine + OCCT build output
+/viewer/mp/obj/
+/viewer/mp/mp_cli
+/viewer/mp/mp_parsecheck
+/viewer/mp/nci_dump
+/viewer/mp/prm_dump
+/viewer/mp/fmt_test
+/viewer/occt/*.o
+/viewer/occt/obj/
+
+# logs, crash dumps, merge leftovers, stray output
+*.log
+hs_err_pid*.log
+*.orig
+*.rej
+/-o/
+/.claude/*.lock
+/tools/tests/bnciu_test
+/tools/tests/draft_create_test
+/tools/tests/draft_svg
+/tools/tests/draft_ord_test
+/tools/tests/draft_circ_test
+/tools/tests/draft_ang_test
+/tools/tests/draft_pt_test
+/tools/tests/draft_tan_test
+/tools/tests/xformop_test
+/tools/tests/pencil_test
+/tools/tests/horiz_test
+/tools/sptrim_port
+/tools/spint_port

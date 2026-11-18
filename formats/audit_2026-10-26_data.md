@@ -1,0 +1,78 @@
+# Audit 2026-10-26: data, file I/O, tools, display (read-only)
+
+Scope: main tree `<repo>` (viewer/mcam_load.c, mcam_write.c, mcam_saveops.c,
+part_tools.c, toollib.c, toolwiz.c, toolprofile.c, solid25.c, geo2d.c, scene.c, xt_mesh.c, occt_mesh.cpp, occt/*, rpx.c,
+mp/*.c, paths.h, platform.h). The worktree `~/mastercam-re/work/wt_ncidrill` was used for viewer/draft.c, its scene.c hook
+(draft_build / draft_draw) and tools/setup_from_install.py. Line numbers are main-tree lines unless the path starts with `wt:`.
+Checked against formats/user_decisions.md, formats/improvisation_review.md and formats/provenance_audit.md. Nothing was changed.
+
+Abbreviations: "dec" = formats/user_decisions.md item; "IR" = formats/improvisation_review.md item.
+
+## 1. Deviations that change written files, displayed results or values without a user decision (most important)
+
+| file:line | what our code does | what Mastercam does | marker? | decision? | impact | recommendation |
+|---|---|---|---|---|---|---|
+| mcam_saveops.c:750-752 | A NEW op gets its comment (op +0x6e) set to the name this program made up for it ("Contour 3", "Chamfer 2", from core_ui/cui_ops.c:309). | The new op's comment comes from the defaults-library op. Our own Q19 writer says so: mcam_op_dialog_record (mcam_saveops.c:1073-1080) treats the auto name as "no comment of the user's" and keeps the template's comment. | no (the save path has none; 1073 marks the rule "ours") | none | **file written + shown**: Mastercam's Operations Manager shows "Contour 3" as a user comment | Use the 1073-1080 rule in save_impl too: write op->name only when the user typed one. |
+| mcam_saveops.c:763 (and 1003-1004) | Every new or edited op is written dirty (+0xfc = 1) with no NCI section. Mastercam has to regenerate it (red X). | Mastercam saves each op with its NCI and +0xfc = 0. | comment only ("dirty: Mastercam regenerates") | none (mcam_write.md design choice). Q23 ported the NCI writer, but only for posting. | file written: every exported op opens dirty | Ask the user: keep exporting dirty ops, or write nci_write's section (the worktree already captures the records, mcam_op_records_tp). |
+| mcam_saveops.c:808-815, 1095-1100 | A tool that is in neither the part nor a library becomes `tool_new(type ? type : 10, ...)`: tool type 0 turns into a **flat endmill** (type 10, formats/tooltypes_mill.tsv). A new TL_ID record for it is written (820-833), also under a drill op. | An op always has a real tool. Mastercam never invents one. | the NOTE text says "Mastercam's default %s" | none | file written: an invented tool record | Refuse the export of that op (as for "no chains"). Do not fall back to type 10. |
+| mcam_saveops.c:701, 704, 714 | Geometry drawn here is written with colour `en->color ? en->color : 1` and level `en->level ? : 1`. | Colour 0 (black) is a valid main colour. Mastercam stores the main colour / level as it is (store_ent with main_color / main_level, formats/drafting/create.md 206). | no | none | file written + display: black geometry turns blue in Mastercam | Write the entity's own values. If 0 cannot occur, remove the fallback. |
+| mcam_saveops.c:513-519 | Contour lead sweep: when the sweep did not come from the record and is 0, **pi/2** is written to 0x918 / 0x960. | The defaults op's own value. | "ours" (515) | none (this is IR item 4 "lead sweep 90°") | file written, values | Keep the template's stored sweep. Write only a sweep the user set. |
+| mcam_saveops.c:353 | 2D chamfer: when the heights changed, stock +0x888 is set to 0 and the depth to the top. | Unknown (inverse of our reader rule) | no | none (IR item 4 "Z stock 0") | file written, values | needs decode (mcmill chamfer depth / stock fields) |
+| mcam_saveops.c:887, 914 | Point TP records are named "Point n" (+0x116). Chain headers are named "Chain n" / "Solid Chain n" (+0xa4). | init_tp_ent leaves the point name empty. Who names it is NOT DECODED. The names were measured on user parts. | 883 yes (NOT DECODED); 914 no | none | file written (names Mastercam shows in the Chain Manager) | Keep, marked as measured. Add a marker at 914. Decode who names them. |
+| mcam_saveops.c:799 | The "second chain count" +0xf8 = nchains for new ops. | NOT DECODED | yes | none | file written | needs decode (low) |
+| scene.c:433-447 (also formats/ui.md:507 "ours") | The part solids' XT (metres) is scaled x1000 or x1000/25.4 by **matching extents** with the other geometry. The header units F.metric are ignored, although mcam_load.c:726 sets them from the header. The result also sets stock_lo / hi (450-451, used by Facing without chains) and the model extents. | XT units -> part units by the file's units (mcgeomsld scale). It is never a guess. | no (only the ui.md table says ours) | none | display + values (Facing stock box, fit) | Use F.metric (0/1). Guess only when it is -1, as cam_fileop.c:132-136 xt_part_scale already does. |
+| wt:viewer/draft.c:422-424, 306-310; wt:scene.c:385-427, 828 | Drafting dimensions / notes are drawn in **every** view (world lines) whenever show_geom is on. There is no current-view test, no blank test (sel bit) and no level test. | draw_dimension draws only when view == the current graphics view, or when the global iso_view_dimensions is set, and E[0x7ca] != 0x63, and the level is visible (formats/drafting/draw.md 1.2 l.110-112; note: 1.3). | no | none | display | Port the view gating (iso_view_dimensions default needs decode). Skip blanked records as mcam_load does. |
+| mp/mp_eval_fn.c:1748-1752 | mprint / post message boxes are not shown. The text goes to stderr and the result is the pst_mode$ == 1 answer (0). | AfxMessageBox(text, mode-1) when pst_mode$ != 1. The user's answer is the result, so a post that asks a question branches on it. | yes ("ours: no UI") | none (P1-P4 do not cover it) | values: posted NC can differ from Mastercam's for posts that ask; the user never sees the post's messages | Ask the user: show the box from the app (a mp hook into core_ui message), or refuse posts that call mprint with a question mode. |
+| scene.c:792-800, 988-1006 | World axes at the origin are **on by default** (show_axes = 1, :152): fixed red / green / blue (.9,.1,.1 / 0,.6,0 / .1,.25,.95), length ext*0.15, 2.5 px. A corner view indicator has drawn X / Y / Z letters. | WCS axes: OnWCSAxesToggle (Alt+F9, formats/ui.md:105). Default state, colours and gnomon are NOT DECODED. | indicator letters "ours" in ui.md:516; axes colours unmarked | none | display | needs decode (default + colours). Until then, mark both as ours. |
+| core_ui/cui_toolpage.c:172-177 + viewer/ui/starter_tools_mm.tools | The program ships its own metric tool library (46 tools from DIN data). It opens when no Mastercam library is reachable. Tools from it end up in .mcam files as TL_ID / TlMgr records (mcam_saveops.c:820-833). | No such library | yes (file header "our own data, not from Mastercam") | "user request 2026-10-21" cited in code, **not in user_decisions.md** | file written (tool geometry not from Mastercam) | Record it in user_decisions.md (id + scope), or ask the user. |
+| (scene / core_ui, no code) | Level visibility is not applied anywhere in the draw path. Every entity on every level is drawn (geometry, toolpaths, drafting). | Hidden levels are not drawn (draw.md 1.2, level manager formats/level_picker.md 185 FUN_18047c2f0) | no | none | display | needs decode (the level table's visibility flag), then filter in scene.c upload / draft_build. |
+
+## 2. Unmarked improvisations (no source, no marker; lower impact)
+
+| file:line | what our code does | Mastercam | marker? | decision? | impact | recommendation |
+|---|---|---|---|---|---|---|
+| scene.c:848 | Translucent surfaces use alpha 0.38. | Translucency level NOT DECODED (scene.c:910 marks the solids' 0.38) | no (910 yes) | none | display | Add the marker at 848, or decode the translucency config. |
+| scene.c:104-126, 715-747 | An "infinite grid" shader for grid.style 0: anti-aliased lines at 10^k levels, red / green axes, distance fade, colours .22/.26/.34 / .55/.58/.65. | display_sel_grid draws points plus dashed lines (style 1, :748). | no | none | display (unreachable at the defaults, IR "grid.style 0 unreachable") | Remove it, or mark it as ours dead code. |
+| scene.c:756-777 | Grid nodes are 2.5 px points. Grids over 400000 nodes are not drawn. Dash length = 0.5 x the larger spacing. | point size / dash NOT DECODED | partly ("very dense grids are skipped") | none | display | Mark as ours. |
+| scene.c:336-338 vs 384-387 | The comment says surface deflection = "a two-thousandth of the part's diagonal (ours)". The code uses the decoded gl_tolerance 0.025 mm / 0.001 in. | gl_tolerance (decomp/mastercam_gltol.c) | stale comment | n/a | docs | Fix the comment. |
+| occt_mesh.cpp:31-32 | Default deflection 0.01 when the caller passes none. Angular deflection 0.5 rad. | n/a (OCCT is the approved substitute; 3D-2 sets the linear deflection = cut tol / 10) | no | 3D-2 covers only the linear value | values (OptiRough drive mesh) | Mark both as ours. Check that 0.5 rad never coarsens the mesh beyond tol/10 (it cannot by OCCT's rule, but say so). |
+| geo2d.c:70-87, 169, 188 | Unit-blind epsilons (1e-12 relative, 1e-9, 1e-7 for "on entity") in the wireframe intersections. | tol_exref 5e-5 (config 1000) | no | none | values (trim / intersection picks) | Use the system tolerance, or mark as numeric glue. |
+| mcam_saveops.c:610, 696, 740, 829, 870, 908 | New eptrs: (max + 0x1000) & ~0xf, then steps of 0x200 / 0x400 / 0x800 / 0x3000. | Save-time pointers. Our spec suggests max + 0x30*k (mcam_write.md 150-156). The reader rebuilds them. | no | none | file written (no behaviour: rebuilt on load) | Keep as glue. Note the step choice in mcam_write.md. |
+| mcam_saveops.c:901-905 | A contour that is not side_rel (outside / inside) gets its chain reversed by signed area so that compensation left matches our cut. | Chains are stored as chained. Side = +0x5d2. | comment, no "ours" | none (IR item 4 "climb chain-reversal rule") | file written (only stored ops read without side info, cam_fileop.c:271-272) | Keep the chain direction and write the side instead (+0x5d2 = 1 for the other side). |
+| mcam_load.c:66, 130, 161 | Arc display polylines at 3° steps (cap 720). | Display tessellation NOT DECODED | no | n/a | display only | Glue; add "ours". |
+| wt:draft.c:155 | Arcs 72 segments per turn. | Callback receives arcs. | yes ("ours: display tessellation") | n/a | display | keep |
+
+## 3. Acceptable glue (checked, no finding)
+
+| file:line | what | why acceptable |
+|---|---|---|
+| mcam_write.c (all) | record framing reader / builder, `.tmp` + replace | I/O plumbing. The framing is cited (mcam.md). |
+| paths.h:1-177, platform.h | paths.conf / MCAMUI_*, host_path, defaults_read / defaults_work (Q19 working copies) | Linux paths plus dec P1 / Q19 (the program's copy, never Mastercam's file). |
+| mcam_saveops.c:131-213 new_base | a new part = the defaults library with geometry / ops / tools / NCI removed, TlMgr emptied | Cited init_db / config 2303 / 25000. IR items 2 and 3 were replaced. |
+| mcam_saveops.c:216-300, 597-690 | tool slots, TL_ID / TlMgr edits merged byte-wise (part_tools_write) | Cited (mccore_tooladd.c, part_tools.md 10). Round trip byte-identical (IR). |
+| mcam_saveops.c:388-474 stock_patch / solid_patch / grp_patch | in-place patches, only when changed | Cited per field (mcam_write.md, grpprops_tabs.md, solid_history.md). seq_ok (454) is a range guard. |
+| mcam_saveops.c:860 | coolant OldStyle 16 / 8 only when on/off flips | toollib_net.md 6. The raw value is kept otherwise (IR fix 2). |
+| toollib.c:45-200, 600-880 | .tooldb rows / OpToolInfo patch / tm_create from the DLL scripts / new tools from DatabaseDefaults | Decoded (toollib_net.md). The `.tools` text format is listed as intentional (provenance_audit.md 369+). |
+| part_tools.c:536-1100 | TlMgr archive writer, NOT DECODED bytes kept as read | Byte-identical on 16 parts (IR). |
+| toolwiz.c:70, 965, 1213, 1308; toolprofile.c:519 | wizard / profile rules | Cited. The NOT DECODED cases are refused / marked. |
+| mcam_load.c:475-530 | raw strings, machine / control fallbacks | Marked "ours". Only used when the link is missing. |
+| xt_mesh.c (display tessellation 5°) | XT reader for plane / cylinder display | glue |
+| occt/*.cpp, occt_mesh.cpp | XT -> OCCT translation, BRepMesh, ShapeFix, test hooks (XTOCC_MUTATE_*) | OCCT approved as the substitute kernel (memory 2026-10-23, dec 3D-2). Marked "ours" throughout. sld_regen / sld_ops.py are test tools: **the app writes no solids** (no caller outside occt/), so the open "solid writer" question is not triggered. |
+| scene.c:82-90, 312-331, 527-544, 862, 927-933, 1418-1450 | lighting shaders, Verify depth tint, GL chunking / headroom, overlay buffers | Marked ours. The Simulator engine is covered by Q33. |
+| rpx.c:5, 12 | ActiveReports layout, Letter page with 1 in margins | Marked "not measured". Report display only. |
+| mp/*.c | AST instead of the token table, tmpfile subs, CLI drivers, nci_ascii accessors, guards in mp_fmt.c | Marked "ours" / "NOT DECODED" consistently (mp_nciloop.c:14-15 convention). |
+| wt:draft.c:1-130, 140-200 | font loading (FONT%d.FNT case), filled arrowheads as polygons, space width 0.6 | Cited (text.md 263, draw.md 1.1). The fonts are copied from the user's install at runtime. |
+| wt:tools/setup_from_install.py | icons / fonts / gallery tips from the user's own install into the config dir | Matches the "nothing copied from Mastercam in the repo" rule (but see section 4, last row). |
+
+## 4. Earlier items still open
+
+| item | file:line now | status | impact | recommendation |
+|---|---|---|---|---|
+| IR 4 (lead sweep 90°, Z stock 0, chain reversal) | mcam_saveops.c:513-519, 353, 901-905 | still in code (see 1 / 2) | file written | Replace with the template's values. |
+| IR 20 slab kernel | solid25.c:75 EX_NSLAB 24, 163-166 taper sense, 78 mitre 4x | still the app's Extrude kernel, while OCCT is approved (2026-10-23) | display + Extrude bodies (Facing stock box, solid chains via cui_sldchain.c) | Port Extrude to OCCT (occt/sld_regen.cpp already replays Extrude / Cut / Boss). Draft / thin / both directions still need decode (extrude.md 4.3 / 4.6). |
+| "Solid Chain" = the top face's outer loop (CORRELATED) | xt_mesh.c:451-470, cam_fileop.c:54-58 | unchanged | values (toolpath of stored solid-chain ops) | Decode the SldToolPOp Parasolid tags (mcam.md "Solid chains"). Then read the picked edges through OCCT. |
+| Translucency level 0.38 | scene.c:910 (and 848 unmarked) | NOT DECODED | display | decode the config / render_cfg value |
+| N1 ask before overwriting an NC file (TODO) | core_ui/cui_ops.c:633 "Mastercam asks: ours has no prompt", 676-689 | open | file written | Implement the prompt (the decision exists). |
+| P3 line endings "follow the post's own setting" | core_ui/cui_ops.c:679 passes a fixed "\n"; mp/mp_out.c:446 | default implemented. No post / control setting is read. | NC file bytes | Decide what "the post's own setting" means (none is decoded). Otherwise note P3 as default-only. |
+| Corner view indicator letters, solid unit guess listed as ours | formats/ui.md:507, 516 | still ours | display | see section 1 (unit guess -> header units) |
+| Repo content from Mastercam | viewer/ui/cmd_labels.tsv, layout.txt, icon_map.tsv (tracked, debranded via tools/debrand.py); formats/ui_ribbon.json (untracked, 346 KB, read by setup_from_install.py:134) | The policy note covers icons / fonts only | repo content | Ask the user whether shipped Mastercam UI strings and labels are allowed, or should also be generated at setup time (setup_from_install.py --layout already can). |

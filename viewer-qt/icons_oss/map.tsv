@@ -1,0 +1,261 @@
+# label (ribbon button / gallery item) -> icon file (pairing ours; tools/oss_icons.py)
+#file:OPMANRES_TREE_10.png	CAM_BaseGeometry.svg
+#file:OPMANRES_TREE_13.png	CAM_Toolpath.svg
+#file:OPMANRES_TREE_16.png	CAM_Job.svg
+#file:OPMANRES_TREE_19.png	CAM_InactiveOp.svg
+#file:OPMANRES_TREE_24.png	CAM_InactiveOp.svg
+#file:OPMANRES_TREE_4.png	CAM_OpActive.svg
+#file:OPMANRES_TREE_41.png	CAM_Toolpath.svg
+#file:OPMANRES_TREE_49.png	CAM_MachineMill.svg
+#file:OPMANRES_TREE_5.png	CAM_OpActive.svg
+#file:OPMANRES_TREE_51.png	document-properties.svg
+#file:OPMANRES_TREE_52.png	document-properties.svg
+#file:OPMANRES_TREE_53.png	CAM_ToolTable.svg
+#file:OPMANRES_TREE_54.png	CAM_Shape.svg
+#file:OPMANRES_TREE_6.png	CAM_SetupSheet.svg
+#file:OPMANRES_TREE_8.png	CAM_ToolBit.svg
+Analyze Distance	sc_model_measure.svg
+Analyze Entity	Part_ShapeInfo.svg
+Angle	Measurement-Angle.svg
+Angular	TechDraw_AngleDimension.svg
+Arc 3 Points	sc_model_arc3.svg
+Arc Endpoints	Draft_Arc.svg
+Arc Polar	sc_model_arc_center.svg
+Arc Polar Endpoints	Draft_Arc.svg
+Arc Tangent	sc_model_arc_tangent.svg
+Back	TechDraw_ProjRear.svg
+Backplot	CAM_Inspect.svg
+Backplot selected operations	CAM_Inspect.svg
+Backplot/Verify Options	preferences-cam.svg
+Blank	Std_HideSelection.svg
+Block	sc_model_box.svg
+Bolt Circle	sc_model_pattern_circ.svg
+Boolean	sc_model_combine.svg
+Bottom	TechDraw_ProjBottom.svg
+Bounding Box	sc_model_bounding_solid.svg
+Break Circles	sc_model_break.svg
+Break Many	sc_model_break.svg
+Break Two Pieces	sc_model_break.svg
+Break at Intersection	Draft_Snap_Intersection.svg
+Break at Points	sc_model_break.svg
+Chain	sc_model_chain.svg
+Chains	sc_model_offset.svg
+Chamfer Chains	sc_model_sketch_chamfer.svg
+Chamfer Entities	sc_model_sketch_chamfer.svg
+Change	sc_model_reverse_normal.svg
+Check Solid	Part_CheckGeometry.svg
+Circle Center Point	sc_model_circle.svg
+Circle Edge Point	sc_model_circle3.svg
+Circular	TechDraw_DiameterDimension.svg
+Circular Pattern	sc_model_pattern_circ.svg
+Close Arc	Draft_Circle.svg
+Cone	sc_model_cone.svg
+Constant Fillet	sc_model_fillet.svg
+Copy	sc_model_copy.svg
+Create Letters	sc_model_text.svg
+Cross Hatch	Draft_Hatch.svg
+Curvature	sc_model_curvature_map.svg
+Curve Constant Parameter	sc_model_iso_curve.svg
+Curve Flowline	sc_model_iso_curve.svg
+Curve Parting Line	sc_model_silhouette.svg
+Curve Slice	sc_model_section.svg
+Curve at Intersection	sc_model_intersection_curve.svg
+Cut	sc_model_cut.svg
+Cylinder	sc_model_cylinder.svg
+Delete Entities	sc_model_delete.svg
+Delete all operations, groups and tools	sc_model_delete.svg
+Disassemble	sc_model_explode.svg
+Distance and Angle Chamfer	sc_model_chamfer.svg
+Distribute	sc_model_pattern_path.svg
+Draft	sc_model_draft.svg
+Draft Angle	sc_model_draft_analysis.svg
+Draft Edge	sc_model_draft.svg
+Draft Extrude	sc_model_draft.svg
+Draft Faces	sc_model_draft.svg
+Draft Plane	sc_model_draft.svg
+Dynamic	Std_TransformManip.svg
+Edge	sc_model_draft.svg
+Edit reference positions	CAM_Datums.svg
+Ellipse	sc_model_ellipse.svg
+Entity	sc_model_offset.svg
+Extend	sc_model_extend.svg
+Extend Trimmed Edges	sc_model_extend.svg
+Extrude	sc_model_extrude.svg
+Face to Face Fillet	sc_model_fillet.svg
+Faces	sc_model_draft.svg
+Fence	sc_model_ruled.svg
+Fill Holes	sc_model_patch.svg
+Fillet Chains	sc_model_sketch_fillet.svg
+Fillet Entities	sc_model_sketch_fillet.svg
+Fillet to Curves	sc_model_fillet.svg
+Fillet to Plane	sc_model_fillet.svg
+Fillet to Surfaces	sc_model_fillet.svg
+Fit	sc_flat_fit.svg
+Flat Boundary	sc_model_boundary_fill.svg
+From Solid	sc_model_surface.svg
+From Surfaces	sc_model_stitch.svg
+Front	TechDraw_ProjFront.svg
+Geometry Nesting	CAM_Array.svg
+Helix	sc_model_coil.svg
+Hide/Unhide	sc_flat_eye.svg
+Highfeed	CAM_Speed.svg
+Hole Axis	sc_model_axis_through_cylinder.svg
+Horizontal	TechDraw_HorizontalDimension.svg
+Isometric	Std_ViewDimetric.svg
+Join Entities	Draft_Join.svg
+Lathe	CAM_MachineLathe.svg
+Lathe Tool Manager	CAM_ToolTable.svg
+Layout	TechDraw_ProjFront.svg
+Leader	TechDraw_Balloon.svg
+Left	TechDraw_ProjLeft.svg
+Levels	Draft_LayerManager.svg
+Line Bisect	sc_model_construction_line_bisector.svg
+Line Closest	Draft_Snap_Near.svg
+Line Endpoints	sc_model_line.svg
+Line Normal	sc_model_construction_line_perpendicular.svg
+Line Parallel	sc_model_construction_line_parallel.svg
+Line Perpendicular	sc_model_construction_line_perpendicular.svg
+Line Tangent Through Point	sc_model_construction_line_tangent_at.svg
+Loft	sc_model_loft.svg
+Manual Pattern	sc_model_pattern.svg
+Material	sc_model_material.svg
+Mill	CAM_MachineMill.svg
+Mill Tool Manager	CAM_ToolTable.svg
+Mirror	sc_model_mirror.svg
+Modify Feature	sc_model_edit.svg
+Modify Fillet	sc_model_fillet.svg
+Modify Spline	sc_model_edit.svg
+Move	sc_model_move.svg
+Move insert arrow down one item	arrow-down.svg
+Move insert arrow up one item	arrow-up.svg
+Move to Origin	sc_model_origin.svg
+Nesting	CAM_Array.svg
+Net	sc_model_boundary.svg
+No Hidden	sc_flat_style_hidden_edges.svg
+Note	sc_model_text.svg
+Offset	sc_model_offset.svg
+One Distance Chamfer	sc_model_chamfer.svg
+Only display selected toolpaths	Std_HideObjects.svg
+Orient	sc_model_reverse_normal.svg
+Outline Shaded	sc_flat_style.svg
+Parallel	TechDraw_LengthDimension.svg
+Paste	sc_model_paste.svg
+Plane	sc_model_draft.svg
+Planes	sc_model_plane.svg
+Point Dynamic	sc_model_point_along_path.svg
+Point Endpoints	sc_model_point_vertex.svg
+Point Nodes	sc_model_point.svg
+Point Position	sc_model_point.svg
+Point Segment	sc_model_point_along_path.svg
+Point Small Arcs	sc_model_point_center.svg
+Polygon	sc_model_polygon.svg
+Position	Measurement-Position.svg
+Post selected operations	CAM_Post.svg
+Probe	CAM_Probe.svg
+Project	sc_model_project.svg
+Push/Pull	sc_model_presspull.svg
+Rectangle	sc_model_rect.svg
+Rectangular Array	sc_model_pattern_rect.svg
+Rectangular Pattern	sc_model_pattern_rect.svg
+Rectangular Shapes	sc_model_rect_rounded.svg
+Regenerate all dirty operations	view-refresh.svg
+Regenerate all selected operations	view-refresh.svg
+Remove Boundary	sc_model_untrim.svg
+Remove Faces	sc_model_delete_face.svg
+Remove Fillets	sc_model_delete_face.svg
+Revolve	sc_model_revolve.svg
+Right	TechDraw_ProjRight.svg
+Roll	Part_Revolve.svg
+Rotate	Draft_Rotate.svg
+Router	CAM_MachineMill.svg
+Run	CAM_Post.svg
+Run Add-In	sc_flat_prefs_plugins.svg
+Scale	sc_model_scale.svg
+Select all dirty operations	sel-forward.svg
+Select all operations	Std_SelectVisibleObjects.svg
+Set	sc_model_reverse_normal.svg
+Set All	colors.svg
+Set up tools on the machine	CAM_ToolChange.svg
+Shaded	sc_flat_style_shaded.svg
+Shell	sc_model_shell.svg
+Show Axes	Std_AxisCross.svg
+Show Gnomons	Std_CoordinateSystem_alt.svg
+Show Grid	sc_flat_grid.svg
+Silhouette Boundary	sc_model_silhouette.svg
+Simplify Solid	Part_Refine_Shape.svg
+Smart Dimension	sc_model_dimension.svg
+Snap to Grid	Draft_Snap_Grid.svg
+Solid Properties	sc_model_center_of_mass.svg
+Sphere	sc_model_sphere.svg
+Spiral	Part_Spiral_Parametric.svg
+Spline Automatic	sc_model_spline.svg
+Spline Blended	sc_model_blend.svg
+Spline Convert to NURBS	Sketcher_BSplineConvertToNURBS.svg
+Spline From Curves	sc_model_spline.svg
+Spline Manual	sc_model_spline_cv.svg
+Split	sc_model_split_face.svg
+Split Solid Faces	sc_model_split_face.svg
+Statistics	sc_model_list.svg
+Stretch	Draft_Stretch.svg
+Surface Area	Measurement-Area.svg
+Sweep	sc_model_sweep.svg
+Thicken	sc_model_thicken.svg
+Three Fillet Blend	sc_model_blend_surface.svg
+Three Surface Blend	sc_model_blend_surface.svg
+Toggle display on selected operations	sc_flat_eye.svg
+Toggle posting on selected operations	CAM_Post.svg
+Tool Manager	CAM_ToolTable.svg
+Toolpath Transform	CAM_Array.svg
+Top	TechDraw_ProjTop.svg
+Torus	sc_model_torus.svg
+Translate	sc_model_move.svg
+Translate to Plane	Draft_SelectPlane.svg
+Translucency	sc_flat_style_translucent.svg
+Trim Break Extend	sc_model_trim.svg
+Trim Many	sc_model_trim.svg
+Trim by Plane	sc_model_split_body.svg
+Trim to Curves	sc_model_trim.svg
+Trim to Plane	sc_model_trim.svg
+Trim to Surface/Sheet	sc_model_split_body.svg
+Trim to Surfaces	sc_model_trim.svg
+Two Distance Chamfer	sc_model_chamfer.svg
+Two Surface Blend	sc_model_blend_surface.svg
+Unblank	Std_ShowSelection.svg
+Undelete Entity	sc_model_restore.svg
+Untrim	sc_model_untrim.svg
+Variable Fillet	sc_model_fillet.svg
+Verify	CAM_SimulatorGL.svg
+Verify selected operations	CAM_SimulatorGL.svg
+Vertical	TechDraw_VerticalDimension.svg
+Wireframe	sc_flat_style_wireframe.svg
+|Area Mill	CAM_Adaptive.svg
+|Area Roughing	CAM_3DPocket.svg
+|Auto Drill	CAM_Drilling.svg
+|Circle Mill	CAM_Helix.svg
+|Contour	CAM_Profile.svg
+|Drill	CAM_Drilling.svg
+|Dynamic Contour	CAM_Profile.svg
+|Dynamic Mill	CAM_Adaptive.svg
+|Engrave	CAM_Engrave.svg
+|Face	CAM_Face.svg
+|Flowline	CAM_3DSurface.svg
+|Helix Bore	CAM_Helix.svg
+|Horizontal Area	CAM_FacePocket.svg
+|Hybrid	CAM_3DSurface.svg
+|Manual Entry	CAM_Custom.svg
+|Multisurface Pocket	CAM_3DPocket.svg
+|OptiRough	CAM_Adaptive.svg
+|Parallel	CAM_3DSurface.svg
+|Peel Mill	CAM_Adaptive.svg
+|Pencil	CAM_3DSurface.svg
+|Plunge	CAM_Drilling.svg
+|Pocket	CAM_Pocket.svg
+|Pocketing	CAM_3DPocket.svg
+|Point	CAM_Custom.svg
+|Radial	CAM_3DSurface.svg
+|Raster	CAM_3DSurface.svg
+|Scallop	CAM_3DSurface.svg
+|Slot Mill	CAM_Slot.svg
+|Start Hole	CAM_Drilling.svg
+|Thread Mill	CAM_ThreadMilling.svg
+|Waterline	CAM_Waterline.svg

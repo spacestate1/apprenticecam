@@ -1,0 +1,39 @@
+# ehfix.txt - catch handlers gen/eh.py cannot read from the machine code by itself (the catch body + the code the
+# function continues at).  Block: "@<catch funclet hex> <citation / reason>", then the C lines of the handler (they
+# run in the catching wrapper FUN_<a>: the parameters are in scope, the caught object is _eh.obj; globals as TS_G).
+# A handler body "INLINE" means the catch is ported in the function itself (gen/patches.txt: the try block holds only
+# the function's own throw, so the throw is replaced by the catch + the continuation) and is left out of the table.
+# Frame offsets: rsp after the prologue = entry - S; [rsp+X] = Ghidra local_<S - X>; [rsp+S+8] = param_1's home slot.
+
+@180254fc0 Catch_All@180254fc0 n64dll_all.c L279202 (FUN_180006910 L2454): release the reader, return -2
+#  S = 0x110: FUN_180006620([rbp+0x110] = param_1's home slot) - fclose / free; [rsp+0xb0] = 0xfffffffe; the
+#  continuation 0x18000700c returns [rsp+0xb0]
+    FUN_180006620((longlong)param_1);
+    return (undefined4)0xfffffffe;
+
+@180258a70 INLINE Catch@180258a70 n64dll_all.c L282650 (NReadGeometryFromDwg FUN_18001d0b0 L15833): see patches.txt
+
+@18025b160 Catch@18025b160 n64dll_all.c L284989 (FUN_18005ffa0 L48070): report, return 0
+#  S = 0x1488: the continuation 0x1800600b6 returns [rsp+0x840] = local_c48, set to 0 before the only throw of the try
+    FUN_180053920((undefined8)(uintptr_t)_eh.obj, (undefined4 *)_eh.obj);
+    return 0;
+
+@18025bc20 Catch@18025bc20 n64dll_all.c L285681 (FUN_180074120 L57213): report, return 0
+#  S = 0x2b58: the continuation returns [rsp+0x1040] = local_1b18, set to 0 on entry and not changed
+    FUN_180053920((undefined8)(uintptr_t)_eh.obj, (undefined4 *)_eh.obj);
+    return 0;
+
+@18025c590 Catch@18025c590 n64dll_all.c L286297 (FUN_180094f80 L71547): report, clear the two objects' +0xc
+#  S = 0x1468: continuation 0x1800950f2..0x180095145 clears +0xc of DAT_1802b7920 and, when param_1 == 0x11 ([rsp+0x1470]
+#  = param_1's home slot), of DAT_1802b7930 - the same statements end the function's normal path
+    FUN_180053920((undefined8)(uintptr_t)_eh.obj, (undefined4 *)_eh.obj);
+    if (TS_G(longlong, 0x1802b7920ULL) != 0) *(undefined4 *)(TS_G(longlong, 0x1802b7920ULL) + 0xc) = 0;
+    if (param_1 == 0x11 && TS_G(longlong, 0x1802b7930ULL) != 0) *(undefined4 *)(TS_G(longlong, 0x1802b7930ULL) + 0xc) = 0;
+    return;
+
+@18025c840 Catch@18025c840 n64dll_all.c L286468 (FUN_180096f60 L72546): report, return 0
+#  S = 0x41b8: the continuation 0x180097806 returns [rsp+0x2060] = local_2158, set to 0 before the try block, not changed
+    FUN_180053920((undefined8)(uintptr_t)_eh.obj, (undefined4 *)_eh.obj);
+    return 0;
+
+@18025cf00 INLINE Catch@18025cf00 n64dll_all.c L286880 (FUN_1800bf170 L91509): see patches.txt
