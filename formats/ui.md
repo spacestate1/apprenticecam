@@ -293,26 +293,127 @@ mccore_tempmid.c + mccore_tempmid_at.c (Temporary Center Point / Temporary Midpo
       0xc4, mask 0); glow: {select rgb, ff, 1, 7}. The colours are read when InitStippleData runs (Wd_colors).
   - **Which faces get the flags**: MaintainGrRenderSurface (0x180322560): visibility, render mode (render_cfg 1 -> 6, 2 -> 8 /
     0x17, 3 -> 1, 4 -> 3), SetGrRenderSelected(arg) (vtable +0x180, bit 2), SetGrRenderAutoHighlighted(the render is the
-    auto-highlighted node DAT_1809a0c38's) (bit 1), SetGrRenderColor(colour; with glow the entity's own). Callers:
-    FUN_18031f620 (the repaint's per-entity loop: the real selected bit `ent+4 >> 2 & 1`, colour = find_color(own) or
-    auto_highlight_color for the hovered node) - but NOT for surfaces in render_cfg 4 (bVar13 = class 0x100 and render_cfg 4);
-    FUN_180229d90 (dl_draw FUN_18032b420 -> here in render_cfg 3 / 4: FUN_18032ff40 returns 1) with selected =
-    `(ent+4 & 4) == 1` (0x180229f0f: AND AL,4; CMP AL,1; SETZ - never true) and the drawing colour. So in render_cfg 4 (Alt+S
-    Outline Shaded = this program's solid_mode 1): hover = FUN_180205690 draw_ent_forced(ent, auto_highlight_color, true) ->
-    colour ahl + flag 1 (the repaint FUN_1801dbc80 sets the flag again before the GAF draw) -> list 0; selection =
-    draw_ent(ent, select_color, false) -> colour select, no flag -> the face lit in the select colour. In render_cfg 3
-    (Shaded) the repaint sets Selected from the entity -> list 1.
+    auto-highlighted node DAT_1809a0c38's) (bit 1), SetGrRenderColor(colour; with glow the entity's own). **Corrected 2026-11-18
+    (S-16)**: the first write-up took the flags from the per-entity loop FUN_18031f620 (Outline Shaded: skipped for surfaces;
+    "Shaded: Selected from the entity") and from draw_ent's FUN_180229d90 (selected `(ent+4 & 4) == 1`, 0x180229f0f, never true; colour
+    = the draw colour: hover ahl, selection select_color) - but FUN_18031f620 never reaches a surface in either shaded mode
+    (render_cfg 3: display_ent_wireframe false; 4: bVar13), and every repaint FUN_1801dbc80 sets the flags again before it draws the
+    GAF scene: FUN_18031f5c0 (0x1801dbeed) -> gl_Shade 0x1802252e0 -> FUN_1802298b0(0) -> MaintainGrRenderSurface(ent, render,
+    **selected = the entity's selected bit**, colour = find_color(own, the selected bit stripped with StippleHighlight) = **the entity's
+    own colour**), AutoHighlighted on the hovered node's render (MaintainGrRenderSurface's FUN_1802059d0 test, and FUN_1801dbc80 after
+    FUN_1801bec50). The main GAF scene is drawn only inside FUN_1801dbc80 (callers of FUN_1801be830 / FUN_1801bcb90), so every frame
+    shows these flags, in Shaded and Outline Shaded alike (formats/ui.md "Shaded vs Outline Shaded"). The look per flag state
+    (GetStippleIdx 0x10e926d0: the lowest flag bit -> material 1 / 2 -> its stipple list; GetMaterialIdx 0x10e927c0: material 0 = the
+    render's own UtRender):
+    - hovered (AutoHighlighted), StippleHighlight: list 0 = lit in the own material with the flag bit stripped = **the entity's colour**,
+      flat black alpha 0x40, flat auto_highlight_color alpha 0x80 through mask 0;
+    - hovered + selected: list 0, the first pass with bit 1 stripped -> Selected left -> material 2 = **select_color** lit, then the
+      same black 0x40 and auto_highlight_color 0x80 dots;
+    - selected only: list 1 = lit in select_color, **flat black alpha 0xc4 through mask 0**;
+    - config 4053 n (stipple index -1): no list, the face lit in material 1 (auto_highlight_color) / 2 (select_color) of the lowest flag.
   - **Ported** (scene.c `scene_srf_look` + the mesh shader's `flatc` / `stip` / `smask`, core_ui cui_overlay.c `cui_ent_hl`,
-    config 4053 `cfg_stipple_hl`): solid_mode 1 only; a hovered surface = lit in config 5000's colour, then flat black alpha
-    0x40, then flat config 5000 alpha 0x80 through mask 0 (gl_FragCoord-indexed, the glPolygonStipple bit order), GL_LEQUAL
-    for the passes; config 4053 n = the lit face only; a selected (or picked) surface = lit in config 5033's colour. Test:
-    srf_scenes.txt srf_hl_* (step `srfhl`).
+    config 4053 `cfg_stipple_hl`): solid_mode 1 (both shaded modes) as listed above; the flagged faces (hovered or selected) drawn after
+    the others; mask 0 gl_FragCoord-indexed (the glPolygonStipple bit order), GL_LEQUAL for the passes. A picked surface counts as
+    selected (ours, as before). Test: srf_scenes.txt srf_hl_* (step `srfhl`: look = autohl / selected / autohl-selected, -stipple).
+    Before S-16 a hovered surface was lit in config 5000's colour and a selected one only recoloured (no dots) - corrected.
   - NOT DECODED / not ported: the translucent display (the pipe's alpha scaling +0x2f4 / +0x2f8), Glow type 1 / 2 (the glow
     shaders OglGlow1 / 2ShaderOp), solids' faces / bodies (sld_draw paths, FUN_1800bc970; the GAF solid's flags are the same
-    pipe), meshes (GrPolygonalMesh), render_cfg 3 as its own mode (this program has one shaded mode = 4: the Shaded button's
-    list 1 look is decoded above but has no mode to show in), the colour of a hovered surface after the hover ends while it is
-    selected (FUN_180204f00 not read; ours: the selection look again), what the hovered + selected face looks like in
-    render_cfg 3 (pass 0 = material 2, the select colour, by the flag stripping - decoded, not reachable here).
+    pipe), meshes (GrPolygonalMesh), the frames between a draw_ent and the next repaint (FUN_180229d90's colour / flags would show only
+    if the GAF scene were drawn without FUN_1801dbc80, which no caller does).
+- **Shaded vs Outline Shaded** (S-15, 2026-11-18; dumps decomp/shade15/: handlers.c (the commands), repaint.c (the repaint's helpers,
+  MaintainGrRenderSurface, FUN_180229d90), glshade.c (gl_Shade), gr_vis.c / gr_propset.c / gr_vt.txt / gr_mem.txt (gafgr GrRender /
+  GrObject), callers.txt, refs.txt, f620.asm, mem.txt; S-16 / S-17: gr_push.c (GrPipe::Draw, CreateDfltProperties, UpdateProperties),
+  gr_mat.c (GetStippleIdx / GetMaterialIdx / PrepTriangleState), ogl_vt.txt (GrOGLPipe vtable), srfrender.c (FUN_180136510,
+  AddGrPropSets)):
+  - **The commands** (mastercam.dll): the status bar's buttons (IDR_BCGP_IMAGE_STATUS_GROUP_5) post FT commands - OnStatusDisplayWireAll
+    0x1804718a0 -> "OnShadeWire", OnStatusDisplayShadedOutlined 0x180471840 -> "OnShadeShadedOutline", OnStatusDisplayShadedAll
+    0x1804717e0 -> "OnShadeShaded" (post_FT_command, module "Mastercam"); the View tab's buttons (layout.txt 53765..53775) are those FT
+    commands. OnShadeShaded 0x180471490 / OnShadeShadedOutline 0x180471510 / OnShadeWire 0x180471660 = DoShadeShaded(1) 0x18046d440 /
+    DoShadeShadedOutline(1) 0x18046d540 / DoShadeWire(1) 0x18046d680 + update_graphics. DoShadeShaded: gl_shading_on (gl_flags_on
+    gl_shade_all, NotifyUserApp 0x27 when it was off), **render_cfg = 3, LastShadedMode = 3**, ps_del_lists, InitStippleData - no display
+    list rebuild. DoShadeShadedOutline: render_cfg != 4 -> FUN_180130520(0) (clear the surfaces' dl nodes) ... FUN_180130af0 (rebuild),
+    **render_cfg = 4, LastShadedMode = 4**. DoShadeWire: render_cfg == 4 -> the same clear / rebuild; gl_shading_on 0, render_cfg =
+    (RENDER_CFG +8 & 4 ? 2 : 1), LastWireFlags = +8 & ~2 | 1 (Dimmed 0x18046d7d0: render_cfg 2, flags | 3; No Hidden 0x18046d8f0:
+    render_cfg 2, flags & ~3). Check states (OnUpdateDisplay*): ShadedAll 0x1804724a0 render_cfg == 3, ShadedOutlined 0x1804724c0 == 4,
+    WireAll 0x1804724e0 == 1, Dimmed / Hidden == 2 with +8 bit 2 set / clear. **OnShadeToggle** (Alt+S, 0x180471590): render_cfg 1 / 2
+    -> LastShadedMode != 4 ? OnShadeShaded : DoShadeShadedOutline; 3 / 4 -> LastWireFlags bit 0 clear ? DoShadeWireHidden : bit 1
+    clear ? OnShadeWire : DoShadeWireDimmed. **OnShadeTranslucentToggle** 0x1804715f0: only with gl_shading_on, flips
+    gl_fulltime_translucent (kept through the wireframe modes); OnUpdateShadeTranslucentToggle 0x1804727d0: enabled with render_cfg > 2,
+    checked = gl_fulltime_translucent.
+  - **Persistence**: no config key - the user's mcamx.config has 8000..8006 / 8022..8034 and nothing for RENDER_CFG +0. LastShadedMode
+    (0x1808a2838, .data **3**) is written only by DoShadeShaded / DoShadeShadedOutline and by mccore's ReadCfgFile, which copies
+    render_cfg's mode into it (and RENDER_CFG +8 into LastWireFlags, .data 0) after reading the configuration
+    (decomp/units/core_cfgcallers.c:254); render_cfg's .data mode is 4 (mcgeomsld export 0x1803b9c50, formats/extrude.md). Which
+    DoShade* runs at start-up and whether the mode is saved anywhere else (registry, the part file) is NOT DECODED.
+  - **What differs in the drawing** (both modes have gl_shading_on and gl_shade_all = 1, so every shaded-surface rule below holds):
+    - **Surfaces' wireframe**: display_ent_wireframe 0x18032fed0 -> FUN_18032ff50 = `render_cfg == 4` under gl_shade_all. So in
+      **Shaded** the repaint's per-entity loop FUN_18031f620 and the no-dl repaint FUN_1801d71d0 skip surfaces and draw_ent_nolist takes
+      FUN_180229d90 (the GAF face only): **no surface lines at all**. In **Outline Shaded** the loop draws the surface's display-list points
+      (the outline variant, FUN_18013a130 / FUN_18013a5e0) through FUN_180135ad0 **in surfaceEdgeColor** (0x18031f8fa..0x18031f925: class
+      0x100 and render_cfg 4 -> bVar13 -> uVar14 = surfaceEdgeColor = mastercam.dll 0x1809a0b79, config **5054** "Surface edge color?"
+      (colour dialog control 0x13be, decomp/mccore_sldchain_misc.c:54), .bss 0), set_gl_width(width, true, bVar13); case 8 of
+      FUN_180135ad0: FUN_18013cf90 with surf_back_draw off in render_cfg 4. (Before S-15 this program drew that outline in the entity's
+      colour - corrected.) dl_draw FUN_18032b420 (0x18032b5a2..) sends a surface to FUN_180229d90 in both modes (FUN_18032ff50 false, or
+      FUN_18032ff40 = 1 and render_cfg > 2), never to FUN_180135ad0: a hovered / selected / chained surface gets **no line highlight**
+      in either shaded mode (draw_ent 0x1803312e0 takes dl_draw with dl_is_on = 1; only its no-list branch draw_ent_nolist would draw
+      the wire in render_cfg 4, FUN_18021e020). Before S-15 this program striped the surface's outline on hover / selection in Outline
+      Shaded - corrected (cui_overlay.c ov_entity). **What the outline is** (S-17): the loop draws the node's records (FUN_180135ad0 case 8
+      -> FUN_18013cf90: FUN_18013ea20 / FUN_18013edd0 hand out the polylines, each from a flag-0 record to the next), so in Outline
+      Shaded it is the node's render_cfg 4 variant: an untrimmed surface its boundary lines (FUN_18013a130, the whole range as the
+      spacing), a trimmed one **only its loops** (FUN_18013a5e0, decomp/chain_srfedge_dl2.c:75-85: render_cfg 4 and ent +0x6e bits 1 / 2
+      clear -> return 1 right after the loops, FUN_1801395e0), unless +0x6e bit 1 or 2 asks for the flowlines too. A surface whose node
+      is not built (+0x10 clear) goes to draw_ent_nolist(ent, the entity's colour) -> FUN_18021e020 (FUN_180238320 / FUN_180238ee0).
+      Ported: scene.c build_surf_wire draws the cui_srfdl.c nodes (mcsrfdl.c, oracle-checked) in Outline Shaded, else mcs_wireframe in
+      the entity's colour (before S-17: mcs_wireframe = FUN_180238ee0's loops + flowlines for a trimmed surface). A node keeps the
+      variant of the mode it was built in (the DoShade* rebuild rules), as Mastercam's does.
+    - **Solids' edges**: CallPipeOnList's draw sequence (FUN_1801c11d0): render_cfg 3 = DAT_18099fec8 = the display-list items of user
+      masks **0xc and 0x34 only** (triangles: unflagged, then flagged + stipple); render_cfg 4 = DAT_18099fea8 = 0xc, **0xa**, 0x34, **0x32**
+      (+ the line items); the other three render_cfg 4 lists (ff08 / fe08 / fe48) are render_cfg 3's (fee8 / fde8 / fe28) copied
+      (FUN_1801bc480) plus one mask 0xa item. Mask bit 2 = lines. So **Shaded draws no edges** (the GAF solids' line sets), Outline Shaded
+      does. The non-GAF sld_draw_solid (not used: UseGAFSolids = 1) agrees: its translucent outline pass (colour 0xc9) is `_render_cfg ==
+      4` only, sld_draw_solids' outline pass `_render_cfg == 4` only.
+    - **The GrRender of a surface** (MaintainGrRenderSurface 0x180322560): draw mask (vtable +0x1a8 = GrRender::SetDrawMask, +0x68; gafgr
+      DRAW_FACES 1 / EDGES 2 / RADIALS 4 / VISIBLE 8 / HIDDEN / SELECTED 0x10 at 0x10fa46c8): render_cfg 3 -> **1 (faces)**, 4 -> **3 (faces +
+      edges)**, 1 -> 6, 2 -> 8 / 0x17; SetVisibility (vtable +0xd0 = GrObject::SetVisibility 0x10ef7990: +0x61 = visible, +0x62 = the
+      second argument) with render_cfg 4 -> **1**, else **selected ? 2 : 0**. **What the value does** (S-16): GrPipe::Draw 0x10f42250
+      reads +0x62 through GetObjectVis 0x10f43670 as a prop-set index; a visible object with its own UtPropSetList (+8) takes that list
+      (else the pipe's default list, GetDfltPropSetList 0x10f42f80) and, when 0 <= index < size, UtPropSetList::GetAt(index) is pushed
+      (vtable +0x138 CreateDfltProperties 0x10e8e500, +0x140 UpdateProperties 0x10e8f400); no restore after the object. A surface's GrFace
+      has its own list: FUN_180136510 builds it (GrFace(3) + AddTriangle only) and calls AddGrPropSets 0x18031da90, MaintainGrRenderSurface
+      replaces it by SetGrRenderColor 0x180328970 (vtable +0x120) - both make the same **four prop sets** (cached per colour):
+      0 = {UtLineStyle -1, UtLineWidth 1.4, UtAlpha 0xff 0xff 0x80, UtColor(colour)}, 1 = set 0 with UtColor(RENDER_CFG +0x12 = config 8027
+      Outlined edge color), 2 = with UtColor(select_color), 3 = with UtColor(auto_highlight_color) + UtLineWidth 1.8; then
+      UtRender(colour front, surf_back_color back, FaceMode 3) into **every** set (ReplaceOrAddProperty index 0x7fffffff). So the index
+      changes only the LINE colour / width - the face's UtRender material and the alpha are the same in all four. UpdateProperties sets
+      the highlight materials 1..7 only from props 0xb..0x11 (cases 0xb..0x11 -> pipe +0x4c0.. -> materials +0x780..), which these sets
+      do not hold: the materials stay those of the view's prop set (FUN_1801ceca0). Lines of a GrFace: Draw(GrFace) 0x10e8a950 draws
+      them only with draw mask bit 2 AND edge data (+0xb8); a surface's GrFace never gets edge data (only the solids' auto-highlight
+      FUN_180259770 builds it). **So the value changes no pixel of a surface** in either mode (its line props are never used).
+    - **The highlight flags are set by the same paths in both modes** (correcting the S-15 premise above, "In render_cfg 3 (Shaded) the
+      repaint sets Selected from the entity"): (a) the per-entity loop FUN_18031f620 never reaches MaintainGrRenderSurface for a surface
+      in either mode (render_cfg 3: display_ent_wireframe false; 4: bVar13); (b) draw_ent -> dl_draw / draw_ent_nolist -> FUN_180229d90:
+      selected = `(ent+4 & 4) == 1` (never), colour = the draw colour - both modes; (c) **every repaint** FUN_1801dbc80 runs FUN_18031f5c0
+      (0x1801dbeed, before the per-entity loop and before the GAF scene +0x45d0 is drawn by FUN_1801be830) -> gl_Shade 0x1802252e0 ->
+      (gl_shade_color 1, not translucent) FUN_1802298b0(0): the shaded surfaces in two passes, the selected ones (ent+4 & 4) last, each
+      MaintainGrRenderSurface(ent, render, **selected = the entity's bit**, colour = find_color(sel bits, own colour) with the selected bit
+      stripped when StippleHighlight) - both modes; FUN_1801dbc80 then sets AutoHighlighted on the hovered node's render
+      (FUN_1802059d0). The main GAF scene is drawn only inside FUN_1801dbc80 (callers of FUN_1801be830 / FUN_1801bcb90: FUN_1801dbc80,
+      FUN_1801dadd0's +0x45d8-only path and glow passes, FUN_1801ce590), so when a frame shows the surfaces their flags are (c)'s: a
+      selected surface Selected, a hovered one AutoHighlighted with its own colour - the looks under "Shaded face highlight (GAF stipple)"
+      above, in both modes (S-16, ported).
+  - **Ported** (scene.c `shade_cfg` / `scene_shade` / `scene_shade_toggle` / `scene_translucent_toggle` / `scene_render_cfg`, mainwindow.cpp
+    status bar + View tab + Alt+S / Ctrl+T, cui_srfdl.c, config 5054 `cfg_srf_edge_color`): Shaded and Outline Shaded as two modes
+    (solid_mode 1 / 2 = shading on, opaque / translucent; shade_cfg = the render_cfg 3 / 4 = LastShadedMode); the status bar's Outline
+    Shaded button enabled, its check states and the Translucency button's enabled state as decoded; Alt+S from wireframe to the last
+    shaded mode; translucency only with shading on and kept through wireframe; Shaded: no surface lines, no solid edges; Outline
+    Shaded: the surfaces' outline (their display-list nodes: a trimmed surface's loops only) in config 5054; both: the decoded face
+    highlight (S-16) and no line highlight on a hovered / selected surface; the surfaces' display-list nodes rebuilt
+    on the DoShade* rules above and the refine rebuild skipped in render_cfg 3 (picking in wireframe after Outline Shaded -> Shaded ->
+    Wireframe uses the outline nodes, as Mastercam's would). Start-up: Outline Shaded (ours, as before). Tests: srf_scenes.txt
+    srf_hl_sh_* / srf_hl_osh_* (`shade:3|4`, `mcfn:OnStatusDisplay*`, the `srfhl` line's cfg, the shot's face / edge pixels).
+  - NOT DECODED / not ported: the Dimmed / No Hidden wireframes (render_cfg 2) and so Alt+S's
+    LastWireFlags choice (plain Wireframe here), the start-up mode and its persistence, set_gl_width's third argument (the outline width
+    rule), the translucent display's alpha, Glow types.
 - **AutoCursor snap** (`geo_snap`, core_ui/cui_snap.c, moved from mcamui.c): the decoded pass order of FUN_1804e1bb0 (decomp/mccore_autocursor2.c:381-800):
   1. **Tangent** (dl_search_fast_tpn, decomp/mastercam_dlsearch_tpn.c): needs the rubber-band anchor; with a line-like
      rubber band (types {0,17,35}) lines are refused (FUN_180131c50:604-609); never on the anchor's own entity

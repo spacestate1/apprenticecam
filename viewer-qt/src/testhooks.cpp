@@ -342,8 +342,8 @@ void runScript(MainWindow *w, const QString &script) {
                        S->rec[4] | S->rec[5] << 8, e >= 0 && e < F.nents && !F.ents[e].type ? "deleted " : "", S->blanked ? "blanked " : "", S->edited ? "edited" : ""); }
         }
         else if (st == "srfhl") {                                                                    /* ours (tests): the shaded face highlight of each surface (scene.c scene_srf_look), the hovered entity */
-            static const char *lk[] = { "none", "selected", "autohl", "autohl-stipple" };
-            printf("      srf hl hover %d mode %d stipple %d\n", hover_ent, solid_mode, cfg_stipple_hl);
+            static const char *lk[] = { "none", "autohl", "selected", "autohl-selected", "none", "autohl-stipple", "selected-stipple", "autohl-selected-stipple" };
+            printf("      srf hl hover %d mode %d cfg %d stipple %d\n", hover_ent, solid_mode, scene_render_cfg(), cfg_stipple_hl);
             for (int i = 0; i < F.nsurfs; i++) { int l = scene_srf_look(i); if (l) printf("      srf hl %d ent %d look %s\n", i, F.surfs[i].ent, lk[l]); }
         }
         else if (st == "ents") {                                                                     /* the live geometry (mcamui) */
@@ -406,7 +406,7 @@ void runScript(MainWindow *w, const QString &script) {
                 printf("    screen %s -> %d,%d\n", arg.toUtf8().constData(), g.x(), g.y()); }
         }
         else if (st == "view" && !arg.isEmpty()) { view_std_animated(arg.toInt()); w->view()->redraw(); }   /* view:1..7 = the standard views (7 = Isometric) */
-        else if (st == "shade" && !arg.isEmpty()) { solid_mode = arg.toInt(); w->refreshAll(); }       /* shade:0|1|2 - the status bar shading mode */
+        else if (st == "shade" && !arg.isEmpty()) { int k = arg.toInt(); if (k >= 3) scene_shade(k); else solid_mode = k; w->refreshAll(); }   /* shade:0|1|2 - solid_mode; shade:3|4 - Shaded / Outline Shaded (scene_shade) */
         else if (st == "fit") { view_fit(0); w->view()->redraw(); }
         else if (st == "tab" && !arg.isEmpty()) w->setTabByName(arg);                                 /* ours: tab:View raises a ribbon tab */
         else if (st == "mgr" && !arg.isEmpty()) w->setManagerTab(arg.toInt());                       /* ours: mgr:0..4 = Toolpaths .. Recent Functions */

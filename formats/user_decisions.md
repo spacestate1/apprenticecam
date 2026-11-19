@@ -571,3 +571,18 @@ searched. Reuse the other agent's surface-pick (u, v) decode. P-5: port the soli
 - PUB-3 (2026-11-18) The README screenshots: the user's three manual screenshots (pocket High Speed, Verify simulator, block
   Contour + High Speed; taken with the icon pack from their own Mastercam install, so Mastercam's icons are visible - the user's
   choice after being told) plus the buckle top view (stand-in icons). The README says so; it no longer claims "no Mastercam artwork".
+
+## 2026-11-18 (solids on OpenCASCADE: formats/occt_3d_plan.md "Questions for the user")
+- SOL-1 New / modified solids are written into the part as Mastercam does: Parasolid XT (an OCCT -> XT writer, formats/occt_xt.md)
+  plus the solid's op history (McOpsFile, formats/solid_history.md), every op record decoded - no history-less stand-ins.
+- SOL-2 Parametric history as Mastercam: ops can be edited and the solid regenerates (replay).
+- SOL-3 Extrude moves from solid25.c to OCCT (one kernel for all solids); changes to existing output are checked by the regression.
+- SOL-4 Order: first the save path (XT writer + history + Extrude on OCCT), then Boolean and Fillet / Chamfer; later STL transform /
+  export, Model Prep, the remaining surfaces.
+- S-16 (2026-11-18, shaded face highlight, branch worktree-agent-a3a78fff9d3870e2a) Decode the per-mode value MaintainGrRenderSurface
+  passes (Outline Shaded 1; Shaded selected ? 2 : 0) fully first - what gafgr does with it, whether it changes any pixels. Then switch
+  BOTH modes to the decoded highlight look: selected surface = lit select colour + flat black alpha 0xc4 through mask 0; hovered = lit in
+  the entity's own colour, black 0x40, config 5000 colour 0x80 through mask 0 - plus whatever the per-mode value changes. Correct
+  formats/ui.md where the earlier write-up was wrong; re-bless the affected srf_hl_* and shade scenes, explaining each changed .px.
+- S-17 (2026-11-18, same branch) In Outline Shaded, draw only the trim loops of a trimmed surface (not its flowlines), as Mastercam does -
+  only with the decompiled code cited; if the exact rule is not decodable, report it instead.

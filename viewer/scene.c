@@ -9,6 +9,7 @@
 #include "scene.h"
 #include "toollib.h"
 #include "xt_mesh.h"
+#include "mcsrfdl.h"
 #include "occt_mesh.h"
 #include "occt_cad.h"
 #include "mcsurf.h"
@@ -205,6 +206,26 @@ void grid_round(double *x, double *y) {    /* sel_grid_search: nearest multiple 
     if (grid.dy > 1e-9) *y = grid.oy + floor((*y - grid.oy) / grid.dy + 0.5) * grid.dy;
 }
 int solid_mode = 1;                               /* 0 off, 1 opaque, 2 translucent; config 6030 Translucent? n -> opaque */
+/* S-15 (formats/ui.md "Shaded vs Outline Shaded"): which shaded display solid_mode 1 / 2 is = mastercam.dll render_cfg (RENDER_CFG +0):
+   3 = Shaded (DoShadeShaded 0x18046d440), 4 = Outline Shaded (DoShadeShadedOutline 0x18046d540); both also set LastShadedMode
+   (0x1808a2838), which this value keeps while the display is wireframe (OnShadeToggle 0x180471590 reads it). Start-up: ours, Outline
+   Shaded as before (mccore's ReadCfgFile copies render_cfg's mode into LastShadedMode, decomp/units/core_cfgcallers.c:254; mcgeomsld's
+   render_cfg .data mode is 4; the start-up order of the first DoShade* is NOT DECODED). shade_transl = gl_fulltime_translucent: kept
+   while the display is wireframe (DoShadeWire leaves it; OnShadeTranslucentToggle 0x1804715f0 flips it only with gl_shading_on). */
+int shade_cfg = 4, shade_transl;
+int scene_render_cfg(void) { return solid_mode ? shade_cfg : 1; }   /* the Dimmed / No Hidden wireframes (render_cfg 2) are not ported */
+/* OnShadeWire / OnShadeShaded / OnShadeShadedOutline (cfg 1 / 3 / 4): the display mode, translucency kept */
+void scene_shade(int cfg) {
+    if (solid_mode) shade_transl = solid_mode == 2;
+    if (cfg < 3) { solid_mode = 0; return; }
+    shade_cfg = cfg; solid_mode = shade_transl ? 2 : 1;
+}
+/* OnShadeToggle (Alt+S, 0x180471590): wireframe -> LastShadedMode 4 ? Outline Shaded : Shaded; shaded -> the wireframe of LastWireFlags
+   (bit 0 clear -> DoShadeWireHidden, bit 1 clear -> DoShadeWire, else DoShadeWireDimmed; LastWireFlags .data 0, ReadCfgFile copies
+   RENDER_CFG +8 into it - its default NOT DECODED, and Dimmed / No Hidden are not ported: plain Wireframe, as before) */
+void scene_shade_toggle(void) { scene_shade(solid_mode ? 1 : shade_cfg == 4 ? 4 : 3); }
+/* OnShadeTranslucentToggle: only with shading on */
+void scene_translucent_toggle(void) { if (!solid_mode) return; solid_mode = solid_mode == 2 ? 1 : 2; shade_transl = solid_mode == 2; }
 int scene_force_mesh;                             /* mcamui sets it while the Extrude panel is up: the preview is drawn
                                                      shaded even in Wireframe display (formats/extrude.md sec. 3; how the
                                                      original shades the preview in wireframe mode is NOT DECODED - ours) */
@@ -216,7 +237,7 @@ static int *solid_tfirst, *solid_tn, solid_nmeshed;   /* per F.solids[i] at the 
 /* the surface entities' display mesh (mesh_surfs below) */
 static float *surf_tri, *surf_seg; static int surf_ntri, surf_nseg, *surf_tfirst, *surf_tn, surf_nmeshed, surf_nskip;
 static GLuint svao, svbo, sevao, sevbo; static int surf_up;
-static double surf_wire_wk; static int surf_wire_mode = -1;   /* build_surf_wire's last view height / mode */
+static double surf_wire_wk; static int surf_wire_mode = -1, surf_wire_dlgen = -1;   /* build_surf_wire's last view height / mode */
 static int *surf_sfirst, *surf_sn, surf_nwired, surf_wire_gl;               /* each surface's first segment / count in surf_seg (build_surf_wire) */
 static int surf_shown(int i);
 static int surf_color(int i);
@@ -269,6 +290,8 @@ const unsigned char MC_PALETTE[256][3] = {
     {51,0,51}, {51,0,0}, {0,0,204}, {0,0,170}, {0,0,153}, {0,0,102}, {0,0,64}, {0,0,51} };
 /* colour numbers from the user's Mastercam configuration (mcamxm.config [COLORS]); mcamui reads them at start-up */
 int cfg_feed_color = 159, cfg_rapid_color = 14, cfg_solid_color = 8, cfg_geom_color = 1;   /* 5045, 5046, 5052, 5027 */
+int cfg_srf_edge_color = 0;   /* 5054 "Surface edge color?" = surfaceEdgeColor (mastercam.dll 0x1809a0b79, .bss 0; the colour dialog's control
+                                0x13be, decomp/mccore_sldchain_misc.c:54): the surfaces' outline in Outline Shaded (build_surf_wire) */
 int cfg_outline_color = 0;   /* 8027 "Outlined edge color?" = RENDER_CFG +0x12 (mcgeomsld export render_cfg 0x1803b9c50, .data default 0;
                                 its neighbours 8024 / 8025 / 8026 match +0xc 66 / +0x10 10 / +0x11 10) */
 void mc_col(int idx, float *c) { idx &= 255; for (int k = 0; k < 3; k++) c[k] = MC_PALETTE[idx][k] / 255.0f; }
@@ -385,6 +408,8 @@ void scene_take_stock_mesh(float *v, int n, const float rgba[4]) {
 void (*scene_part_changed)(void);
 void (*scene_upload_hook)(void);
 void (*scene_draw_hook)(void);
+int (*scene_srfdl_pts)(int i, const void **rec);
+int scene_srfdl_gen;
 int scene_part_gen;
 void (*scene_part_closing)(void);
 void (*scene_fit_extra)(void (*acc)(void *u, double x, double y, double z), void *u);
@@ -406,21 +431,38 @@ int scene_surf_skipped(void) { return surf_nskip; }
    spacing, which follows the view (get_wk_height, the pixels per unit); in the shaded modes the outline variant (render_cfg 4:
    untrimmed surfaces their boundary, trimmed ones their loops and flowlines). Rebuilt when the mode changes or the view height has
    changed by more than 1.5 x since the last build (ours: Mastercam rebuilds its display lists on its own events). The system
-   tolerance tol = config 1000's default 5e-5 (formats/qt_port_plan.md). Colour: the entity's (find_color). */
+   tolerance tol = config 1000's default 5e-5 (formats/qt_port_plan.md). Colour: wireframe the entity's (find_color); Outline Shaded
+   surfaceEdgeColor = config 5054 (the repaint's per-entity loop FUN_18031f620: a surface in render_cfg 4 -> bVar13 -> FUN_180135ad0
+   with surfaceEdgeColor, 0x18031f8fa..0x18031f925). Shaded (render_cfg 3): none - display_ent_wireframe 0x18032fed0 -> FUN_18032ff50
+   (gl_shade_all: render_cfg == 4) is false, so the loop and FUN_1801d71d0 skip surfaces and draw_ent_nolist takes FUN_180229d90 (the
+   shaded face only). mode: 0 wireframe, 1 outline, 2 none.
+   Outline Shaded (S-17): what the loop draws is the surface's display-list node (FUN_180135ad0 case 8 -> FUN_18013cf90: the records'
+   polylines, each from a flag-0 record to the next) - the render_cfg 4 variant when the node was built in render_cfg 4: an untrimmed
+   surface its boundary (FUN_18013a130), a trimmed one ONLY its loops (FUN_18013a5e0, decomp/chain_srfedge_dl2.c:75-85: render_cfg 4
+   and ent +0x6e bits 1 / 2 clear -> return after FUN_1801395e0), cui_srfdl.c keeps them (mcsrfdl.c, oracle-checked). A surface whose node
+   is not built goes to draw_ent_nolist (FUN_18031f620: local_2a00[0x10] == 0) -> FUN_18021e020 = mcs_wireframe in the entity's colour. */
 static void build_surf_wire(void) {
-    int mode = solid_mode != 0;
-    if (surf_wire_mode == mode && surf_wire_wk > 0 && vht / surf_wire_wk < 1.5 && surf_wire_wk / vht < 1.5) return;
-    surf_wire_mode = mode; surf_wire_wk = vht;
+    int mode = solid_mode == 0 ? 0 : shade_cfg == 4 ? 1 : 2;
+    if (surf_wire_mode == mode && surf_wire_wk > 0 && vht / surf_wire_wk < 1.5 && surf_wire_wk / vht < 1.5 && (mode != 1 || surf_wire_dlgen == scene_srfdl_gen)) return;
+    surf_wire_mode = mode; surf_wire_wk = vht; surf_wire_dlgen = scene_srfdl_gen;
     free(surf_seg); surf_seg = NULL; surf_nseg = 0;
     free(surf_sfirst); free(surf_sn); surf_sfirst = calloc(F.nsurfs ? F.nsurfs : 1, sizeof(int)); surf_sn = calloc(F.nsurfs ? F.nsurfs : 1, sizeof(int)); surf_nwired = F.nsurfs;
     double xs = view_h > 0 && vht > 0 ? view_h / vht : 1.0;
     int cap = 0;
     for (int i = 0; i < F.nsurfs; i++) {
         surf_sfirst[i] = surf_nseg;
-        if (!surf_shown(i) || !surf_tn || i >= surf_nmeshed || !surf_tn[i]) continue;
-        float *p = NULL; int *cnt = NULL, np = 0;
-        mcs_wireframe(&F, &F.surfs[i], mode, vht, xs, xs, 5e-5, &p, &cnt, &np);
-        float c[3]; mc_col(surf_color(i), c);
+        if (mode == 2 || !surf_shown(i) || !surf_tn || i >= surf_nmeshed || !surf_tn[i]) continue;
+        float *p = NULL; int *cnt = NULL, np = 0, dl = 0;
+        const void *rv = NULL; int nr = mode == 1 && scene_srfdl_pts ? scene_srfdl_pts(i, &rv) : 0;
+        if (nr > 0) {                                /* the node's records as polylines (a flag-0 record starts one) */
+            const SdlRec *r = rv; dl = 1;
+            p = malloc((size_t)nr * 3 * sizeof(float)); cnt = malloc((size_t)nr * sizeof(int));
+            for (int k = 0; k < nr; k++) {
+                if (k == 0 || r[k].flag == 0) cnt[np++] = 0;
+                memcpy(p + 3 * k, r[k].p, 12); cnt[np - 1]++;
+            }
+        } else mcs_wireframe(&F, &F.surfs[i], mode, vht, xs, xs, 5e-5, &p, &cnt, &np);
+        float c[3]; mc_col(dl ? cfg_srf_edge_color : surf_color(i), c);
         int at = 0;
         for (int k = 0; k < np; k++) {
             for (int q = 0; q + 1 < cnt[k]; q++) {
@@ -465,22 +507,20 @@ static void mesh_one_surf(int i, double defl) {
     free(t);
 }
 static int surf_color(int i) { int e = F.surfs[i].ent; return e >= 0 && e < F.nents ? F.ents[e].color : F.surfs[i].color; }   /* the entity's (a colour change here) */
-/* how surface i's face is drawn highlighted (see stipple_mask0): 0 = not, 1 = selected, 2 = auto-highlighted (one pass), 3 =
-   auto-highlighted with the stipple list's passes. Only the opaque shaded display: solid_mode 1 = render_cfg 4 (formats/chaining.md
-   "srfdl"); the translucent one (GrOGLPipe's alpha scaling, this[0x2f8]) is not ported. In render_cfg 4 the repaint's per-entity
-   loop FUN_18031f620 leaves surfaces out of MaintainGrRenderSurface (bVar13: class 0x100 and render_cfg 4), so the GrRender is
-   what the last single draw made it: draw_ent -> dl_draw FUN_18032b420 -> FUN_180229d90 (FUN_18032ff40 returns 1) ->
-   MaintainGrRenderSurface(ent, render, (sel & 4) == 1, colour) - that compare (0x180229f0f AND AL,4; CMP AL,1) is never true,
-   so the Selected flag is never set there:
-   - auto-highlighted: FUN_180205690 draw_ent_forced(ent, auto_highlight_color, true) -> colour auto_highlight_color, flag 1
-     (the render is DAT_1809a0c38's; the repaint FUN_1801dbc80 sets it again before the GAF draw) -> list 0 (StippleHighlight)
-     or material 1 = a lit face in auto_highlight_color (no stipple);
-   - selected: draw_ent(ent, select_color, false) (the selecting commands) -> colour select_color, no flag -> lit in select_color. */
+/* how surface i's face is drawn highlighted (S-16, formats/ui.md "Shaded vs Outline Shaded"): bit 0 = the GrRender's AutoHighlighted
+   flag, bit 1 = its Selected flag, bit 2 = StippleHighlight (config 4053); 0 = not flagged. The flags the frame shows are the repaint's
+   (both shaded modes alike): FUN_1801dbc80 -> FUN_18031f5c0 -> gl_Shade 0x1802252e0 -> FUN_1802298b0 -> MaintainGrRenderSurface
+   0x180322560 with Selected = the entity's selected bit and the colour find_color(own; the selected bit stripped with StippleHighlight)
+   = the entity's own colour, AutoHighlighted on the hovered node's render (MaintainGrRenderSurface, and FUN_1801dbc80 after
+   FUN_1801bec50). The GAF scene is drawn only after that, inside FUN_1801dbc80. MaintainGrRenderSurface's SetVisibility index (render_cfg
+   4: 1; 3: selected ? 2 : 0) picks one of the render's four prop sets (AddGrPropSets 0x18031da90 / SetGrRenderColor 0x180328970), which
+   differ only in the line colour / width; the face's UtRender is the same in all four and a surface's GrFace has no edge data, so no
+   pixel changes. Only the opaque shaded display; the translucent one (GrOGLPipe's alpha scaling, this[0x2f8]) is not ported. */
 int scene_srf_look(int i) {
     if (solid_mode != 1 || !scene_ent_hl || !surf_shown(i)) return 0;
     int e = F.surfs[i].ent; if (e < 0 || e >= F.nents) return 0;
-    int hl = scene_ent_hl(e);
-    return hl & 1 ? (scene_hl_stipple ? 3 : 2) : hl & 2 ? 1 : 0;
+    int hl = scene_ent_hl(e) & 3;
+    return hl ? hl | (scene_hl_stipple ? 4 : 0) : 0;
 }
 static int surf_shown(int i) { return i >= 0 && i < F.nsurfs && !F.surfs[i].blanked && !F.surfs[i].off && mcam_level_visible(&F, F.surfs[i].level); }   /* Surf.off: deleted / hidden
                                                        here; a hidden level: FUN_18021e020's LevelData::isVisible (mcam_load.h) */
@@ -1176,27 +1216,38 @@ void draw_scene(int x, int y, int w, int h) {
         else { glEnable(GL_POLYGON_OFFSET_FILL); glPolygonOffset(1, 0); }   /* a unit nearer than the solids' (1, 1): a surface lying on a
                                                                                solid face is drawn over it, not z-fighting (ours) */
         glBindVertexArray(svao);
-        /* the GAF face highlight (scene_srf_look): render_cfg 4's draw sequence (DAT_18099fea8, built by FUN_1801c11d0 0x1801c5da6..)
-           is the display-list items of user masks 0xc, 0xa, 0x34, 0x32, and Draw(GrFace) (0x10e8a950) skips a face whose
-           highlight flags (vtable +0x188, & 3) are set when the mask has bit 8 and an unflagged one when it has bit 0x10: the
-           flagged (auto-highlighted) faces are drawn after every other face, in the item with 0x20 = the stipple allowed */
+        /* the GAF face highlight (scene_srf_look): the draw sequences (FUN_1801c11d0: render_cfg 3 DAT_18099fec8 = user masks 0xc,
+           0x34; render_cfg 4 DAT_18099fea8 = 0xc, 0xa, 0x34, 0x32) and Draw(GrFace) (0x10e8a950) skips a face whose highlight flags
+           (vtable +0x188, & 3) are set when the mask has bit 8 and an unflagged one when it has bit 0x10: the flagged (auto-highlighted
+           or selected) faces are drawn after every other face, in the item with 0x20 = the stipple allowed. The passes (InitStippleData
+           FUN_1801c8440, GetStippleIdx 0x10e926d0 = the lowest flag bit -> material 1 auto-highlight / 2 select, its stipple list):
+           - StippleHighlight, AutoHighlighted (with or without Selected): list 0 = lit in the face's own material with the flag bit
+             stripped (GetMaterialIdx 0x10e927c0: Selected left -> material 2 = select_color, else the render's own UtRender = the
+             entity's colour), flat black alpha 0x40, flat auto_highlight_color alpha 0x80 through mask 0;
+           - StippleHighlight, Selected only: list 1 = lit in select_color, flat black alpha 0xc4 through mask 0;
+           - no StippleHighlight: no list, the face lit in material 1 (auto_highlight_color) / 2 (select_color) of the lowest flag. */
         for (int pass = 0; pass < 2; pass++)
         for (int i = 0; i < surf_nmeshed; i++) if (surf_tn[i] && surf_shown(i)) {
-            int look = scene_srf_look(i);
-            if ((look >= 2) != (pass == 1)) continue;
-            float c[3]; mc_col(look >= 2 ? scene_hl_colors[0] : look == 1 ? scene_hl_colors[1] : surf_color(i), c); glUniform4f(um_color, c[0], c[1], c[2], ghost ? 0.38f : 1.0f);
+            int look = scene_srf_look(i), fl = look & 3, st = look & 4;
+            if ((fl != 0) != (pass == 1)) continue;
+            int lit = !fl ? surf_color(i) : !st ? scene_hl_colors[fl & 1 ? 0 : 1] : fl & 2 ? scene_hl_colors[1] : surf_color(i);
+            float c[3]; mc_col(lit, c); glUniform4f(um_color, c[0], c[1], c[2], ghost ? 0.38f : 1.0f);
             glDrawArrays(GL_TRIANGLES, surf_tfirst[i] * 3, surf_tn[i] * 3);
-            if (look == 3) {                           /* list 0's passes 1 and 2 over the same triangles (DrawTriangles loops PrepTriangleState
+            if (fl && st) {                            /* the list's further passes over the same triangles (DrawTriangles loops PrepTriangleState
                                                           per pass): flat glColor4ubv, blended (bit 4: GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA,
                                                           the alpha != 0xff), depth-tested / written at the same polygon offset; the scene's
                                                           depth function is GL_LEQUAL (GrOGLPipe::Draw 0x10e88147), so the equal depths pass */
-                float h[3]; mc_col(scene_hl_colors[0], h);
                 glDepthFunc(GL_LEQUAL); glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); glUniform1i(um_flat, 1);
                 glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);   /* the view image keeps alpha 1 (the shot / widget paints it with its alpha; a
                                                                       window shows only RGB) */
-                glUniform4f(um_color, 0, 0, 0, 0x40 / 255.0f);
-                glDrawArrays(GL_TRIANGLES, surf_tfirst[i] * 3, surf_tn[i] * 3);
-                glUniform1i(um_stip, 1); glUniform4f(um_color, h[0], h[1], h[2], 0x80 / 255.0f);
+                if (fl & 1) {                          /* list 0: {0,0,0,0x40, ff, 0}, {ahl rgb, 0x80, 0, 0} */
+                    float h[3]; mc_col(scene_hl_colors[0], h);
+                    glUniform4f(um_color, 0, 0, 0, 0x40 / 255.0f);
+                    glDrawArrays(GL_TRIANGLES, surf_tfirst[i] * 3, surf_tn[i] * 3);
+                    glUniform1i(um_stip, 1); glUniform4f(um_color, h[0], h[1], h[2], 0x80 / 255.0f);
+                } else {                               /* list 1: {0,0,0,0xc4, 0, 0} */
+                    glUniform1i(um_stip, 1); glUniform4f(um_color, 0, 0, 0, 0xc4 / 255.0f);
+                }
                 glDrawArrays(GL_TRIANGLES, surf_tfirst[i] * 3, surf_tn[i] * 3);
                 glUniform1i(um_stip, 0); glUniform1i(um_flat, 0); glDisable(GL_BLEND); glDepthFunc(GL_LESS); glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
             }
@@ -1236,7 +1287,11 @@ void draw_scene(int x, int y, int w, int h) {
         glBindVertexArray(vfao); glDrawArrays(GL_TRIANGLES, 0, vf_n);
         glUseProgram(prog);
     }
-    if (user_nedge) {                             /* the solids' edges: sld_draw_solids draws every solid with _render_cfg 1
+    if (user_nedge && scene_render_cfg() != 3) {  /* Shaded (render_cfg 3): no edges - its GAF draw sequence DAT_18099fec8 (FUN_1801c11d0)
+                                                     has only the triangle items (user masks 0xc / 0x34), render_cfg 4's DAT_18099fea8
+                                                     adds the line items 0xa / 0x32; sld_draw_solid's translucent outline (0xc9) is for
+                                                     _render_cfg 4 only */
+                                                  /* the solids' edges: sld_draw_solids draws every solid with _render_cfg 1
                                                      (sld_draw_solid_wire FUN_1800b46b0: the solid's colour, lighting off,
                                                      depth-tested) in every display mode; the faces above are offset */
         /* colour: wireframe (_render_cfg < 3) = the solid's colour (sld_draw_solid 0x1800b3eb1: ent +6); shaded = the

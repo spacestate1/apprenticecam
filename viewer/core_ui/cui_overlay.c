@@ -127,6 +127,12 @@ void ov_entity_pat(float **pv, int *pn, int *pcap, const Ent *en, unsigned short
 void ov_entity(float **pv, int *pn, int *pcap, int e, const float rgb[3]) {
     const Ent *en = &F.ents[e];
     int style = en->ln_style & 0xff;
+    /* a surface with shading on (Shaded and Outline Shaded): no lines - dl_draw FUN_18032b420 (0x18032b5a2..) sends class 0x100 to
+       FUN_180229d90 (the GAF face's flags / colour, scene.c scene_srf_look) when FUN_18032ff50 is false (render_cfg 3) or FUN_18032ff40
+       (= 1) and render_cfg > 2 (render_cfg 4), never to FUN_180135ad0. draw_ent (0x1803312e0) takes dl_draw with display lists on
+       (dl_is_on = 1); only its no-list branch draw_ent_nolist would draw the wire in render_cfg 4 (FUN_18032ff50 true -> FUN_18021e020).
+       The outline that stays is the repaint's, in surfaceEdgeColor (FUN_18031f620). S-15, formats/ui.md "Shaded vs Outline Shaded". */
+    if (en->type == E_SURF && solid_mode != 0) return;
     if (getenv("MCAMUI_OV_DEBUG")) fprintf(stderr, "ov_entity %d ln_style %d dashed %d\n", e, en->ln_style, cfg_dashed_wire);
     if (cfg_dashed_wire) {
         int cc = 15;                                  /* the contrast colour (white, or black on a light highlight colour) */

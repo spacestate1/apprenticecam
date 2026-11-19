@@ -83,7 +83,7 @@ static void screen_colors_load(void) {
             if (sscanf(q + 1, "%d", &v) != 1) continue;
             if (key == 33008) anim_delay = v;                      /* GetAnimationDelay */
             if (key == 5007) mc_rgb(v, bg_top); else if (key == 5009) mc_rgb(v, bg_bot); else if (key == 5001) mc_rgb(v, origin_col);
-            else if (key == 5045) cfg_feed_color = v; else if (key == 5046) cfg_rapid_color = v; else if (key == 5052) cfg_solid_color = v; else if (key == 8027) cfg_outline_color = v;
+            else if (key == 5045) cfg_feed_color = v; else if (key == 5046) cfg_rapid_color = v; else if (key == 5052) cfg_solid_color = v; else if (key == 8027) cfg_outline_color = v; else if (key == 5054) cfg_srf_edge_color = v;
             else if (key == 5027) cfg_geom_color = v; else if (key == 5032) grid.color = v;
             if (key == 4023 && v >= 0) qc_mru_n = v;
         }

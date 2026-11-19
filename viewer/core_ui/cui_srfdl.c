@@ -8,10 +8,12 @@
  *    the user's hive: DAT_180876dc5 = its .data 1) and the level floor(log2((int)get_y_scr_scl)) different from DAT_1809a0148 (.data 0):
  *    FUN_180130520(1) clears the built nodes whose points' view extents (FUN_18013e1e0) meet the box of 1.5 x the view (+0x6b8 / +0x6c0
  *    centre, 0.75 x +0x758 width / +0x760 height), and when it cleared one FUN_180130af0 rebuilds every unbuilt node and the level is
- *    kept. Not for render_cfg 3 (not a mode here) / page setup / the view's +0x45a9 flag (taken clear). Here: scene_draw_hook and before
+ *    kept. Not for render_cfg 3 (Shaded) / page setup / the view's +0x45a9 flag (taken clear). Here: scene_draw_hook and before
  *    a pick (the repaint that precedes it).
- *  - DoShadeWire / DoShadeShadedOutline (0x18046d680 / 0x18046d540): switching wireframe <-> shaded (render_cfg 4) clears every node
- *    (FUN_180130520(0)) and rebuilds them (FUN_180130af0) at the view of the switch. Here: the mode is compared at each check.
+ *  - DoShadeShadedOutline (0x18046d540) when render_cfg was not 4, DoShadeWire / DoShadeWireDimmed / DoShadeWireHidden (0x18046d680 /
+ *    0x18046d7d0 / 0x18046d8f0) when it was 4: every node cleared (FUN_180130520(0)) and rebuilt (FUN_180130af0) at the view of the
+ *    switch; DoShadeShaded (0x18046d440) rebuilds none (ps_del_lists only), so the nodes keep the variant of the mode they were built
+ *    in. Here: the render_cfg is compared at each check (decomp/shade15/handlers.c).
  * The pick (select_ent_univ 0x18020f4a0 l.403-411): shading off, the entity's node built (+0x10) -> FUN_18013cbc0 on its points; not
  * built -> dist_to_surf (cui_chain.c dist_to_surf_uv). Shading on: gl_Hit_Surfs on the shading nodes (srfhit_pick below, mcglhit.c). */
 #include "core_ui.h"
@@ -24,7 +26,7 @@
 #include <math.h>
 
 typedef struct { SdlNode nd; int tried, fail; const char *why; const uint8_t *rec; uint32_t n; uint64_t h; } Node;
-static Node *nodes; static int nnodes, part_gen = -1, dl_mode = -1;
+static Node *nodes; static int nnodes, part_gen = -1, dl_cfg = -1;   /* dl_cfg: the render_cfg at the last check */
 static int dl_level;                 /* DAT_1809a0148 (.data 0) */
 #define REFINE 1                     /* DAT_180876dc5: registry "Surface outline refine" absent -> .data 1 */
 
@@ -32,7 +34,7 @@ static uint64_t fnv(const uint8_t *p, uint32_t n) { uint64_t h = 146959810393466
 static void view_now(SdlView *v) {
     v->y_scr = view_h > 0 && vht > 0 ? view_h / vht : 1.0;   /* set_parms (FUN_1801dd950): +0x770 = client height / +0x760 */
     v->x_scr = v->y_scr;                                     /* +0x768 = +0x770 / +0x780 (the pixel aspect, 1) */
-    v->wk = vht; v->render_cfg4 = solid_mode != 0; v->tol = mc_systol.tol;
+    v->wk = vht; v->render_cfg4 = scene_render_cfg() == 4; v->tol = mc_systol.tol;
 }
 static int level_now(void) { double y = view_h > 0 && vht > 0 ? view_h / vht : 1.0; unsigned u = (unsigned)(int)y; int c = 0; while ((u >>= 1) != 0) c++; return c; }
 static void vm_now(double vm[6]) { for (int k = 0; k < 6; k++) vm[k] = vmat[k]; }
@@ -42,12 +44,13 @@ static void build(int i) {
     q->tried = 1; q->rec = F.surfs[i].rec; q->n = F.surfs[i].n; q->h = fnv(q->rec, q->n);
     const char *why = NULL; int r = sdl_build(&F, &F.surfs[i], &v, &q->nd, &why);
     q->fail = r < 0; q->why = why;
+    scene_srfdl_gen++;                 /* the Outline Shaded outline is drawn from the nodes (scene.c build_surf_wire) */
 }
 static void reset(void) { for (int i = 0; i < nnodes; i++) sdl_free(&nodes[i].nd); free(nodes); nodes = NULL; nnodes = 0; }
 /* store_ent_dl / FUN_18032d870: nodes for the surfaces that have none (a new part: all) at the current view */
 static void store_sync(int chk) {   /* chk: also the records changed since (the upload hook) */
     if (part_gen != scene_part_gen) { reset(); part_gen = scene_part_gen; }
-    if (dl_mode < 0) dl_mode = solid_mode != 0;
+    if (dl_cfg < 0) dl_cfg = scene_render_cfg();
     if (nnodes < F.nsurfs) { nodes = realloc(nodes, sizeof *nodes * (size_t)F.nsurfs); memset(nodes + nnodes, 0, sizeof *nodes * (size_t)(F.nsurfs - nnodes)); nnodes = F.nsurfs; }
     for (int i = 0; i < F.nsurfs; i++) {
         Node *q = &nodes[i];
@@ -60,15 +63,15 @@ static void rebuild_unbuilt(void) { for (int i = 0; i < nnodes; i++) if (node_ok
 /* the repaint's checks (see the top) */
 static void repaint_sync(void) {
     store_sync(0);
-    int mode = solid_mode != 0;
-    if (mode != dl_mode) {             /* DoShadeWire / DoShadeShadedOutline: FUN_180130520(0) then FUN_180130af0 */
-        int any = 0;
-        for (int i = 0; i < nnodes; i++) if (node_ok(i) && nodes[i].tried) { any = 1; if (nodes[i].nd.built) nodes[i].nd.built = 0; }
-        dl_mode = mode;
+    int cfg = scene_render_cfg();
+    if (cfg != dl_cfg) {               /* DoShadeShadedOutline from render_cfg != 4, DoShadeWire* from 4: FUN_180130520(0) then FUN_180130af0 */
+        int any = 0, re = (cfg == 4) != (dl_cfg == 4) && cfg != 3;
+        if (re) for (int i = 0; i < nnodes; i++) if (node_ok(i) && nodes[i].tried) { any = 1; if (nodes[i].nd.built) nodes[i].nd.built = 0; }
+        dl_cfg = cfg;
         if (any) rebuild_unbuilt();
     }
     int lv = level_now();
-    if (REFINE && lv != dl_level) {    /* FUN_180130520(1) */
+    if (REFINE && cfg != 3 && lv != dl_level) {    /* FUN_180130520(1) */
         double vm[6], W = view_h > 0 ? vht * view_w / view_h : vht, cx = vcx, cy = vcy, hw = W * 0.75, hh = vht * 0.75; int any = 0;
         vm_now(vm);
         for (int i = 0; i < nnodes; i++) {
@@ -81,7 +84,11 @@ static void repaint_sync(void) {
 }
 static void hook_upload(void) { store_sync(1); }
 static void hook_draw(void) { if (loaded) repaint_sync(); }
-__attribute__((constructor)) static void srfdl_hooks(void) { scene_upload_hook = hook_upload; scene_draw_hook = hook_draw; }
+static int hook_pts(int i, const void **rec) {   /* surface i's built node (FUN_18031f620 draws it when +0x10 is set) */
+    if (i < 0 || i >= nnodes || !node_ok(i) || !nodes[i].tried || nodes[i].fail || !nodes[i].nd.built) return 0;
+    *rec = nodes[i].nd.r; return nodes[i].nd.n;
+}
+__attribute__((constructor)) static void srfdl_hooks(void) { scene_upload_hook = hook_upload; scene_draw_hook = hook_draw; scene_srfdl_pts = hook_pts; }
 
 /* the shading-off pick of surface F.surfs[i] at the cursor (view x / y): 1 = the node is built and a segment is nearer than best (*d,
    uv); 0 = built, nothing nearer; -1 = no built node (select_ent_univ then takes dist_to_surf); -2 = this program cannot evaluate the

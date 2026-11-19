@@ -399,9 +399,10 @@ bool MainWindow::localRun(const QString &t, bool probe) {
     if (starts(t, "Front")) RL(view_std_animated(2));
     if (starts(t, "Right")) RL(view_std_animated(5));
     if (starts(t, "Isometric")) RL(view_std_animated(7));
-    if (same(t, "Shaded")) RL(solid_mode = 1; updateStatusShade());
-    if (same(t, "Wireframe")) RL(solid_mode = 0; updateStatusShade());
-    if (has(t, "Translucen")) RL(solid_mode = solid_mode == 2 ? 1 : 2; updateStatusShade());
+    if (same(t, "Shaded")) RL(scene_shade(3); updateStatusShade());         /* View tab 53771 OnShadeShaded (S-15: render_cfg 3) */
+    if (same(t, "Outline Shaded")) RL(scene_shade(4); updateStatusShade()); /* View tab 53769 / 53770 OnShadeShadedOutline (render_cfg 4) */
+    if (same(t, "Wireframe")) RL(scene_shade(1); updateStatusShade());      /* View tab 53765 / 53766 OnShadeWire */
+    if (has(t, "Translucen")) RL(scene_translucent_toggle(); updateStatusShade());
     if (same(t, "Toolpaths") || has(t, "Toolpaths Manager")) RL(showManager(0));
     if (same(t, "Solids") || has(t, "Solids Manager")) RL(showManager(1));
     if (same(t, "Planes") || has(t, "Planes Manager")) RL(showManager(2));
@@ -537,8 +538,18 @@ bool MainWindow::mcFunction(const QString &fn, bool probe) {
     F("OnViewLeft", in->viewPush(); view_std_animated(6));           /* CommonPlaneMenu 0x81a8 */
     F("OnViewIsometric", in->viewPush(); view_std_animated(7));      /* CommonPlaneMenu 0x8027 */
     if (fn == "OnScreenRepaint" || fn == "OnScreenRegenerate") { if (!probe) view_->withGL([] { if (loaded) scene_reupload(); }); return true; }
-    F("OnShadeToggle", solid_mode = solid_mode == 0 ? 1 : 0; updateStatusShade());
-    F("OnShadeTranslucentToggle", solid_mode = solid_mode == 2 ? 1 : 2; updateStatusShade());
+    /* the display modes (S-15, decomp/shade15/handlers.c): OnShadeWire / OnShadeShaded / OnShadeShadedOutline -> DoShadeWire (render_cfg 1)
+       / DoShadeShaded (3) / DoShadeShadedOutline (4); the status bar's OnStatusDisplayWireAll / ShadedAll / ShadedOutlined post those
+       (post_FT_command "OnShadeWire" / "OnShadeShaded" / "OnShadeShadedOutline", 0x1804718a0 / 0x1804717e0 / 0x180471840). Dimmed / No
+       Hidden (render_cfg 2) are not ported. */
+    F("OnShadeWire", scene_shade(1); updateStatusShade());
+    F("OnShadeShaded", scene_shade(3); updateStatusShade());
+    F("OnShadeShadedOutline", scene_shade(4); updateStatusShade());
+    F("OnStatusDisplayWireAll", scene_shade(1); updateStatusShade());
+    F("OnStatusDisplayShadedAll", scene_shade(3); updateStatusShade());
+    F("OnStatusDisplayShadedOutlined", scene_shade(4); updateStatusShade());
+    F("OnShadeToggle", scene_shade_toggle(); updateStatusShade());              /* Alt+S, 0x180471590 */
+    F("OnShadeTranslucentToggle", scene_translucent_toggle(); updateStatusShade());   /* Ctrl+T, 0x1804715f0: only with shading on */
     F("OnHideToolpath", show_tp = !show_tp);
     F("OnWCSAxesToggle", show_axes = !show_axes);
     F("OnDisplayInfo", show_info = !show_info; show_info_axes = show_info);   /* F9 "Show Axes": OnDisplayInfo flips show_part_info, read only by axis drawing (mcamui) */
@@ -948,11 +959,8 @@ void MainWindow::buildStatus() {
         auto *b = new QToolButton; b->setAutoRaise(true); b->setCheckable(true); b->setIconSize(QSize(14, 14));
         b->setIcon(Icons::icon(QString("#strip14:IDR_BCGP_IMAGE_STATUS_GROUP_5.png:%1").arg(i), 14, 14));
         b->setToolTip(cmdLabel(fn[i]));
-        b->setEnabled(i == 0 || i == 4 || i == 5);    /* Dimmed / No Hidden / Outline Shaded: not ported (item 17) */
-        connect(b, &QToolButton::clicked, this, [this, i] {
-            if (i == 0) solid_mode = 0; else if (i == 4) solid_mode = 1; else if (i == 5) solid_mode = solid_mode == 2 ? 1 : 2;
-            updateStatusShade(); view_->redraw();
-        });
+        b->setEnabled(i == 0 || i == 3 || i == 4 || i == 5);    /* Dimmed / No Hidden: not ported (item 17) */
+        connect(b, &QToolButton::clicked, this, [this, i] { mcFunction(fn[i], false); });   /* fn[] is static */
         sb->addPermanentWidget(b); shade_[i] = b;
     }
     updateStatusShade();
@@ -989,7 +997,11 @@ void MainWindow::runPendingGen() {
 }
 void MainWindow::updateStatusShade() {
     if (!shade_[0]) return;
-    for (int i = 0; i < 6; i++) shade_[i]->setChecked((i == 0 && solid_mode == 0) || (i == 4 && solid_mode == 1) || (i == 5 && solid_mode == 2));
+    /* OnUpdateDisplayWireAll / ShadedOutlined / ShadedAll (0x1804724e0 / 0x1804724c0 / 0x1804724a0): checked = render_cfg 1 / 4 / 3;
+       OnUpdateShadeTranslucentToggle (0x1804727d0): enabled with render_cfg > 2, checked = gl_fulltime_translucent */
+    int rc = scene_render_cfg();
+    for (int i = 0; i < 6; i++) shade_[i]->setChecked((i == 0 && rc == 1) || (i == 3 && rc == 4) || (i == 4 && rc == 3) || (i == 5 && (solid_mode ? solid_mode == 2 : shade_transl)));
+    shade_[5]->setEnabled(rc > 2);
 }
 
 /* ------------------------------------------------------------------------------------------------ document */

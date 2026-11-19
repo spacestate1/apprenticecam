@@ -28,6 +28,11 @@ void view_rotate_begin(void); void view_rotate_turntable(double dx, double dy_up
 void view_pan_px(double dx, double dy_up);
 void view_pan_steps(int sx, int sy, double pan_fac);
 extern int ortho, show_geom, show_tp, show_rapid, show_grid, show_tool, solid_mode;
+extern int shade_cfg, shade_transl;   /* render_cfg of the shaded display (3 Shaded / 4 Outline Shaded) = LastShadedMode; gl_fulltime_translucent */
+int scene_render_cfg(void);           /* 1 wireframe, 3 Shaded, 4 Outline Shaded */
+void scene_shade(int cfg);            /* OnShadeWire (1) / OnShadeShaded (3) / OnShadeShadedOutline (4) */
+void scene_shade_toggle(void);        /* OnShadeToggle (Alt+S) */
+void scene_translucent_toggle(void);  /* OnShadeTranslucentToggle */
 extern int scene_force_mesh;   /* draw the solid mesh even in Wireframe display (extrude preview, formats/extrude.md sec. 3) */
 extern int solid_ntri, solid_faces, solid_meshed, solids_ok; extern double solid_scale; extern char solid_msg[160];
 extern int sel; extern long sim; extern int playing; extern float sim_speed;
@@ -45,7 +50,7 @@ extern int show_axes;
 extern float bg_top[3], bg_bot[3], origin_col[3];             /* viewport gradient, origin line colour (0..1) */
 extern int show_info_axes;
 extern const unsigned char MC_PALETTE[256][3];
-extern int cfg_feed_color, cfg_rapid_color, cfg_solid_color, cfg_geom_color, cfg_outline_color;   /* config 5045 / 5046 / 5052 / 5027 */                                   /* F9: axis lines through the origin */                                        /* origin axes + corner view indicator (Alt+F9) */
+extern int cfg_feed_color, cfg_rapid_color, cfg_solid_color, cfg_geom_color, cfg_outline_color, cfg_srf_edge_color;   /* config 5045 / 5046 / 5052 / 5027 / 8027 / 5054 */                                   /* F9: axis lines through the origin */                                        /* origin axes + corner view indicator (Alt+F9) */
 void scene_set_center(double x, double y, double z);        /* rotation centre (Alt+F12) */
 void scene_pixel_to_world(int w, int h, float mx, float my, double out[3]);   /* on the grid plane */
 /* the grid, as Mastercam's sel_grid (mastercam.dll, see ../formats/ui.md): spacing, origin (in the construction plane,
@@ -77,7 +82,7 @@ void scene_reupload(void);
 void scene_remesh_solids(void);
 extern int (*scene_ent_hl)(int e);               /* the shaded face highlight (core_ui): bit 0 auto-highlighted, bit 1 selected */
 extern int scene_hl_colors[2], scene_hl_stipple; /* config 5000 / 5033 colours, config 4053 StippleHighlight */
-int scene_srf_look(int i);                       /* surface i's face highlight: 0 none, 1 selected, 2 / 3 auto-highlighted (3: stipple passes) */
+int scene_srf_look(int i);                       /* surface i's face highlight: bit 0 AutoHighlighted, bit 1 Selected, bit 2 StippleHighlight; 0 none */
 extern int scene_tp_hide_id;                     /* Q20 (core_ui cui_preview.c): this op's toolpath is left out; 0 = none */
 void scene_set_user_edges(const float *seg, int nseg);   /* their edges: x y z x y z per segment (sld_draw_solid_wire) */
 int scene_part_tris(const float **tri);
@@ -98,6 +103,8 @@ extern void (*scene_part_closing)(void);   /* before load_file / new_file / unlo
 extern void (*scene_part_changed)(void);   /* after load_file / new_file / unload_file (the machine group's tree name, cui_grpprops.c) */
 extern void (*scene_upload_hook)(void);   /* at the start of every upload (before a load's fit): the surfaces' display-list nodes as
                                              store_ent_dl / FUN_18032d870 make them at the current view (core_ui cui_srfdl.c) */
+extern int (*scene_srfdl_pts)(int i, const void **rec);   /* cui_srfdl.c: surface i's built display-list node: its SdlRec records (mcsrfdl.h), count; 0 = none */
+extern int scene_srfdl_gen;                                 /* bumped by cui_srfdl.c whenever a node is (re)built */
 extern void (*scene_draw_hook)(void);     /* at the start of every draw_scene: the repaint's display-list check (FUN_1801dadd0, cui_srfdl.c) */
 extern int scene_part_gen;                /* +1 at every load_file / new_file / unload_file */
 extern void (*scene_fit_extra)(void (*acc)(void *u, double x, double y, double z), void *u);  /* extra fit points (the stock, cui_stock.c) */
