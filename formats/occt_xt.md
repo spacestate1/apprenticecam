@@ -1,6 +1,7 @@
 # OCCT -> Parasolid XT writer, Extrude history replay, end-to-end proof (2026-10-23)
 
-Status: **standalone code in `viewer/occt/`, nothing in the main build changed.** Companion docs:
+Status 2026-11-18: **in the main build** (SOL-1..SOL-3: the writer `viewer/occt/occt_xt.cpp` writes the XT of every solid made here, the
+Extrude kernel is `viewer/occt_solid.cpp`; section 10). Status 2026-10-23: standalone code in `viewer/occt/`. Companion docs:
 formats/occt_accuracy.md (XT -> OCCT), formats/solid_history.md (SOLID_ID / SOLIDXMT / ops records, task B),
 formats/xt.md, formats/occt_3d_plan.md. Rule 1 applies: "ours" = our choice, NOT DECODED = unknown.
 
@@ -200,7 +201,7 @@ opening the four files in this order:
 - Whether Mastercam accepts zero McEptr records, regenerates with the dirty byte, or needs SURFACE_DATA: only a
   Windows test (sec. 6) can tell.
 
-## 9. Decisions needed from the user
+## 9. Decisions needed from the user (2026-10-23; 2026-11-18: item 1 settled by the decode - the names are written as Mastercam writes them (solid_history.md 3.2.1, 8) with dirty byte 0 as in all 807 corpus solids; items 2 - 4 still open, TODO.md "Waiting on the user")
 
 1. New solids: write McEptr name records (copy the decoded kinds, sec. 6 file D) or none (file B), and dirty byte
    0 (trust our XT) or 1 (let Mastercam rebuild on open)? Depends on the Windows test.
@@ -208,3 +209,39 @@ opening the four files in this order:
 3. OCCT boolean fuzzy value: Parasolid uses 1e-5 m (occt_3d_plan Q5) - exact booleans here.
 4. Should foreign / extra attributes of stored solids (colours, import ids) be carried when such a solid is
    regenerated? (Today only CNC/mcEptrPtr and optional CNC/mcColor are written.)
+
+## 10. In the app (2026-11-18, SOL-1..SOL-3)
+
+- **Transmit version** (`Options::pk`): 27 = modeller 2700142 / `SCH_2700142_26105` for X9 parts, 28 = 2800143 / `SCH_2800143_28002` for
+  Mastercam 2017 parts. The 235 schema-28002 blobs of the corpus have byte-identical headers apart from KEY / FILE / DATE (as the 26105
+  ones); sch_26105 and sch_28002 transmit the same fields for every node the writer emits (they differ only in BODY.data / EDGE.data,
+  not transmitted); BODY / ATTRIB_DEF / LIST constants are the same in both groups (res_size 1000.0000000000001 in 150, 1000.0 in 60 + 24
+  sheets - which Mastercam path writes 1000.0 is NOT DECODED; the extrude-made user solids all have ...0001, kept).
+- **Kernel**: `viewer/occt_solid.cpp` (formats/extrude.md 7); the bodies are shown through their XT; the part save writes them with
+  their history (formats/solid_history.md 8).
+- **Round trip harness** `tools/tests/xt_roundtrip.sh` (golden tools/tests/golden/xt/summary.txt): every Mastercam-written solid of the
+  user's parts and of the corpus (X9 schema 26105 and 2017 schema 28002 manifests of ~/mastercam-re/work/occt/netx) read -> written (same
+  pk) -> read, one process each, then compared node by node with the original (`xt_canon.py`, now with every geometry node type, a null
+  pointer guard, per-solid STATUS, classes *simple* = planes / cylinders / cones / spheres / tori / B-surfaces / lines / circles / ellipses /
+  B-curves without tolerant edges, *complex* = anything else, attribute nodes of definitions the writer does not carry counted as
+  *foreign*). Results: section 10.1.
+
+### 10.1 Results (run 2026-11-18)
+| set | solids | round trip OK (vol / area 1e-9, valid) | not written | canonically EQUAL (+ foreign attributes only) | simple DIFF | complex DIFF |
+|---|--:|--:|--:|--:|--:|--:|
+| user (X9) | 108 | 108 | 0 | 106 (+0) | 2 (BODY.highest_node_id only) | 0 |
+| corpus X9 (26105, pk 27) | 226 | 148 | 45 | 52 (+30) | 59 | 40 |
+| corpus 2017 (28002, pk 28) | 235 | 151 | 51 | 54 (+30) | 59 | 41 |
+
+Not written / failing: 26 + 28 sheet bodies ("no solid": sheets are refused), 5 + 7 lemon tori (major <= minor, NOT DECODED), 2 + 2 edges
+with equal-sense fins (non-manifold after the reader), 11 + 13 reader refusals, 3 + 3 crashes in the reader / writer on blend-heavy
+solids (not analysed), MISMATCH / REREAD_FAIL = solids whose OCCT tolerances reach 1e-3 .. 3.8 mm (tolerant edges, blends) - the writer
+writes every edge as accurate, so its own re-read differs; none of these is a body this program's commands make.
+Per geometry type (solids containing the type that came back canonically equal): PLANE 82 / 226 and 84 / 235, CYLINDER 34 / 134 and
+33 / 134, CONE 7 / 58 and 7 / 63, TORUS 1 / 33 and 1 / 33, **SPHERE, B_SURFACE, ELLIPSE, B_CURVE 0** in both. The "simple DIFF" solids
+differ mostly in fin / loop / vertex identities (HE.vertex, HE.loop, LF missing): the reader rebuilds faces it repairs (ShapeFix: seams,
+closed edges with a vertex), so their node_ids are not carried and the node-id keyed comparison loses them - a limit of the harness, not
+shown to be a writer error, but also **not a proof**: the FACE.sense / curve conventions of SPHERE, TORUS, B_SURFACE, ELLIPSE and B_CURVE
+remain proven only against the reference formulas (4.1 synth) and by OCCT round trips, not against Mastercam-written data. The geometry the
+Extrude kernel makes (planes, cylinders, lines, circles) is proven on the user parts (106 / 108 canonically equal, the 2 others only
+BODY.highest_node_id) and in the corpus (PLANE / CYLINDER / LINE / CIRCLE solids above). Cones (drafted arcs) 7 solids.

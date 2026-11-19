@@ -498,6 +498,39 @@ min(2 acos(1 - tol / r), pi / 18)). The true arcs are recovered (`solid25.c`, `B
   decomp/mastercam_histdlg.c): see formats/mcamui_dialogs.md "Solids manager". mcgeomsldres 847-849 "Create Body / Cut Body / Boss Body" are
   not used by this panel (it uses the BAML labels).
 
+## 7. The kernel on OpenCASCADE (2026-11-18, user decision SOL-3; viewer/occt_solid.cpp, core_ui cui_feat.c)
+
+`feat_apply` builds the kernel input from the feature: the chain groups of `ex_grouping` (4.5, its own containment test stays ours), each
+chain's lines / arcs **exact** (occt_solid_ent.h: ps_arc_to_ps_arc's circle - axis = the view's Z, negated for a negative sweep, parameter 0
+along the view's X, the entity's interval), the group direction (4.1) and P, then `ocs_extrude` (sld_extrude): profile face (root loop +
+holes), BRepPrimAPI_MakePrism along the direction x Distance (Through all: 4.2 from the target's box projected on the direction from
+every chain point, + 1000e-5 metric / 39.37007874015748e-5 inch), Create = one body per group, Cut / Boss = BRepAlgoAPI_Cut / Fuse of the
+target with the tools - all groups in one boolean with "Create a single operation" (FUN_1800d2c80), else one op per group in group order
+(FUN_1800d38f0). Both directions = the second half swept d2 the other way and fused (4.3). Every op records Mastercam's face / edge names
+(formats/solid_history.md 3.2 / 3.2.1) from the prism's and the boolean's history (Generated / Modified / IsDeleted); OCCT's seams and
+degenerated edges get no name (Parasolid has none). The bodies are displayed, picked, snapped and chained through their XT (the writer
+runs at every rebuild): `body_mesh` / `body_edges` / `body_hit` / `body_volume` on the OCCT shape, `body_brep_edges` / `body_brep_topo` =
+xt_mesh.c's `xt_brep_edges` / `xt_brep_topo` of that XT, the same code as the part's own solids. The target search (1.1 step 6) clashes
+the tools with each body by BRepAlgoAPI_Common (shared volume, solid25.c's reading of PsClashTest). Bounding Box solids: BRepPrimAPI box /
+cylinder. Built without OpenCASCADE the Extrude makes no body (the log says "built without OpenCASCADE"); solid25.c's slab kernel is no longer used.
+
+Kept from solid25.c because Mastercam's rule is NOT DECODED (ours, unchanged behaviour): the draft's taper sense (a positive angle grows the
+section away from the chain plane; Reverse / Split per 4.3; BRepOffsetAPI_DraftAngle on each swept half's side faces, neutral plane = the
+chain plane, OCCT's sign `OCS_DRAFT_SIGN` measured by tools/tests/sld_kernel_test.sh), the thin wall's sharp joins (BRepOffsetAPI_MakeOffset
+GeomAbs_Intersection for closed chains; open chains: each line / arc offset exactly, joints at the offset curves' intersection, square
+ends; Direction 1 on the side away from d x t as feat_groups orders the path), the chain-gap joints (formats/occt_xt.md 5), no face merging
+after booleans (Parasolid's merge rule NOT DECODED: e.g. a boss flush with the block keeps its own side faces and the edge between them;
+user decision SOL-5a). Parasolid's boolean tolerance 1e-5 m (SOL-5c, FUN_18003e630) as OCCT's fuzzy value is implemented but off by default
+(MCAM_OCS_FUZZY=1): it merges Through all tools with the target (user_decisions SOL-5c, question SOL-6).
+Refused (new): the draft of an open chain's thin wall without Draft ends (BRepOffsetAPI_DraftAngle would draft the end faces).
+
+Changes against solid25.c in the regression (tools/tests/solid_compare.sh, `tools/tests/solid_kernel_diff.py` classifies them): the body
+lines print the face count instead of the slab count; volumes are exact - arcs were facets (cylinder r 10 x 50: 15702.8 -> 15707.96 =
+pi r^2 h; holes / cuts -1e-5 .. -4e-5 relative), drafts were 24 slabs per half (ex_both_draft 3.6e-7 relative); ss_boss_merged: the boss
+flush with the block now has its own side faces, so the AutoCursor finds the edge at the block's top (z 50) and resolves the coincident
+candidates on the axis line in the XT's edge order (kinds 3 / 13 swapped at the same points); ss_lk_click_vtx_top: of the two vertices that
+coincide in the Top view the top one (z 50) is taken now (edge order). ex_save / ex_save_edit differ before this work (PROJECT-FORMAT line).
+
 ## Differences from viewer/mcamui.c
 
 Status re-checked against the code on 2026-10-16 (viewer/mcamui.c "solids: Extrude" section `ex_*` / `feat_*`,
@@ -634,7 +667,7 @@ open polylines, z, dir); `ExErr` = mcgeomsldres message id + caption (sec. 5).
 | `body_brep_edges`, `seg_carrier`, `arc_edge`, `arcs_add` | the AutoCursor's edges: cap outlines + sharp vertical edges merged through in-line vertices; facets on a `BArc` carrier -> arc / ring edges with the true circle and interval, trimmed-arc vertices moved onto the true intersection | sec. 4.9; formats/ui.md "AutoCursor on solids" |
 | `body_edges` | the edges drawn on the body: mesh sides used once or with normals > 20 deg apart (ours - no B-rep faces); drawn 1 px (no set_gl_width in the path), lighting off, depth-tested: wireframe = the solid colour (config 5052, ent +6), shaded = the _render_cfg 4 outline pass in RENDER_CFG +0x12 = config 8027 "Outlined edge color?" (default 0 black; mcgeomsld export render_cfg 0x1803b9c50, its mode field defaults to 4; read at 0x1800b3ea8), translucent = palette 0xc9 (0x1800b3e57); faces polygon-offset (1, 1) | sld_draw_solids 0x1800b4aa0 (an edge pass with _render_cfg 1 before the shaded pass), sld_draw_solid_wire FUN_1800b46b0 (ps_gen_disp_list edges, glDisable(GL_LIGHTING), colour = find_color(ent colour) or the select colour), FUN_1800a61f0 (_render_cfg < 3: set_gl_color(colour)), FUN_1800b4010 (_render_cfg 4: glPolygonOffset(1, 1)); decomp/extrude/sld_draw.c |
 
-Ours / approximations (improvisation_review item 20): draft by 24 slabs per drafted half (`EX_NSLAB`); taper sense of
+Superseded 2026-11-18 by section 7 (OpenCASCADE). Ours / approximations (improvisation_review item 20): draft by 24 slabs per drafted half (`EX_NSLAB`); taper sense of
 a positive angle NOT DECODED; only Z-direction extrusion (non-XY planes refused with sld 657); bodies made here only
 (Parasolid solids from the part cannot be cut / bossed: `ex_nvis` counts this program's bodies). The features are
 replayed from the project's EXTRUDE / XCHAIN lines (`feats_write` / `feats_read`, `solids_rebuild`); undo records

@@ -64,8 +64,18 @@ const char *ex_sld(int id) {
     case 667: return "Self-intersecting body produced by extruding sheet body.";
     case 680: return "Chains must be closed for extrusion into a solid body.";
     case 1101: return "Below minimum distance.";
+    case 291: return "Fillet input edge(s)/face(s) not found.";               /* Constant Fillet (formats/solid_fillet.md 7) */
+    case 538: return "Blend creation failed.";
+    case 665: return "Probable cause: Blend overflow removes adjacent face or edge.";
     }
     return NULL;
+}
+/* ours (SOL-F1): the refusal of a fillet with Propagate along tangencies off */
+static const char *FL_REFUSE_TXT = "The fillet is not built: \"Propagate along tangencies\" is off, and the OpenCASCADE kernel always fillets along the tangent edges (user decision SOL-F1).";
+void ex_err_text(const ExErr *e, char *out, size_t n) {
+    if (e->id == FL_ERR_REFUSE) snprintf(out, n, "%s", FL_REFUSE_TXT);
+    else if (e->id == 665 && e->caption == 538) snprintf(out, n, "%s %s", ex_sld(538), ex_sld(665));
+    else snprintf(out, n, "%s", ex_sld(e->id) ? ex_sld(e->id) : "");
 }
 /* message_box_ok(id, caption): caption -1 = none (formats/extrude.md sec. 5) */
 /* diagnostic: the Extrude command's steps on stderr ("extrude: ..."), always on (user request 2026-10-21) */
@@ -73,6 +83,9 @@ void ex_log(const char *fmt, ...) {
     va_list ap; va_start(ap, fmt); fputs("extrude: ", stderr); vfprintf(stderr, fmt, ap); fputc('\n', stderr); va_end(ap); fflush(stderr);
 }
 void ex_report(const ExErr *e) {
+    if (e->id == FL_ERR_REFUSE) { ex_log("error box (ours, SOL-F1): %s", FL_REFUSE_TXT); cui_message(ex_sld(201), "%s", FL_REFUSE_TXT); return; }
+    /* FUN_180036580: fault 0x3ec1 / error 330 -> message_box_ok_str(sld 538, 538 + "\n" + 665); SOL-F4: every OCCT fillet failure */
+    if (e->id == 665 && e->caption == 538) { ex_log("error box sld 538 + 665"); cui_message(ex_sld(538), "%s\n%s", ex_sld(538), ex_sld(665)); return; }
     const char *t = ex_sld(e->id);
     ex_log("error box sld %d (caption %d): %s", e->id, e->caption, t ? t : "(no text)");
     if (!t) return;
@@ -181,18 +194,21 @@ void ex_set_target(int b) {
    (FUN_1800da050, run after this) is not ported. */
 static void ex_target_search(void) {
     if (ex_edit_idx >= 0 || ex_tgt_picked || !ncchains || ex_nvis() < 1) return;
-    ExFeat f = ex_cur_feat(); Profile *g; int ng; ExErr e;
-    if (!feat_groups(&f, &g, &ng, &e)) return;
-    int *flip = calloc(ng ? ng : 1, sizeof(int));
-    int t = solid_target_search(sbodies, nsbodies, g, ng, &f.p, EX_TOL, mcam_is_metric(&F), flip);
+    ExFeat f = ex_cur_feat(); OcsIn in; ExErr e;
+    if (!feat_ocs_groups(&f, &in, &e)) return;
+    int ng = in.ng, *flip = calloc(ng ? ng : 1, sizeof(int));
+    OcsBody **bs = calloc(nsbodies ? nsbodies : 1, sizeof(OcsBody *)); int *bi = calloc(nsbodies ? nsbodies : 1, sizeof(int)), nb = 0;
+    for (int i = 0; i < nsbodies; i++) if (sbodies[i].occ) { bs[nb] = sbodies[i].occ; bi[nb++] = i; }
+    OcsParams p; ocs_params_of(&f.p, f.single, &p);
+    int t = ocs_target_search(bs, nb, in.g, ng, &p, EX_TOL, mcam_is_metric(&F), flip);   /* SOL-3: on OpenCASCADE (occt_solid.cpp) */
     if (t >= 0) {
         int nf = 0;
-        for (int k = 0; k < ng; k++) if (flip[k]) { ex_cdir[g[k].first] = -ex_cdir[g[k].first]; nf++; }
-        ex_p.target = t;
-        ex_log("target search: body %d, %d chain group(s) of %d reversed", t, nf, ng);
+        for (int k = 0; k < ng; k++) if (flip[k]) { ex_cdir[in.first[k]] = -ex_cdir[in.first[k]]; nf++; }
+        ex_p.target = bi[t];
+        ex_log("target search: body %d, %d chain group(s) of %d reversed", bi[t], nf, ng);
         ex_setparams();
     }
-    free(flip); groups_free(g, ng);
+    free(flip); free(bs); free(bi); ocsin_free(&in);
 }
 /* the Chaining dialog's OK (sec. 1.2, then 1.1 steps 4-5 for the first selection, 1.5 for Add / Rechain all) */
 void ex_end(int accepted, int restart);
@@ -283,6 +299,9 @@ ExFeat ex_cur_feat(void) {
     f.p = ex_p; f.nch = ncchains; f.ch = cchains; f.cdir = ex_cdir; f.single = ex_single;
     f.p.vec[0] = f.p.vec[1] = 0; f.p.vec[2] = ncchains ? ex_cdir[0] : 1;
     snprintf(f.name, sizeof f.name, "%s", ex_name);
+    /* SOL-5d: the attributes at creation (dbput_solid: solidColor, main_level); an edit keeps the feature's own */
+    if (ex_edit_idx >= 0 && ex_edit_idx < nfeats) { f.level = feats[ex_edit_idx].level; f.color = feats[ex_edit_idx].color; }
+    else { f.level = geo_level; f.color = cfg_solid_color; }
     return f;
 }
 /* sec. 3: the preview is the real sld_extrude result (preview = 1), rebuilt on every change while "Automatically
@@ -731,7 +750,7 @@ const int SLD_OPBMP[32] = { 730, 736, 733, 745, 743, 740, 730, 736, 733, 738, 71
     730, 736, 733, 755, 727, 758, 755, 755, 753, 738, 4173 };                     /* 0x18087e520 types 0 .. 31 */
 unsigned char sm_body_open[512] = { 0 }; int sm_body_init;
 int sm_sel_kind, sm_sel_idx = -1;                 /* selected row: 1 solid (body), 2 op (feature), 3 a part solid */
-int sld_optype(const ExFeat *f) { return f->p.type == EX_CUT ? 0 : f->p.type == EX_BOSS ? 1 : 2; }
+int sld_optype(const ExFeat *f) { if (f->fl) return 9; /* SldFilletOp (formats/solid_fillet.md 6) */ return f->p.type == EX_CUT ? 0 : f->p.type == EX_BOSS ? 1 : 2; }
 void sm_init(void) { if (!sm_body_init) { memset(sm_body_open, 1, sizeof sm_body_open); sm_body_init = 1; } }
 /* a Block / Cylinder (ExFeat.prim, the Bounding Box panel's Solids): op types 15 / 17 -> opmanres 27616 "Block" / 27618
    "Cylinder", bitmaps 709 / 724 (the table at 0x18087e520, decomp/mastercam_sldop_bmp_table.txt) */
@@ -814,7 +833,8 @@ void feat_delete_last(void);
 void sm_menu_act(int act, int row_feat) {
     sm_init();                                     /* the open flags exist before the first tree draw (scripted runs) */
     if (act == SM_EXTRUDE) ex_start();
-    else if (act == SM_EDITP) { if (row_feat >= 0 && row_feat < nfeats && !feats[row_feat].prim) ex_edit(row_feat); }           /* Edit Parameters (33048): the op loaded into the command (sec. 1.7) */
+    else if (act == SM_EDITP) { if (row_feat >= 0 && row_feat < nfeats && feats[row_feat].fl) fl_edit(row_feat);          /* a fillet op: SolidConstantFilletWithUI */
+                                else if (row_feat >= 0 && row_feat < nfeats && !feats[row_feat].prim) ex_edit(row_feat); }           /* Edit Parameters (33048): the op loaded into the command (sec. 1.7) */
     else if (act == SM_DELETE) feat_delete_last();
     else if (act == SM_REGEN_ALL) solids_rebuild();
     else if (act == SM_EXPAND) { memset(sm_body_open, 1, sizeof sm_body_open); memset(sm_psolid_open, 1, sizeof sm_psolid_open); }
@@ -841,6 +861,11 @@ void ex_dump(void) {
     }
     for (int i = 0; i < nfeats; i++) {
         const ExFeat *f = &feats[i];
+        if (f->fl) { printf("    feat %d '%s' body %d fillet whole %d radius %.6g overflow %d mitered %d propagate %d faces", i, f->name, i < 4096 ? feat_body[i] : -1,
+                            f->fl->whole, f->fl->radius, f->fl->overflow, f->fl->mitered, f->fl->propagate);
+                     for (int k = 0; k < f->fl->nf; k++) printf(" %d", f->fl->frec[k]);
+                     printf(" edges"); for (int k = 0; k < f->fl->ne; k++) printf(" %d", f->fl->erec[k]);
+                     printf("\n"); continue; }
         if (f->prim) { printf("    feat %d '%s' body %d prim %d %.4f %.4f %.4f %.4f %.4f %.4f %.4f %.4f\n", i, f->name, i < 4096 ? feat_body[i] : -1, f->prim,
                               f->pv[0], f->pv[1], f->pv[2], f->pv[3], f->pv[4], f->pv[5], f->pv[6], f->pv[7]); continue; }
         printf("    feat %d '%s' body %d type %d method %d dist %.4f both %d rev %d draft %d/%.4f thin %d/%d %.4f %.4f single %d chains", i, f->name, i < 4096 ? feat_body[i] : -1, f->p.type,
@@ -848,10 +873,10 @@ void ex_dump(void) {
         for (int k = 0; k < f->nch; k++) printf(" %d:%d%s", f->ch[k].n ? f->ch[k].ent[0] : -1, f->cdir[k], f->ch[k].closed ? "c" : "o");
         printf("\n");
     }
-    for (int i = 0; i < nsbodies; i++) printf("    xbody %d %s: %d slab(s), volume %.4f\n", i, sbodies[i].name, sbodies[i].n, body_volume(&sbodies[i]));
+    for (int i = 0; i < nsbodies; i++) printf("    xbody %d %s: %d face(s), volume %.4f\n", i, sbodies[i].name, sbodies[i].occ ? ocs_nfaces(sbodies[i].occ) : sbodies[i].n, body_volume(&sbodies[i]));
 }
 static void ex_print_bodies(const char *ind) {
-    for (int i = 0; i < nsbodies; i++) printf("%sbody %d %s: %d slab(s), volume %.3f\n", ind, i, sbodies[i].name, sbodies[i].n, body_volume(&sbodies[i]));
+    for (int i = 0; i < nsbodies; i++) printf("%sbody %d %s: %d face(s), volume %.3f\n", ind, i, sbodies[i].name, sbodies[i].occ ? ocs_nfaces(sbodies[i].occ) : sbodies[i].n, body_volume(&sbodies[i]));
 }
 /* the show: steps of mcamui.c run_script: show:extrude, show:exedit:N (Edit Parameters of feature N), show:exchain:E
    (a chain from entity E during the Extrude chaining), show:exchainok (the chaining's OK) */
@@ -870,6 +895,7 @@ int ex_show_step(const char *arg) {
    smact:LABEL[,FEAT] (one of its items by label; the Solids submenu's too), smrows (the tree), exdump */
 int cui_extrude_script(const char *st, const char *arg) {
     const char *mt, *mx;
+    if (cui_fillet_script(st, arg)) return 1;       /* Constant Fillet (cui_fillet.c) */
     if (!strcmp(st, "extrude") && arg) {             /* extrude:type,dist,both,reverse,draft,thin,thick,target|seed,seed... (chains, panel, OK) */
         char a3[512]; snprintf(a3, sizeof a3, "%s", arg); char *bar = strchr(a3, '|'); if (bar) *bar++ = 0;
         ex_start(); double v[8] = { 0, 10, 0, 0, 0, 0, 1, 0 }; int nv = 0;

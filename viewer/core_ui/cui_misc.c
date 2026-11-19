@@ -383,7 +383,7 @@ int cui_units_set(int metric, int scale) {
                                                                    after SetUnits - the scaled entities are built in the new units: a spline's
                                                                    polyline at their curve_chord_dev, mcam_new_curve) */
     if (loaded && (nent || F.nops || F.nsurfs || F.nsolids)) doc_dirty = 1;   /* an empty part: init_db - nothing to save */
-    ex_units();                                                 /* RegisterVariable'd session values (FUN_1805f9da0) */
+    ex_units(); fl_units();                                               /* RegisterVariable'd session values (FUN_1805f9da0) */
     if (cui_hooks.config_reload) cui_hooks.config_reload();     /* ReadCfgFile of the new current configuration */
     snprintf(cam_msg, sizeof cam_msg, "%s", metric ? "System units switched from English to Metric." : "System units switched from Metric to English.");   /* 5479 / 5478 */
     if (scale && loaded) {

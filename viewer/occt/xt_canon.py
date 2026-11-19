@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """xt_canon.py - structural comparison of two Parasolid XT bodies after a canonical ordering (ours; formats/occt_xt.md).
 
-Usage: xt_canon.py SCHEMA MANIFEST WRITTEN_DIR        (MANIFEST rows: part, solid, original .x_b; written file =
+Usage: xt_canon.py SCHEMA MANIFEST WRITTEN_DIR [STATUS.tsv]   (STATUS: one line per solid, 2026-11-18; MANIFEST rows: part, solid, original .x_b; written file =
                                                         WRITTEN_DIR/<part>/<solid>.x_b, from occt_xt_check rt)
 
 Nodes are keyed by meaning, not by index: FACE / EDGE / VERTEX by node_id (the round trip keeps them), a fin by
@@ -18,6 +18,15 @@ import os, struct, sys, collections
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'tools'))
 import xt_parse
 
+GEOM_T = {'LINE', 'CIRCLE', 'ELLIPSE', 'B_CURVE', 'PLANE', 'CYLINDER', 'CONE', 'SPHERE', 'TORUS', 'B_SURFACE', 'NURBS_CURVE',
+          'NURBS_SURF', 'BSPLINE_VERTICES', 'KNOT_SET', 'KNOT_MULT', 'CURVE_DATA', 'SURFACE_DATA', 'SWEPT_SURF', 'SPUN_SURF',
+          'OFFSET_SURF', 'SP_CURVE', 'TRIMMED_CURVE', 'INTERSECTION', 'BLENDED_EDGE', 'BLEND_BOUND', 'CHART', 'LIMIT', 'HELIX_CURVE',
+          'PE_CURVE', 'PE_SURF', 'FOREIGN_GEOMETRY', 'PARABOLA', 'HYPERBOLA'}
+GEOM_SKIP = {'owner', 'next', 'previous', 'geometric_owner'}
+COMPLEX_T = {'SWEPT_SURF', 'SPUN_SURF', 'OFFSET_SURF', 'SP_CURVE', 'TRIMMED_CURVE', 'INTERSECTION', 'BLENDED_EDGE', 'BLEND_BOUND',
+             'PE_CURVE', 'PE_SURF', 'FOREIGN_GEOMETRY'}
+NULL_D = -31415800000000.0         # Parasolid's null double (formats/xt.md)
+OURS_ATT = ('CNC/mcEptrPtr', 'CNC/mcColor')   # the attribute definitions the writer carries (formats/occt_xt.md 2)
 CHAIN = {'next', 'previous', 'next_front', 'previous_front', 'next_of_type', 'previous_of_type', 'next_at_vx',
          'next_on_curve', 'previous_on_curve', 'next_on_surface', 'previous_on_surface'}
 
@@ -81,9 +90,10 @@ class Canon:
             out.append(i); i = self.n[i][f]
         return out
 
-    def geom(self, i):
+    def geom(self, i, depth=0):
         """a curve / surface node as a canonical tuple (senses folded per ref 78); returns (tuple, flip) where flip = -1
         when a surface sense '-' must be folded into the face sense"""
+        if i not in self.n: return ('null',), 1   # a null pointer (e.g. EDGE.curve of a tolerant edge: its fins carry the curves)
         n = self.n[i]; t = n['_t']
         flds = [f for f in self.S[n['code']]['fields'] if f['xmt'] and f['type'] in 'vfdnulc' and f['name'] not in ('node_id', 'sense')]
         vals = {f['name']: n[f['name']] for f in flds}
@@ -94,10 +104,11 @@ class Canon:
             elif t in ('CIRCLE', 'ELLIPSE'): vals['normal'] = tuple(-x for x in vals['normal'])
             else: flip = -1
         sub = []
-        for f in self.S[n['code']]['fields']:          # B-spline sub-nodes, by value
-            if f['xmt'] and f['type'] == 'p' and f['name'] in ('nurbs', 'data', 'bspline_vertices', 'knot_mult', 'knots',
-                    'u_knot_mult', 'v_knot_mult', 'u_knots', 'v_knots') and n[f['name']] in self.n:
-                sub.append((f['name'], self.geom(n[f['name']])[0]))
+        for f in self.S[n['code']]['fields']:          # sub-nodes by value (B-spline data; 2026-11-18: every geometry pointer -
+            # the basis / section / spine curves and surfaces of SWEPT_SURF, SPUN_SURF, OFFSET_SURF, SP_CURVE, TRIMMED_CURVE ...)
+            if f['xmt'] and f['type'] == 'p' and f['name'] not in GEOM_SKIP and not isinstance(n[f['name']], list) \
+                    and n[f['name']] in self.n and self.n[n[f['name']]]['_t'] in GEOM_T and depth < 6:
+                sub.append((f['name'], self.geom(n[f['name']], depth + 1)[0]))
         if t in ('BSPLINE_VERTICES', 'KNOT_SET', 'KNOT_MULT'):
             vals = {k: tuple(v) for k, v in n.items() if not k.startswith('_') and k not in ('type', 'code', 'idx')}
         return (t, tuple(sorted((k, tuple(v) if isinstance(v, (list, tuple)) else v) for k, v in vals.items())), tuple(sub)), flip
@@ -107,9 +118,7 @@ class Canon:
         R = {}
         for i, n in N.items():
             t = n['_t']
-            if t in ('POINT',) or t in ('LINE', 'CIRCLE', 'ELLIPSE', 'B_CURVE', 'PLANE', 'CYLINDER', 'CONE', 'SPHERE', 'TORUS',
-                                         'B_SURFACE', 'NURBS_CURVE', 'NURBS_SURF', 'BSPLINE_VERTICES', 'KNOT_SET',
-                                         'KNOT_MULT', 'CURVE_DATA', 'SURFACE_DATA'):
+            if t == 'POINT' or t in GEOM_T:
                 continue                              # compared through their owners
             k = K.get(i, t + '?' + str(i))
             rec = {}
@@ -125,7 +134,7 @@ class Canon:
                         continue
                     if t == 'EDGE' and nm == 'curve':
                         rec['curve'] = self.geom(v)[0]
-                        if N[v]['owner'] != i: self.raw['curve shared by edges'] += 1
+                        if v in N and N[v]['owner'] != i: self.raw['curve shared by edges'] += 1
                         continue
                     if t == 'VERTEX' and nm == 'point':
                         rec['point'] = tuple(N[v]['pvec']); continue
@@ -195,19 +204,38 @@ def compare(orig, new, S):
 def main():
     S = xt_parse.load_schema(sys.argv[1])
     tot = ok = 0; agg = collections.Counter(); rawa = collections.Counter(); rawb = collections.Counter(); cnt = collections.Counter()
-    maxd = 0.0; bad = []; diffcat = collections.Counter()
+    maxd = 0.0; bad = []; diffcat = collections.Counter(); status = []
     for line in open(sys.argv[2]):
         part, sld, path = line.rstrip('\n').split('\t')
         w = os.path.join(sys.argv[3], part, sld + '.x_b')
         tot += 1
-        if not os.path.exists(w): bad.append((part, sld, 'no written file')); continue
-        o, n = load(path, sys.argv[1]), load(w, sys.argv[1])
-        diffs, stat, ra, rb, ca, cb = compare(o, n, S)
+        if not os.path.exists(w): bad.append((part, sld, 'no written file')); status.append((part, sld, 'NOT_WRITTEN')); continue
+        try:
+            o, n = load(path, sys.argv[1]), load(w, sys.argv[1])
+            diffs, stat, ra, rb, ca, cb = compare(o, n, S)
+        except Exception as e:
+            bad.append((part, sld, 'canonical form failed: %r' % e)); status.append((part, sld, 'CANON_ERROR %s' % type(e).__name__)); continue
         rawa.update(ra); rawb.update(rb)
         for t in set(ca) | set(cb):
             if ca[t] != cb[t]: cnt[(t, 'orig - written')] += ca[t] - cb[t]
         agg.update({k: v for k, v in stat.items() if k.startswith('nonbit')})
         agg['doubles'] += stat['doubles']; agg['bit_equal'] += stat['bit_equal']; maxd = max(maxd, stat['maxdiff'])
+        cats = collections.Counter()
+        for p_, a_, b_ in diffs:
+            k = p_.split('.')[0]
+            foreign = (k.startswith('A') and ':' in k and k.split(':', 1)[1] not in OURS_ATT) or \
+                      (k.startswith(('AD:', 'ADI:')) and k.split(':', 1)[1] not in OURS_ATT) or k.startswith(('LIST', 'POINTER_LIS_BLOCK', 'INT_VALUES', 'REAL_VALUES', 'CHAR_VALUES', 'UNICODE_VALUES')) or \
+                      p_.endswith('.attributes_features')
+            cats['foreign attributes' if foreign else (k.rstrip('0123456789') + '.' + (p_.split('.', 1)[1] if '.' in p_ else 'missing'))] += 1
+        # the solid's class: 'simple' = only the geometry the writer maps natively (planes, cylinders, cones, spheres, tori, B-surfaces,
+        # lines, circles, ellipses, B-curves) and no tolerant edge / vertex: the bodies this program's commands make
+        simple = all(x['_t'] not in COMPLEX_T for x in o.values()) and \
+                 all(not (x['_t'] in ('EDGE', 'VERTEX') and x.get('tolerance', NULL_D) != NULL_D) for x in o.values())
+        cls = 'simple' if simple else 'complex'
+        if not diffs: st = 'EQUAL'
+        elif set(cats) == {'foreign attributes'}: st = 'EQUAL_EXCEPT_FOREIGN_ATTRIBUTES'
+        else: st = 'DIFF ' + ', '.join(f'{k} x{v}' for k, v in sorted(cats.items()) if k != 'foreign attributes')
+        status.append((part, sld, cls + ' ' + st))
         if diffs:
             bad.append((part, sld, diffs[:5], len(diffs)))
             for p_, a_, b_ in diffs:
@@ -223,6 +251,9 @@ def main():
     print('representation differences normalised, original:', dict(rawa), ' written:', dict(rawb))
     print('differences by category:', dict(diffcat.most_common()))
     for b in bad[:20]: print('DIFF', b)
+    if len(sys.argv) > 4:
+        with open(sys.argv[4], 'w') as f:
+            for part, sld, st in status: f.write(f'{part}\t{sld}\t{st}\n')
 
 if __name__ == '__main__':
     main()

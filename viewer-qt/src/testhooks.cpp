@@ -56,7 +56,7 @@ void dumpState(MainWindow *w, const char *step) {
     if (show_params) printf("    (params dialog open: %s%s, depth %.3f)\n", edit_camop >= 0 ? "editing " : "", pending.name, pending.p.final_z);   /* mcamui dump_state */
     /* the bodies (mcamui dump_state) and the message box of this step (mcamui: " MESSAGE: " + show_msg cleared) */
     { const char *mt, *mx; if (w->msgShown(&mt, &mx)) printf("    MESSAGE: %s\n", mx); }
-    for (int i = 0; i < nsbodies; i++) printf("    body %d %s: %d slab(s), volume %.3f\n", i, sbodies[i].name, sbodies[i].n, body_volume(&sbodies[i]));
+    for (int i = 0; i < nsbodies; i++) printf("    body %d %s: %d face(s), volume %.3f\n", i, sbodies[i].name, sbodies[i].occ ? ocs_nfaces(sbodies[i].occ) : sbodies[i].n, body_volume(&sbodies[i]));
     if (getenv("MCAMUI_CHAINDUMP")) chain_dump();          /* tests: the chains after every step (core_ui cui_chain.c, as mcamui) */
     if (getenv("MCAMUI_EXDUMP")) ex_dump();                /* tests: the Extrude command / features / bodies (core_ui cui_extrude.c) */
     if (getenv("MCAMUI_OPDUMP")) op_dump();                /* tests: the operations / the op dialog (core_ui cui_ops.c, as mcamui) */

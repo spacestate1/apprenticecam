@@ -114,6 +114,8 @@ public:
     void openDialogShown();                            // tests: show:open - the Open dialog, not modal                           // tests: the Toolpaths tab's first gallery's palette open (show:gallery)
     // the Extrude command (core_ui cui_extrude.c): its panel dock follows ex_mode && ex_phase
     void syncExtrude();                                // panel shown / hidden / refreshed; the preview (ex_panel_frame) when not scripting
+    void syncFillet();                                 // Constant Fillet: the Solid Selection / panel dock (core_ui cui_fillet.c)
+    void flButton(int code);
     void exButton(int code);                           // the panel's OK (0) / Apply-Regen (1) / Cancel (2)
     ExtrudePanel *exPanel() { return ex_; }
     SolidsManager *solidsManager() { return sm_; }
@@ -181,6 +183,7 @@ private:
     ads::CDockAreaWidget *mgrArea_ = nullptr;
     ads::CDockWidget *geoDock_ = nullptr; GeoPanel *geo_ = nullptr; int shownLayout_ = 0, shownGeo_ = 0;
     ads::CDockWidget *exDock_ = nullptr; ExtrudePanel *ex_ = nullptr; bool shownEx_ = false;
+    ads::CDockWidget *flDock_ = nullptr; class FilletPanel *fl_ = nullptr; bool shownFl_ = false;
     bool msgShown_ = false; QByteArray msgT_, msgX_;   /* the last message box (mcamui show_msg / msg_title / msg_text) */
     OpDialog *opDlg_ = nullptr; ToolListDialog *tlDlg_ = nullptr; PlanesDialog *plsDlg_ = nullptr, *uplDlg_ = nullptr; class PlaneSelDialog *pselDlg_ = nullptr;
     bool opSuspended_ = false;                          /* hidden for a Linking "..." pick (AfxSuspendWindow) */

@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include "solid25.h"
+#include "occt_solid.h"
+#include "xt_mesh.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -22,7 +24,8 @@ static int cp_equal(const CPaths *a, const CPaths *b) {
 }
 static double cp_area(const CPaths *a) { return a->n ? cl_total_area(a) : 0; }
 
-void body_free(Body *b) { for (int i = 0; i < b->n; i++) cl_free(&b->s[i].reg); free(b->s); b->s = NULL; b->n = 0; free(b->arc); b->arc = NULL; b->narc = 0; }
+void body_free(Body *b) { for (int i = 0; i < b->n; i++) cl_free(&b->s[i].reg); free(b->s); b->s = NULL; b->n = 0; free(b->arc); b->arc = NULL; b->narc = 0;
+    if (b->occ) ocs_unref(b->occ); b->occ = NULL; free(b->xt); b->xt = NULL; b->xt_n = 0; }
 /* the body's arc carriers (BArc): appended, an identical one is kept once */
 static void arcs_add(BArc **arc, int *narc, const BArc *a, int n) {
     for (int i = 0; i < n; i++) {
@@ -33,6 +36,8 @@ static void arcs_add(BArc **arc, int *narc, const BArc *a, int n) {
 }
 Body body_copy(const Body *b) {
     Body r = *b; r.s = malloc(sizeof(Slab) * (b->n ? b->n : 1));
+    if (b->occ) ocs_ref(b->occ);
+    if (b->xt) { r.xt = malloc(b->xt_n); memcpy(r.xt, b->xt, b->xt_n); }
     for (int i = 0; i < b->n; i++) { r.s[i] = b->s[i]; r.s[i].reg = cp_copy(&b->s[i].reg); }
     r.arc = NULL; r.narc = 0; arcs_add(&r.arc, &r.narc, b->arc, b->narc);
     return r;
@@ -309,6 +314,7 @@ static int reg_inside(const CPaths *r, double x, double y) {
     return w != 0;
 }
 int body_hit(const Body *b, const double o[3], const double d[3], double *tout) {
+    if (b->occ) return ocs_hit(b->occ, o, d, tout);
     double best = 1e300;
     for (int i = 0; i < b->n; i++) {
         const Slab *s = &b->s[i];
@@ -329,7 +335,7 @@ int body_hit(const Body *b, const double o[3], const double d[3], double *tout) 
     *tout = best; return 1;
 }
 
-double body_volume(const Body *b) { double v = 0; for (int i = 0; i < b->n; i++) v += cp_area(&b->s[i].reg) * (b->s[i].z1 - b->s[i].z0); return v; }
+double body_volume(const Body *b) { if (b->occ) return ocs_volume(b->occ); double v = 0; for (int i = 0; i < b->n; i++) v += cp_area(&b->s[i].reg) * (b->s[i].z1 - b->s[i].z0); return v; }
 
 /* ---------------------------------------------------------------------------------------- triangulation */
 typedef struct { double x, y; } Q;
@@ -451,7 +457,10 @@ static void walls(TB *b, const CPaths *reg, double z0, double z1) {
     }
 }
 
+/* ours: the display tessellation of an OpenCASCADE body (0.02 mm / 0.001 in, as the imported solids' occt_brep_mesh, scene.c) */
+static double occ_defl(const Body *bd) { return bd->xt_scale > 100 ? 0.02 : 0.001; }
 int body_mesh(const Body *bd, float **out) {
+    if (bd->occ) return ocs_mesh(bd->occ, occ_defl(bd), out);
     TB b = { 0 };
     CPaths none = cp_empty();
     for (int k = 0; k < bd->n; k++) {
@@ -485,6 +494,7 @@ static int medge_cmp(const void *x, const void *y) {
 }
 static int vless(const float *u, const float *v) { for (int k = 0; k < 3; k++) if (u[k] != v[k]) return u[k] < v[k]; return 0; }
 int body_edges(const Body *bd, float **out) {
+    if (bd->occ) return ocs_edges(bd->occ, occ_defl(bd), out);   /* the B-rep edges (sld_draw_solid_wire) */
     float *t; int nt = body_mesh(bd, &t);
     *out = NULL;
     if (nt <= 0) { free(t); return 0; }
@@ -593,7 +603,20 @@ void bedges_free(BEdge *e, int n) { for (int i = 0; i < n; i++) free(e[i].pts); 
    along that edge's direction (pts order) */
 typedef struct { VKey *vk; int nvk, nv; int *sg, nsg, *seg_edge; char *seg_fwd; } BrepCx;
 static int brep_edges_core(const Body *bd, BEdge **out, BrepCx *cx);
-int body_brep_edges(const Body *bd, BEdge **out) { return brep_edges_core(bd, out, NULL); }
+/* an OpenCASCADE body: its XT's edges, read exactly as a part solid's (xt_mesh.c xt_brep_edges: lines / circles) */
+static int occ_brep_edges(const Body *bd, BEdge **out) {
+    *out = NULL; if (!bd->xt) return 0;
+    XtSchema *sc = xt_schema_for(bd->xt, bd->xt_n); if (!sc) return 0;
+    XtBEdge *x = NULL; int sk = 0, n = xt_brep_edges(sc, bd->xt, bd->xt_n, bd->xt_scale, &x, &sk);
+    *out = calloc(n > 0 ? n : 1, sizeof(BEdge));
+    for (int k = 0; k < n; k++) {
+        BEdge *E = &(*out)[k]; E->pts = x[k].pts; x[k].pts = NULL; E->np = x[k].np; E->arc = x[k].arc; E->r = x[k].r;
+        memcpy(E->c, x[k].c, sizeof E->c); memcpy(E->ax, x[k].ax, sizeof E->ax); memcpy(E->xa, x[k].xa, sizeof E->xa); E->t0 = x[k].t0; E->t1 = x[k].t1;
+    }
+    xt_bedges_free(x, n);
+    return n > 0 ? n : 0;
+}
+int body_brep_edges(const Body *bd, BEdge **out) { if (bd->occ) return occ_brep_edges(bd, out); return brep_edges_core(bd, out, NULL); }
 static int brep_edges_core(const Body *bd, BEdge **out, BrepCx *cx) {
     RSeg *s = NULL; int ns = 0, cap = 0;
     CPaths none = cp_empty();
@@ -894,6 +917,7 @@ static int side_splits(const ZPts *zp, double ax, double ay, double bx, double b
 }
 int body_brep_topo(const Body *bd, BTopo *t) {
     memset(t, 0, sizeof *t);
+    if (bd->occ) { XtSchema *sc = bd->xt ? xt_schema_for(bd->xt, bd->xt_n) : NULL; return sc ? xt_brep_topo(sc, bd->xt, bd->xt_n, bd->xt_scale, t) : 0; }
     BrepCx cx; memset(&cx, 0, sizeof cx);
     BEdge *E = NULL; int ne = brep_edges_core(bd, &E, &cx); bedges_free(E, ne);
     if (!cx.sg) { free(cx.vk); return 0; }

@@ -16,6 +16,7 @@
 #include "mcam_saveops.h"
 #include "core_ui/core_ui.h"
 #include "core_bridge.h"
+#include "sld_ops.h"
 #include "mcam_grp.h"
 
 #define CP(dst, src) snprintf(dst, sizeof dst, "%s", src)
@@ -147,15 +148,12 @@ int qc_save_part(const char *dst, char *msg, size_t n) {
     if (!loaded) { snprintf(msg, n, "Open a part, or start one with File > New."); return 0; }   /* mcamui export_mcam_dialog */
     if (F.path[0] && same_file(F.path, dst)) { snprintf(msg, n, "Refusing to write %s: part files are never overwritten.", dst); return 0; }
     CamOp **sv; int nsv = dirty_save_list(&sv);           /* the ops made here (a dirty one's changed parameters: cui_dirty.c) + stored ops changed here */
+    SldNew *sn = NULL; F.nsldnew = sld_new_build(&sn); F.sldnew = sn;   /* SOL-1: the solids made here (cui_sldsave.c), written by the save */
     int ok = mcam_save_part(F.path[0] ? F.path : NULL, dst, &F, sv, nsv, msg, n);   /* as mcamui export_mcam */
+    sld_new_free(sn, F.nsldnew); F.sldnew = NULL; F.nsldnew = 0;
     free(sv);
     if (ok) { int nocc = 0; for (int i = 0; i < F.nsolids; i++) if (F.solids[i].brep) nocc++;
         if (nocc) { size_t k = strlen(msg); snprintf(msg + k, n - k, "\n\nThe %d solid%s imported from a STEP file %s not written to the Mastercam part (no Parasolid output): save the project (.mcamui) to keep %s.", nocc, nocc == 1 ? "" : "s", nocc == 1 ? "is" : "are", nocc == 1 ? "it" : "them"); } }
-    if (ok && nfeats) {                                   /* solids made here: no Parasolid writer yet (mcamui export_mcam) */
-        size_t k = strlen(msg);
-        snprintf(msg + k, n - k, "\n\nThe %d solid bod%s made here (Extrude) %s not written (no Parasolid output yet); the chains are in the file, so Extrude them again.",
-                 nsbodies, nsbodies == 1 ? "y" : "ies", nsbodies == 1 ? "is" : "are");
-    }
     if (ok) qc_recent_add(dst);
     return ok;
 }

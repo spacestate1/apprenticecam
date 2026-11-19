@@ -276,6 +276,7 @@ typedef struct {
     Ent *ents; int nents;
     Tool tools[256]; int ntools;
     Solid *solids; int nsolids;
+    struct SldNew *sldnew; int nsldnew;   /* solids made here to write at the next save (core_ui cui_sldsave.c sets them, sld_ops.h; not owned) */
     Surf *surfs; int nsurfs;
     McMesh *meshes; int nmeshes;   /* polygonal meshes (PMESH_ID, E_MESH) */
     CurveRec *crvs; int ncrvs;

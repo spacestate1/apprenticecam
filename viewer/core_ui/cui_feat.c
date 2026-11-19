@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "core_ui.h"
+#include "occt_solid_ent.h"
 
 ExFeat *feats; int nfeats;
 Body *sbodies; int nsbodies;
@@ -23,9 +24,11 @@ void chain_copy_into(Chain *d, const Chain *s) {
 ExFeat feat_dup(const ExFeat *f) {
     ExFeat r = *f; r.ch = malloc(sizeof(Chain) * (f->nch ? f->nch : 1)); r.cdir = malloc(sizeof(int) * (f->nch ? f->nch : 1));
     for (int i = 0; i < f->nch; i++) { chain_copy_into(&r.ch[i], &f->ch[i]); r.cdir[i] = f->cdir ? f->cdir[i] : 1; }
+    r.fl = f->fl ? filfeat_dup(f->fl) : NULL;
     return r;
 }
-void feat_free(ExFeat *f) { for (int i = 0; i < f->nch; i++) cam_chain_free(&f->ch[i]); free(f->ch); free(f->cdir); f->ch = NULL; f->cdir = NULL; f->nch = 0; }
+void feat_free(ExFeat *f) { for (int i = 0; i < f->nch; i++) cam_chain_free(&f->ch[i]); free(f->ch); free(f->cdir); f->ch = NULL; f->cdir = NULL; f->nch = 0;
+                            filfeat_free(f->fl); f->fl = NULL; }
 /* undo record payload: the features one OK / Apply made (sec. 6: one per body / group) */
 void feat_release(void *p) { FeatPack *k = p; if (!k) return; for (int i = 0; i < k->n; i++) feat_free(&k->f[i]); free(k->f); free(k); }
 
@@ -215,44 +218,76 @@ int feat_groups(const ExFeat *f, Profile **out, int *ng, ExErr *e) {
 }
 void groups_free(Profile *g, int n) { for (int k = 0; k < n; k++) { cl_free(&g[k].closed); cl_free(&g[k].open); free(g[k].arc); } free(g); }
 
-/* the body of a primitive (ours: this program's 2.5D kernel builds it as an extrusion of its base outline along +Z; the
-   Parasolid placement of sld_basic_primitive's block / CRCYSO cylinder is NOT DECODED beyond decomp/mcgeomsld_basic_primitive.c
-   / _basic_cyl.c: block = the zmin face centre + sizes along the view X / Y / Z, cylinder = the low-end centre, axis, r, h).
-   Only a Z-axis cylinder can be made here (the kernel extrudes along Z). Returns 0 when the shape cannot be built. */
+/* SOL-3 (2026-11-18): an OpenCASCADE body as a Body (solid25.h): its XT is written at once (viewer/occt/occt_xt.cpp, Parasolid 27; the
+   AutoCursor / solid chaining read the bodies' edges and faces from it as from the part's solids) */
+double feat_xt_scale(void) { return mcam_is_metric(&F) ? 1000.0 : 1000.0 / 25.4; }
+Body body_of_occ(OcsBody *ob, const char *name) {
+    Body b; memset(&b, 0, sizeof b);
+    b.occ = ob; snprintf(b.name, sizeof b.name, "%s", name ? name : "");
+    b.xt_scale = feat_xt_scale();
+    char err[256] = "";
+    b.xt = ocs_xt(ob, b.xt_scale, 27, "sld_1", &b.xt_n, err, sizeof err);
+    if (!b.xt) ex_log("body %s: no XT (%s): its edges / faces are not offered to the AutoCursor", b.name, err);
+    return b;
+}
+/* the body of a primitive: sld_basic_primitive's block (the zmin face centre + sizes along the view X / Y / Z) / CRCYSO cylinder (the low-end
+   centre, axis, r, h) (decomp/mcgeomsld_basic_primitive.c / _basic_cyl.c), now on OpenCASCADE (BRepPrimAPI). Its op record (SldPrimitiveOp)
+   is NOT DECODED, so such a solid is not written to a Mastercam part. Returns 0 when the shape cannot be built. */
 int prim_body(int prim, const double *pv, const char *name, Body *out) {
     memset(out, 0, sizeof *out);
-    Profile g; memset(&g, 0, sizeof g);
-    CPath cp = { NULL, 0 }; double tol = 0.002 + ext * 2e-6, z0, dist; BArc arc;
     if (prim == 15) {
-        double x0 = fmin(pv[0], pv[1]), x1 = fmax(pv[0], pv[1]), y0 = fmin(pv[2], pv[3]), y1 = fmax(pv[2], pv[3]);
-        z0 = fmin(pv[4], pv[5]); dist = fabs(pv[5] - pv[4]);
-        if (x1 - x0 <= EX_TOL || y1 - y0 <= EX_TOL || dist <= EX_TOL) return 0;
-        cp.xy = malloc(8 * sizeof(double)); if (!cp.xy) return 0;
-        double q[8] = { x0, y0, x1, y0, x1, y1, x0, y1 }; memcpy(cp.xy, q, sizeof q); cp.n = 4;   /* counter-clockwise */
+        if (fabs(pv[1] - pv[0]) <= EX_TOL || fabs(pv[3] - pv[2]) <= EX_TOL || fabs(pv[5] - pv[4]) <= EX_TOL) return 0;
     } else if (prim == 17) {
-        double r = pv[0], len = pv[1];
-        if (!(r >= EX_TOL) || !(len > EX_TOL) || fabs(fabs(pv[7]) - 1) > 1e-9) return 0;   /* r, len, axis along Z */
-        z0 = pv[7] > 0 ? pv[4] : pv[4] - len; dist = len;
-        double step = r > tol ? 2 * acos(1 - tol / r) : M_PI / 8; if (step > M_PI / 18) step = M_PI / 18;
-        int n = (int)ceil(2 * M_PI / step); if (n < 8) n = 8; if (n > 4096) n = 4096;
-        cp.xy = malloc(2 * sizeof(double) * n); if (!cp.xy) return 0;
-        for (int i = 0; i < n; i++) { cp.xy[2 * i] = pv[2] + r * cos(2 * M_PI * i / n); cp.xy[2 * i + 1] = pv[3] + r * sin(2 * M_PI * i / n); }
-        cp.n = n;
-        arc = (BArc){ pv[2], pv[3], r, 0, 2 * M_PI, tol, 0 }; g.arc = &arc; g.narc = 1;
+        if (!(pv[0] >= EX_TOL) || !(pv[1] > EX_TOL)) return 0;
     } else return 0;
-    g.closed.p = &cp; g.closed.n = 1; g.z = z0; g.dir = 1;
-    ExtrudeParams ep; memset(&ep, 0, sizeof ep);
-    ep.type = EX_CREATE; ep.target = -1; ep.method = EXM_DISTANCE; ep.dist = dist; ep.vec[2] = 1; ep.split = 1; ep.draft_ang = 5;
-    Body *bs = NULL; int nb = 0; ExErr e;
-    int ok = solid_extrude(&bs, &nb, &g, 1, &ep, name, EX_TOL, mcam_is_metric(&F), &e) && nb == 1;
-    free(cp.xy);
-    if (ok) *out = bs[0]; else for (int i = 0; i < nb; i++) body_free(&bs[i]);
-    free(bs);
-    return ok;
+    char err[200]; OcsBody *ob = ocs_primitive(prim, pv, err, sizeof err);
+    if (!ob) return 0;
+    *out = body_of_occ(ob, name);
+    return 1;
+}
+/* the feature's chain groups (sec. 4.5, ex_grouping) as the OpenCASCADE kernel's input: per group its chains (the root loop first, then its
+   holes; thin: the plane's chains), each chain's line / arc entities exact (occt_solid_ent.h, ps_arc_to_ps_arc), and the group's direction =
+   its first chain's (sec. 4.1: +-Z here, the chains lie in XY planes) */
+void ocsin_free(OcsIn *in) { free(in->g); free(in->ch); free(in->seg); free(in->first); memset(in, 0, sizeof *in); }
+int feat_ocs_groups(const ExFeat *f, OcsIn *in, ExErr *e) {
+    memset(in, 0, sizeof *in);
+    ExGrp *gr = NULL; int ngr = 0;
+    if (!ex_grouping(f, &gr, &ngr, e)) return 0;
+    int nc = 0, ns = 0;
+    for (int k = 0; k < ngr; k++) for (int m = 0; m < gr[k].n; m++) { nc++; ns += f->ch[gr[k].ix[m]].n; }
+    in->g = calloc(ngr ? ngr : 1, sizeof(OcsGroup)); in->ch = calloc(nc ? nc : 1, sizeof(OcsChain)); in->seg = calloc(ns ? ns : 1, sizeof(OcsSeg));
+    in->first = calloc(ngr ? ngr : 1, sizeof(int));
+    int ic = 0, is = 0, ok = 1;
+    for (int k = 0; k < ngr && ok; k++) {
+        OcsGroup *g = &in->g[in->ng]; g->ch = &in->ch[ic]; g->nch = 0;
+        for (int m = 0; m < gr[k].n && ok; m++) {
+            int i = gr[k].ix[m]; const Chain *c = &f->ch[i];
+            OcsChain *oc = &in->ch[ic++]; oc->s = &in->seg[is]; oc->n = 0; oc->closed = c->closed;
+            for (int q = 0; q < c->n; q++) {
+                if (!ocs_seg_of_ent(&F.ents[c->ent[q]], c->rev[q], c->ent[q], &in->seg[is])) { ok = 0; break; }   /* a point / spline: no sheet */
+                is++; oc->n++;
+            }
+            if (!g->nch) { g->dir[0] = 0; g->dir[1] = 0; g->dir[2] = f->cdir && f->cdir[i] < 0 ? -1 : 1; in->first[in->ng] = i; }
+            g->nch++;
+        }
+        in->ng++;
+    }
+    for (int k = 0; k < ngr; k++) free(gr[k].ix);
+    free(gr);
+    if (!ok) { ocsin_free(in); e->id = 337; e->caption = 201; return 0; }   /* "No valid closed chains selected for non-thinwall extrude." */
+    return 1;
+}
+void ocs_params_of(const ExtrudeParams *ep, int single, OcsParams *p) {
+    memset(p, 0, sizeof *p);
+    p->type = ep->type; p->method = ep->method; p->reverse = ep->reverse; p->both = ep->both; p->split = ep->split; p->draft = ep->draft;
+    p->draft_rev = ep->draft_rev; p->thin = ep->thin; p->thin_dir = ep->thin_dir; p->draft_ends = ep->draft_ends; p->dist = ep->dist;
+    p->draft_ang = ep->draft_ang * M_PI / 180; p->thick = ep->thick; p->thick2 = ep->thick2; p->single = single;
 }
 int feat_apply(Body **bs, int *nb, ExFeat *f, ExErr *e) {
+    e->id = 0; e->caption = -1;
+    if (f->fl) return fil_apply(bs, nb, f, e);           /* a Constant Fillet op (cui_fillet.c) */
     if (f->prim) {                                       /* a Block / Cylinder: a new body */
-        Body b; e->id = 0; e->caption = -1;
+        Body b;
         if (!prim_body(f->prim, f->pv, f->name, &b)) return 0;
         Body *nbs = realloc(*bs, sizeof(Body) * (*nb + 1)); if (!nbs) { body_free(&b); return 0; }
         *bs = nbs; (*bs)[(*nb)++] = b; return 1;
@@ -261,19 +296,42 @@ int feat_apply(Body **bs, int *nb, ExFeat *f, ExErr *e) {
         /* a project line written before this file followed formats/extrude.md: its direction came from an old rule
            of this program (Cut toward the target's middle, Boss away from it, Create +Z, then Reverse). Converted
            once into the per-chain directions, so old projects rebuild unchanged; new features never use it. */
-        int up = 1; double zc = 0;
+        int up = 1; double zc = 0, lo[3], hi[3];
         if (f->p.type != EX_CREATE && f->p.target >= 0 && f->p.target < *nb && f->nch && ex_chain_xy(&f->ch[0], &zc)) {
-            const Body *t = &(*bs)[f->p.target]; double zm = t->n ? (t->s[0].z0 + t->s[t->n - 1].z1) / 2 : zc;
+            const Body *t = &(*bs)[f->p.target]; double zm = t->occ && ocs_bbox(t->occ, lo, hi) ? (lo[2] + hi[2]) / 2 : zc;
             up = f->p.type == EX_CUT ? (zm >= zc ? 1 : -1) : (zm <= zc ? 1 : -1);
         }
         for (int i = 0; i < f->nch; i++) f->cdir[i] = up;
         f->p.legacy = 0;
     }
-    Profile *g; int ng;
-    if (!feat_groups(f, &g, &ng, e)) return 0;
-    int ok = solid_extrude(bs, nb, g, ng, &f->p, f->name, EX_TOL, mcam_is_metric(&F), e);
-    groups_free(g, ng);
-    return ok;
+    /* SOL-3: sld_extrude on OpenCASCADE (viewer/occt_solid.cpp) */
+    OcsIn in;
+    if (!feat_ocs_groups(f, &in, e)) return 0;
+    OcsParams p; ocs_params_of(&f->p, f->single, &p);
+    const OcsBody *tgt = NULL;
+    if (f->p.type != EX_CREATE) {
+        if (f->p.target < 0 || f->p.target >= *nb || !(*bs)[f->p.target].occ) { ocsin_free(&in); return 0; }   /* the panel forces Create without a target (2.1) */
+        tgt = (*bs)[f->p.target].occ;
+    }
+    OcsBody **out = NULL; int nout = 0; char err[300] = "";
+    int ok = ocs_extrude(tgt, in.g, in.ng, &p, EX_TOL, mcam_is_metric(&F), &out, &nout, &e->id, &e->caption, err, sizeof err);
+    ocsin_free(&in);
+    if (!ok) { if (err[0]) ex_log("kernel: %s", err); return 0; }
+    /* the new ops' feature (the save writes each op from its feature: sld_save.c) */
+    int tag = f >= feats && f < feats + nfeats ? (int)(f - feats) : -1, op0 = tgt ? ocs_nops(tgt) : 0;
+    for (int i = 0; i < nout; i++) for (int k = op0; k < ocs_nops(out[i]); k++) ocs_op_set_tag(out[i], k, tag);
+    if (f->p.type == EX_CREATE) {
+        /* 4.7: each group becomes its own new body; the name is the operation's (panel Name). How Mastercam names bodies (FUN_18012fa00) is
+           NOT DECODED. */
+        Body *nbs = realloc(*bs, sizeof(Body) * (*nb + nout)); if (!nbs) { for (int i = 0; i < nout; i++) ocs_unref(out[i]); free(out); return 0; }
+        *bs = nbs;
+        for (int i = 0; i < nout; i++) (*bs)[(*nb)++] = body_of_occ(out[i], f->name);
+    } else {
+        Body *t = &(*bs)[f->p.target]; char nm[64]; snprintf(nm, sizeof nm, "%s", t->name);
+        body_free(t); *t = body_of_occ(out[0], nm);
+    }
+    free(out);
+    return 1;
 }
 void bodies_free(Body **bs, int *nb) { for (int i = 0; i < *nb; i++) body_free(&(*bs)[i]); free(*bs); *bs = NULL; *nb = 0; }
 Body *bodies_dup(int *nt) {
@@ -352,6 +410,15 @@ void feats_write(FILE *f) {
             fprintf(f, "PRIM %d", feats[i].prim);
             for (int k = 0; k < 8; k++) fprintf(f, " %.17g", feats[i].pv[k]);
             fprintf(f, " %s\n", feats[i].name);
+            if (feats[i].level || feats[i].color) fprintf(f, "XATTR %d %d\n", feats[i].level, feats[i].color);
+            continue;
+        }
+        if (feats[i].fl) {                               /* ours: FILLET body whole radius overflow mitered propagate nf ne name, then FREC / EREC lines */
+            const FilFeat *q = feats[i].fl;
+            fprintf(f, "FILLET %d %d %.17g %d %d %d %d %d %s\n", feats[i].p.target, q->whole, q->radius, q->overflow, q->mitered, q->propagate, q->nf, q->ne, feats[i].name);
+            for (int k = 0; k < q->nf; k++) fprintf(f, "FREC %d %.17g %.17g %.17g\n", q->frec[k], q->fpt[k][0], q->fpt[k][1], q->fpt[k][2]);
+            for (int k = 0; k < q->ne; k++) fprintf(f, "EREC %d %.17g %.17g %.17g\n", q->erec[k], q->ept[k][0], q->ept[k][1], q->ept[k][2]);
+            if (feats[i].level || feats[i].color) fprintf(f, "XATTR %d %d\n", feats[i].level, feats[i].color);
             continue;
         }
         const ExtrudeParams *p = &feats[i].p;
@@ -363,6 +430,8 @@ void feats_write(FILE *f) {
             for (int k = 0; k < feats[i].ch[c].n; k++) fprintf(f, " %d %d", feats[i].ch[c].ent[k], feats[i].ch[c].rev[k]);
             fprintf(f, " %d\n", feats[i].cdir[c] < 0 ? -1 : 1);
         }
+        /* ours (SOL-5d): the attributes the new body got at creation, after the feature's chains */
+        if (feats[i].level || feats[i].color) fprintf(f, "XATTR %d %d\n", feats[i].level, feats[i].color);
     }
 }
 void feats_read(FILE *f) {
@@ -402,6 +471,26 @@ void feats_read(FILE *f) {
             }
             if (p->target < 0 && p->type != EX_CREATE) p->type = EX_CREATE;
             cur.ch = calloc(want ? want : 1, sizeof(Chain)); cur.cdir = calloc(want ? want : 1, sizeof(int));
+        } else if (!strncmp(line, "FILLET ", 7)) {       /* a Constant Fillet feature (feats_write) */
+            if (want == 0 && cur.nch) { feat_push(&cur); feat_free(&cur); }
+            want = 0; feat_free(&cur); memset(&cur, 0, sizeof cur);
+            ExFeat ff; memset(&ff, 0, sizeof ff); FilFeat *q = calloc(1, sizeof *q); int pos = 0, nfr = 0, ner = 0;
+            if (sscanf(line + 7, "%d %d %lf %d %d %d %d %d%n", &ff.p.target, &q->whole, &q->radius, &q->overflow, &q->mitered, &q->propagate, &nfr, &ner, &pos) == 8
+                && nfr >= 0 && ner >= 0 && nfr < 100000 && ner < 100000) {
+                char *nm = line + 7 + pos; if (*nm == ' ') nm++;
+                nm[strcspn(nm, "\r\n")] = 0; snprintf(ff.name, sizeof ff.name, "%s", nm);
+                q->frec = calloc(nfr + 1, sizeof(int)); q->erec = calloc(ner + 1, sizeof(int));
+                q->fpt = calloc(nfr + 1, sizeof *q->fpt); q->ept = calloc(ner + 1, sizeof *q->ept);
+                while ((q->nf < nfr || q->ne < ner) && fgets(line, sizeof line, f)) {
+                    if (!strncmp(line, "FREC ", 5) && q->nf < nfr) { sscanf(line + 5, "%d %lf %lf %lf", &q->frec[q->nf], &q->fpt[q->nf][0], &q->fpt[q->nf][1], &q->fpt[q->nf][2]); q->nf++; }
+                    else if (!strncmp(line, "EREC ", 5) && q->ne < ner) { sscanf(line + 5, "%d %lf %lf %lf", &q->erec[q->ne], &q->ept[q->ne][0], &q->ept[q->ne][1], &q->ept[q->ne][2]); q->ne++; }
+                    else break;
+                }
+                ff.p.type = EX_CUT; ff.fl = q; feat_push(&ff);
+            }
+            filfeat_free(q);
+        } else if (!strncmp(line, "XATTR ", 6) && nfeats > 0) {   /* the last complete feature's level / colour (SOL-5d) */
+            sscanf(line + 6, "%d %d", &feats[nfeats - 1].level, &feats[nfeats - 1].color);
         } else if (!strncmp(line, "XCHAIN ", 7) && want > 0) {
             char *q = line + 7; Chain c; memset(&c, 0, sizeof c);
             c.closed = (int)strtol(q, &q, 10); c.n = (int)strtol(q, &q, 10);

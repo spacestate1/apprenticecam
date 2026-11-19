@@ -47,11 +47,12 @@ set(CORE ${CMAKE_CURRENT_SOURCE_DIR}/../viewer)
 set(CORE_C hmm_voronoi.c hmm_pipethin.c stockmodel.c cad_import.c stl_mesh.c dxf_read.c rpx.c scene.c mcam_load.c mcsurf.c mcsrfdl.c mcglhit.c mcsurf_build.c mcsrfint.c mcpartline.c mcpartline_mesh.c cam3d_mmodel.c mcsrfcrv.c mccsurf.c mcsurf_nrm.c mcspline.c mcspline_fit.c mcspline_simplify.c mcspline_chain.c mcspline_refit.c mcbiarc.c mcfilter.c mcfillet.c mcfillet_ent.c mcsurf_tonurbs.c part_tools.c xt_mesh.c cam2d.c cam2d_remach.c mcce_ctour.c mcce_dyn.c toollib.c toolprofile.c toolwiz.c
            feedspeed.c backplot.c mcam_write.c mcam_saveops.c geo2d.c solid25.c cam_fileop.c nc_post.c nci_reverse.c cam_postvals.c
            area_mill.c verify.c nci_write.c bnci_update.c draft.c draft_create.c draft_create_circ.c draft_create_ang.c draft_create_tan.c draft_create_pt.c draft_ord.c draft_pick.c draft_note.c engrave.c lathe_face.c lathe_stock.c lathe_tool.c lathe_axis.c lathe_newop.c sldtoolp.c)
+list(APPEND CORE_C sld_ops.c)   # SOL-1: the solid history (McOpsFile) records, formats/solid_history.md
 list(APPEND CORE_C mcsrfext.c)   # Surfaces > Extend: extend_surf's NURBS extension
 list(APPEND CORE_C mcsrftrim.c)   # Surfaces > Trim: the face trimming core (MaFace::TrimToLoopsNew, MaTrimSurfToPlane), formats/surfaces_trim_decode.md
 list(TRANSFORM CORE_C PREPEND ${CORE}/)
 # viewer/core_ui: the UI behaviour moved out of the removed mcamui.c (document, selection, picking, AutoCursor, overlay, undo; phase 2; wireframe commands + panel model, phase 3; chaining, phase 4; Extrude, phase 5; operations + toolpath dialog, phase 6)
-set(CORE_UI_C cui_srfdl.c cui_srfedit.c cui_cedge.c cui_slice.c cui_plsel.c cui_srfint.c cui_csurf.c cui_partline.c cui_dsurf.c cui_spline.c cui_surf.c cui_attr.c cui_doc.c cui_feat.c cui_geo.c cui_wfmisc.c cui_xform.c cui_xdyn.c cui_xroll.c cui_sel.c cui_snap.c cui_overlay.c cui_undo.c cui_chain.c cui_sldchain.c cui_extrude.c
+set(CORE_UI_C cui_srfdl.c cui_srfedit.c cui_cedge.c cui_slice.c cui_plsel.c cui_srfint.c cui_csurf.c cui_partline.c cui_dsurf.c cui_spline.c cui_surf.c cui_attr.c cui_doc.c cui_feat.c cui_sldsave.c cui_geo.c cui_wfmisc.c cui_xform.c cui_xdyn.c cui_xroll.c cui_sel.c cui_snap.c cui_overlay.c cui_undo.c cui_chain.c cui_sldchain.c cui_extrude.c cui_fillet.c
               cui_ops.c cui_opdlg.c cui_toolpage.c cui_optree.c cui_toolmgr.c cui_toolwiz.c
               cui_backplot.c cui_verify.c cui_analyze.c cui_ecp.c cui_lface.c cui_misc.c   # phase 8
               cui_stock.c cui_bbox.c cui_planes.c cui_grpprops.c         # Stock Setup, Bounding Box panel, planes, Files / Tool Settings
@@ -103,10 +104,10 @@ target_link_libraries(mcamcore PUBLIC GLEW::GLEW OpenGL::GL ${SQLITE_LIB} m)
 # formats/hst3d_port_plan.md 6). With OCCT's headers found: HAVE_OCCT and its toolkits; without them occt_mesh.cpp is a stub and the
 # 3D ops refuse ("built without OpenCASCADE"). viewer/Makefile does the same detection.
 find_path(OCCT_INCLUDE_DIR BRepMesh_IncrementalMesh.hxx PATHS /usr/include/opencascade /usr/local/include/opencascade)
-target_sources(mcamcore PRIVATE ${CORE}/occt_mesh.cpp ${CORE}/occt_prim.cpp ${CORE}/occt_cad.cpp ${CORE}/occt_edges.cpp)   # occt_prim: Surfaces > Simple (decision S-1)
+target_sources(mcamcore PRIVATE ${CORE}/occt_mesh.cpp ${CORE}/occt_prim.cpp ${CORE}/occt_cad.cpp ${CORE}/occt_edges.cpp ${CORE}/occt_solid.cpp)   # occt_solid: SOL-3, the Extrude kernel on OCCT   # occt_prim: Surfaces > Simple (decision S-1)
 if (OCCT_INCLUDE_DIR)
-  target_sources(mcamcore PRIVATE ${CORE}/occt/xt_occt.cpp)
-  set_source_files_properties(${CORE}/occt_mesh.cpp ${CORE}/occt_prim.cpp ${CORE}/occt_cad.cpp ${CORE}/occt_edges.cpp ${CORE}/occt/xt_occt.cpp PROPERTIES COMPILE_OPTIONS "-std=c++17")
+  target_sources(mcamcore PRIVATE ${CORE}/occt/xt_occt.cpp ${CORE}/occt/occt_xt.cpp)   # occt_xt: SOL-1, the OCCT -> Parasolid XT writer (formats/occt_xt.md)
+  set_source_files_properties(${CORE}/occt_mesh.cpp ${CORE}/occt_prim.cpp ${CORE}/occt_cad.cpp ${CORE}/occt_edges.cpp ${CORE}/occt_solid.cpp ${CORE}/occt/xt_occt.cpp ${CORE}/occt/occt_xt.cpp PROPERTIES COMPILE_OPTIONS "-std=c++17")
   target_compile_definitions(mcamcore PRIVATE HAVE_OCCT)
   target_include_directories(mcamcore PRIVATE ${OCCT_INCLUDE_DIR})
   # OCCT >= 7.8 has the STEP / IGES readers in TKDESTEP / TKDEIGES; 7.6 / 7.7 (Debian 12, Ubuntu 22.04 / 24.04) in TKSTEP* / TKIGES
@@ -116,7 +117,7 @@ if (OCCT_INCLUDE_DIR)
   else()
     set(OCCT_DE TKSTEP TKSTEP209 TKSTEPAttr TKSTEPBase TKIGES)
   endif()
-  target_link_libraries(mcamcore PUBLIC ${OCCT_DE} TKXSBase TKBO TKBool TKMesh TKShHealing TKPrim TKTopAlgo TKGeomAlgo TKBRep TKGeomBase TKG3d TKG2d TKMath TKernel)
+  target_link_libraries(mcamcore PUBLIC ${OCCT_DE} TKXSBase TKOffset TKFillet TKBO TKBool TKMesh TKShHealing TKPrim TKTopAlgo TKGeomAlgo TKBRep TKGeomBase TKG3d TKG2d TKMath TKernel)
 endif()
 
 # ------------------------------------------------------------------ the program
@@ -124,7 +125,7 @@ add_executable(apprenticecam
   src/main.cpp src/mainwindow.cpp src/mainwindow.h src/uilayout.cpp src/uilayout.h src/icons.cpp src/icons.h
   src/viewwidget.cpp src/viewwidget.h src/managers.cpp src/managers.h src/backstage.cpp src/backstage.h
   src/testhooks.cpp src/testhooks.h src/core_bridge.c src/core_bridge.h
-  src/geopanel.cpp src/geopanel.h src/acsettings.cpp src/acsettings.h src/chaindlg.cpp src/chaindlg.h src/expanel.cpp src/expanel.h
+  src/geopanel.cpp src/geopanel.h src/acsettings.cpp src/acsettings.h src/chaindlg.cpp src/chaindlg.h src/expanel.cpp src/expanel.h src/filpanel.cpp src/filpanel.h
   src/opdlg.cpp src/opdlg.h src/toolmgr.cpp src/toolmgr.h src/toolwiz.cpp src/toolwiz.h
   src/bpdlg.cpp src/bpdlg.h src/simwin.cpp src/simwin.h src/dialogs8.cpp src/dialogs8.h src/homedlg.cpp src/homedlg.h src/stockdlg.cpp src/stockdlg.h src/nestdlg.cpp src/nestdlg.h src/lfacedlg.cpp src/lfacedlg.h src/plseldlg.cpp src/plseldlg.h)
 target_sources(apprenticecam PRIVATE src/textfit.cpp src/textfit.h)   # ours: text fit fixes + the MCAMUI_TEXTCHECK checker

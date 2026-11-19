@@ -6,6 +6,7 @@
 #include "backstage.h"
 #include "geopanel.h"
 #include "expanel.h"
+#include "filpanel.h"
 #include "acsettings.h"
 #include "chaindlg.h"
 #include "opdlg.h"
@@ -316,6 +317,7 @@ static void hook_ov_extra(float **pv, int *pn, int *pcap) {
     chain_ov_holes(pv, pn, pcap);                                       /* core_ui: the picked drill points (mcamui ov_extra order) */
     geo_ov_extra(pv, pn, pcap);                                         /* core_ui: drawing preview, rubber band, snap marker */
     ex_ov_arrows(pv, pn, pcap);                                         /* core_ui: the Extrude drag arrows (mcamui ov_extra, after the stock box) */
+    fl_ov(pv, pn, pcap);                                                /* core_ui: the Constant Fillet's picked bodies / faces / edges (cui_fillet.c) */
     if (g_probe_on) ov_fast_marker(pv, pn, pcap, g_probe);
 }
 
@@ -468,6 +470,8 @@ bool MainWindow::localRun(const QString &t, bool probe) {
     /* Solids > Extrude = FT sld_newExtrude; Draft Extrude (sld_newDraftFace_3) / Surfaces > Extrude (ExtrudeSurface) share
        the "Extrude" tooltip but are other commands (greyed) - phase 5, both apps */
     if (same(t, "Extrude") && (!rlFtSet_ || rlFt_.isEmpty() || rlFt_ == "sld_newExtrude")) { if (!probe) { view_->withGL([] { ex_start(); }); refreshAll(); } return true; }   /* core_ui ex_start (mcamui run_local_x) */
+    /* Solids > Modify > Constant Fillet (53594 / 53595) = FT sld_do_fillet (formats/solid_fillet.md 0; core_ui cui_fillet.c) */
+    if ((rlFtSet_ && rlFt_ == "sld_do_fillet") || (same(t, "Constant Fillet") && (!rlFtSet_ || rlFt_.isEmpty()))) { if (!probe) { view_->withGL([] { fl_start(); }); refreshAll(); } return true; }
     if (same(t, "Delete Entities") || same(t, "Delete")) RL(view_->withGL([] { delete_selected_ents(); }));   /* core_ui */
     /* Post selected operations (toolbar 800, OMpostSelectedOperations): the LinuxCNC post of every operation (core_ui post_ops, as mcamui) */
     if (has(t, "Post selected")) RL(post_ops(); refreshAll());   /* a dirty op: dialog 977 first (cui_dirty.c dop_check) */
@@ -904,6 +908,16 @@ void MainWindow::buildDocks() {
     exDock_->tabWidget()->setElideMode(Qt::ElideNone);
     dock_->addDockWidgetTabToArea(exDock_, area, 5);
     exDock_->toggleView(false);
+    /* the Constant Fillet panel (CreateInFunctionPnl(dialog, sld 823), formats/solid_fillet.md 1.1 step 4) and, during the pick, the Solid
+       Selection dialog (1413) in the same dock (ours: Mastercam shows that dialog as its own modeless window) */
+    fl_ = new FilletPanel(nullptr);
+    connect(fl_, &FilletPanel::changed, this, [this] { redrawView(); });
+    connect(fl_, &FilletPanel::button, this, [this](int c) { flButton(c); });
+    flDock_ = new ads::CDockWidget(dock_, "Constant Radius Fillet");
+    flDock_->setWidget(fl_, ads::CDockWidget::ForceNoScrollArea);
+    flDock_->tabWidget()->setElideMode(Qt::ElideNone);
+    dock_->addDockWidgetTabToArea(flDock_, area, 6);
+    flDock_->toggleView(false);
     mgrDocks_[0]->setAsCurrentTab();
     dock_->setSplitterSizes(area, { 385, 1215 });       /* mcamui MGR_W 330 (ours) + room for ADS's tab margins */
 }
@@ -1167,7 +1181,7 @@ bool MainWindow::docSaveTo(const QString &p) {
 }
 
 /* ------------------------------------------------------------------------------------------------ graphics view */
-void MainWindow::redrawView() { syncGeo(); syncChain(); syncExtrude(); syncOps(); syncTools(); syncMisc(); syncPlaneSel(); overlay_dirty = 1; view_->redraw(); if (ViewInput *in = viewInput(view_)) in->overlay()->update(); }
+void MainWindow::redrawView() { syncGeo(); syncChain(); syncExtrude(); syncFillet(); syncOps(); syncTools(); syncMisc(); syncPlaneSel(); overlay_dirty = 1; view_->redraw(); if (ViewInput *in = viewInput(view_)) in->overlay()->update(); }
 
 /* ------------------------------------------------------------------------------------------------ wireframe commands */
 /* the panel dock follows core_ui's geo_cmd: a new command rebuilds the panel (its title = the command's name), the
@@ -1214,6 +1228,24 @@ void MainWindow::syncExtrude() {
     if (!up) return;
     if (!g_qt_scripting) view_->withGL([] { ex_panel_frame(); });
     ex_->refresh();
+}
+/* Constant Fillet (core_ui cui_fillet.c): the dock is up while the command runs - the Solid Selection page during the pick, the panel after;
+   the preview runs after every change (never during a scripted step, as the Extrude panel) */
+void MainWindow::syncFillet() {
+    if (!fl_ || !flDock_) return;
+    bool up = fl_mode != 0;
+    if (up != shownFl_) {
+        shownFl_ = up;
+        if (up) { if (flDock_->isClosed()) flDock_->toggleView(true); flDock_->setAsCurrentTab(); }
+        else flDock_->toggleView(false);
+    }
+    if (!up) return;
+    if (!g_qt_scripting) view_->withGL([] { fl_panel_frame(); });
+    fl_->refresh();
+}
+void MainWindow::flButton(int code) {                    /* 0 OK (0x2bd), 1 OK-New / OK-Regen (0x2c0), 2 Cancel (0x2be), 3 the Solid Selection's OK */
+    view_->withGL([code] { if (!fl_mode) return; if (code == 3) fl_sel_done(); else if (code == 2) fl_cancel(); else fl_accept(code); });
+    refreshAll();
 }
 void MainWindow::exButton(int code) {                    /* 0x2bd OK / 0x2c0 OK-New (Apply) or OK-Regen / 0x2be Cancel */
     view_->withGL([code] { if (!(ex_mode && ex_phase)) return; if (code == 0) ex_accept(0); else if (code == 1) ex_accept(1); else { ex_log("panel Cancel pressed"); ex_cancel(); } });
@@ -1267,6 +1299,11 @@ void MainWindow::viewClickIn(float x, float y) {
     if (plg_picking()) { double w[3]; scene_pick(vp_x, 0, vp_w, vp_h, x, y - vp_y, w); V3 p = { w[0], w[1], w[2] }; geo_snap(&p, NULL, -1, 0);   /* a 3D op's point picks after its dialog (core_ui plg_click) */
                          view_->withGL([&] { plg_click(p.x, p.y, p.z); }); refreshAll(); syncOps(); return; }
     if (analyze_pick) { int e2 = pick_entity(x, y); view_->withGL([e2] { analyze_pick_ent(e2); }); refreshAll(); return; }   /* core_ui cui_analyze.c */
+    if (fl_mode) {                                        /* Constant Fillet: the pick (sld_array_pick, Shift = tangents; core_ui fl_click); the panel takes no pick */
+        bool sh = (QApplication::keyboardModifiers() & Qt::ShiftModifier) != 0;
+        if (fl_phase == 0) view_->withGL([&] { fl_click(x, y, sh); });
+        refreshAll(); return;
+    }
     if (ex_mode) { int pe_ = pick_entity(x, y); ex_log("graphics click at %.0f,%.0f (%s), %d chain(s) so far, entity under the cursor: %s%d", x, y, ex_phase ? "panel up" : "chaining", ncchains, pe_ < 0 ? "none " : "", pe_); }
     if (ex_mode && ex_phase) {                            /* the Extrude panel's graphics events (formats/extrude.md 1.3; core_ui ex_click) */
         double w[3]; scene_pick(vp_x, 0, vp_w, vp_h, x, y - vp_y, w);
@@ -1716,6 +1753,7 @@ bool MainWindow::eventFilter(QObject *o, QEvent *e) {
            panel, else Cancel), the op dialog (phase 6: show_params off, then as cam_mode), toolpath chaining (cam_mode = 0,
            cam_clear_selection) */
         if (!text && k->key() == Qt::Key_Escape && ex_mode) { view_->withGL([] { ex_escape(); }); refreshAll(); return true; }
+        if (!text && k->key() == Qt::Key_Escape && fl_mode) { view_->withGL([] { fl_escape(); }); refreshAll(); return true; }   /* Constant Fillet (cui_fillet.c) */
         if (!text && k->key() == Qt::Key_Escape && show_params) { pp_cancel(); refreshAll(); return true; }   /* core_ui pp_cancel (mcamui Esc) */
         if (!text && k->key() == Qt::Key_Escape && cam_mode && chain_escape()) { refreshAll(); return true; }   /* the solid selection (core_ui cui_sldchain.c) */
         if (!text && k->key() == Qt::Key_Escape && cam_mode) { chain_cancel(); refreshAll(); return true; }
@@ -1749,6 +1787,10 @@ bool MainWindow::eventFilter(QObject *o, QEvent *e) {
            with chains selected in the Chains list = Remove (mcamui main loop) */
         if (!text && (k->key() == Qt::Key_Return || k->key() == Qt::Key_Enter) && ex_mode && ex_phase && !ex_pick && !ex_drag) { view_->withGL([] { ex_accept(1); }); refreshAll(); return true; }
         if (!text && k->key() == Qt::Key_Delete && ex_mode && ex_phase && ex_any_sel()) { ex_remove_sel(); refreshAll(); return true; }
+        /* Constant Fillet: Enter ends the pick (sld_array_pick's End Selection) / in the panel = OK-New (FUN_180156ec0, ev+0x150 == 0);
+           Delete = Remove of the selected list entries (KeyBinding Delete -> DeleteSolidEntityCommand) */
+        if (!text && (k->key() == Qt::Key_Return || k->key() == Qt::Key_Enter) && fl_mode) { view_->withGL([] { if (fl_phase == 0) fl_sel_done(); else fl_accept(1); }); refreshAll(); return true; }
+        if (!text && k->key() == Qt::Key_Delete && fl_mode && fl_phase == 1) { view_->withGL([] { fl_remove_sel(); }); refreshAll(); return true; }
         /* Delete goes by the focused window (formats/align_ops.md 2): the Toolpaths manager -> its ops (COpMgrTree::ExecuteKeymap
            VK_DELETE -> OMOnDeleteKey; consumed even with nothing selected there); anywhere else -> delete_entities (the main frame's
            PreTranslateMessage) */
@@ -1765,7 +1807,7 @@ bool MainWindow::eventFilter(QObject *o, QEvent *e) {
 bool MainWindow::escIdle(QWidget *aw) const {
     if (g_regen_busy || (aw && aw != this)) return false;
     if (bp_on || vf_on || drv_pick || xdyn_on() || ds_running() || bb_selecting() || bb_dragging() || srf_solid_selecting() || chain_sketching() || wm_rg_wait
-        || plg_picking() || zd_picking() || tb_pick || st_pick || show_stock_setup || geo_cmd || srf_cmd || ex_mode || ex_drag || show_params || cam_mode
+        || plg_picking() || zd_picking() || tb_pick || st_pick || show_stock_setup || geo_cmd || srf_cmd || ex_mode || fl_mode || ex_drag || show_params || cam_mode
         || show_chain_opts || show_tm || tedit_index > -2 || cool.open || selrun_kind || paste_pending || ns_deleting || zoom_window || analyze_pick
         || lk_pick || pp_hide_on || az_i >= 0 || show_gridset || show_help || copyImagePick_ || rotposPick_ || stack_->currentWidget() == backstage_) return false;
     return true;

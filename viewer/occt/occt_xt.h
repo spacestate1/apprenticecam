@@ -40,6 +40,7 @@ namespace occxt {
 
 struct Options {
     double scale = 1000;                     /* model units per metre (1000 = mm, 39.37007874015748 = inch) */
+    int pk = 27;                             /* Parasolid transmit version: 27 = X9 (SCH_2700142_26105), 28 = Mastercam 2017 (SCH_2800143_28002) */
     std::string key = "sld_1";               /* header KEY= (Mastercam writes the SOLIDXMT name, e.g. sld_378) */
     std::string date;                        /* header DATE= (asctime form "Sat Jun 01 09:06:29 2024"); empty = now */
     bool mc_attributes = true;               /* the CNC/mcEptrPtr attribute on every face and edge (as Mastercam) */

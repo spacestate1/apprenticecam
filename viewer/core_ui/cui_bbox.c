@@ -271,7 +271,7 @@ static void bb_live_preview(void) {
 static void bb_live_final(int flags) {
     int keep = (flags & 8) && bb_solid_shape_ok() && bb_solid_ok();
     if (keep) {
-        ExFeat f; memset(&f, 0, sizeof f); f.prim = bb_prim_of(f.pv, bb_box, bb_cyl);
+        ExFeat f; memset(&f, 0, sizeof f); f.prim = bb_prim_of(f.pv, bb_box, bb_cyl); f.level = geo_level; f.color = cfg_solid_color;   /* SOL-5d */
         Body t; if (prim_body(f.prim, f.pv, "", &t)) {
             body_free(&t);
             feat_push(&f);

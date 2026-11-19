@@ -155,7 +155,7 @@ cannot be read; `FUN_1802677f0` reports the last failed op). op+0xb / +0xc / +0x
 u8  op+0x90                         (0 in all user ops)
 i32 nchains (op+0x94)
 i32 count[nchains]                  (entities per chain, op+0x98)
-i32 xa0[nchains]                    (op+0xa0: 0 or 1; NOT DECODED - no correlation with chain orientation or cut/create)
+i32 xa0[nchains]                    (op+0xa0: = the chain's first entity's reversed flag in 2,894 / 2,894 corpus chains (2026-11-18); its setter NOT DECODED)
 per chain: count x u64              (op+0xb0: save-time eptrs of the chained wireframe entities, in chain order)
 u8 xc0[nchains]                     (ver > 5; 0 in all)
 u8 xa8[nchains]                     (ver >= 0x14; 0 in all)
@@ -191,7 +191,9 @@ chain = one arc r 1.5 at the origin (idn 263).
 - **SldBodyOp (0xe)**: base, then `u32 size + size bytes of XT` (its own transmit "sld_N_bo"), read back with
   `ps_read_body` - a brick stores its body twice (SOLIDXMT XT + this op).
 - Boolean / Fillet / Chamfer / Revolve / Primitive / Shell readers are dumped (`h6_op_readers.c`) but not decoded:
-  no user data to verify them against. **NOT DECODED.**
+  no user data to verify them against. **NOT DECODED.** (2026-11-18: **SldFilletOp decoded** in formats/solid_fillet.md 6,
+  proven on 858 sample-part ops; it also decodes the base's u64 list op+0x80 for fillet ops = the ids of earlier records
+  the op consumed (`FUN_18004a4b0`), and the record kinds 0x2e / 0x17 / 0x2d / 0x33.)
 
 ## 3. Face / edge identity
 
@@ -224,27 +226,54 @@ mcEntinfoPtr attribute (`FUN_180049510`: kind, op id, ref1, ref2), or kind 0x34 
 **mcEptrPtr(face or edge) -> McEptr record**, and the records are the persistent names that later ops and toolpaths
 use (refs between records, `HistDlg`, SldToolPOp).
 
-Kinds (`ps_sweep_sheet` 0x1800530c0 sets them for Extrude; meanings checked on test-cube-10mm geometry):
+Kinds (`ps_sweep_sheet` 0x1800530c0 sets them for Extrude). **Corrected 2026-11-18** (decomp/solid_history/h10_sweep_naming.c,
+`FUN_18004a8f0`; the earlier table had 4 and 31 swapped): in the swept-entity loop the entity checked with `PK_FACE_ask_body` (a face) gets
+0x1f and the swept copy of the entity that carried kind 1 gets 4; `FUN_18004a8f0` returns a body's edges, then its faces, and the op-0
+records follow that order (cube: [19 x 4, 4 x 4, 1 x 4 | 31 x 4, 56 x 2]; a circle [4, 1 | 31, 56, 56]). Geometric check: test-cube's Cut
+keeps the tool's kind-1 edge at z 0 (the chain plane) and makes the z -6 edge new (kind 24) - kind 1 is the edge in the chain plane.
 
 | kind | set by | meaning | ref1 / ref2 |
 |---|---|---|---|
-| 1 | the profile sheet ([inferred] `ps_chains_to_sheet_bodies`) | edge on the start (profile) cap | chain entity eptr / 0 |
-| 4 (5, 6, 0x12) | `ps_sweep_sheet` for source kind 1 (2, 3, 0x10) | side face swept from a chain entity | chain entity eptr / 0 |
-| 0x1f = 31 (0x20, 0x21, 0x2b) | same | edge on the end cap | chain entity eptr / 0 |
-| 0x13 = 19 | `ps_sweep_sheet` (0x8000013 for every edge without entinfo) | side (lateral) edge | the two kind-31 records that meet at its end vertex (cube: verified by corner geometry) |
-| 0x38 = 56 | NOT TRACED ([inferred] sheet / cap naming) | start and end cap faces | 0 / 0 |
+| 1 | the profile sheet (`ps_chains_to_sheet_bodies`) | start-cap edge (in the chain plane) | chain entity eptr / 0 |
+| 4 (5, 6, 0x12) | `ps_sweep_sheet` for source kind 1 (2, 3, 0x10) | end-cap edge (the profile edge's swept copy) | chain entity eptr / 0 |
+| 0x1f = 31 (0x20, 0x21, 0x2b) | same | side face swept from a chain entity | chain entity eptr / 0 |
+| 0x13 = 19 | `ps_sweep_sheet` (0x8000013 for every edge without entinfo; bit 27 = refs to resolve) | lateral edge (swept from a profile vertex) | the records of its two faces (`ps_get_edge_faces`): the two side faces |
+| 0x38 = 56 | the sheet / caps | start and end cap faces | 0 / 0 |
 | 0x3b | `ps_sweep_sheet` for faces without entinfo | (not seen in data) | 1 or 2 / 0 |
-| 0x18 = 24 | NOT TRACED (cut ops) | test-cube: the hole's side face after the cut | a face record of an earlier op / an own record |
-| 0x2d = 45 | NOT TRACED | 6 records in cut ops | |
+| 0x18 = 24 | `FUN_18003e630` after the boolean (0x8000018) | an edge the boolean made (no name on it) | its two faces' final records (bit 27 resolved by `FUN_1802652b0`) |
+| 0x2d = 45 / 0x33 = 51 | `FUN_18004b9b0` (tracking entries type 0x3844) | a piece of a split edge / face | the record the entity had before / 0 |
 | 0x34 / 0 | `FUN_1802656b0` | face / edge without a name | 0 |
 
 Counts confirm it: an Extrude of one closed chain of N entities has N x 19 + N x 4 + N x 1 + N x 31 + 2 x 56 records
 (N side faces + 2 caps, 3N edges); a single circle gives 4, 1, 31, 56, 56 (no vertex, no side edge). For every
 single-op solid the record count equals XT faces + edges (e.g. cube op 0: 18 = 6 + 12; tramming-rod 34 = 34).
 Records of later ops may be consumed: sum over ops >= faces + edges of the final body.
-The second list (op+0x60) holds kind | 0x10000000 records ([inferred] the tool body's names before the boolean of a
-Cut: cube op 1 has 56, 56, 31, 1, 4 of the arc); empty for Create. Record **order** follows Parasolid's
-PK_BODY_ask_edges / ask_faces order: NOT reproducible without Parasolid.
+
+### 3.2.1 Cut / Boss names (decoded 2026-11-18; decompiles decomp/solid_history/h12..h18, scripts ~/mastercam-re/work/occt/cutrec/)
+`sld_extrude` 0x1800d5730 -> `FUN_1800d2c80` (single op) / `FUN_1800d38f0` (one op per group): (1) one tool body per sheet group, named
+by `ps_sweep_sheet` as above; (2) `FUN_1800c6580` builds the **second list (op+0x60, n2)**: the tools' edges then faces, concatenated in
+tool order and walked **backwards**, each named entity's record with kind | 0x10000000 (the entity's pointer now names that record; its
+bit-27 refs resolved in place) - n2 is the reverse of the records a Create of the same chains gets (cube op 1: [56, 56, 31, 1, 4]);
+(3) `FUN_18004a8f0(target)` snapshots the target's edges then faces with their record pointers; (4) `ps_boolean_cut` /
+`ps_boolean_union` (`FUN_18003e630` -> PK_BODY_boolean_2; every result edge with no attribute gets 0x8000018 with refs = its two faces);
+(5) `FUN_18004a4b0`; (6) `FUN_180265420` stores n3, `FUN_1802655b0` n2, `FUN_1802656b0` n1; (7) `FUN_180262b50` -> `FUN_180265240`.
+- **n1 (op+0x44)**: every result edge, then every result face, whose record pointer is null or a tool record (bit 0x10000000): a surviving
+  tool entity gets a copy of its tool record (kind & 0x7ffffff, same refs - so its kind-19 refs point at the op's own n2 records:
+  7,229 / 7,229), an entity split into pieces gets 45 (edge) / 51 (face) per piece with ref1 = the old record (1,412 / 1,412 groups have
+  >= 2 pieces), an edge with no history 24 (refs = faces: 4,979 to earlier ops' records, 6,317 to the op's own, never elsewhere). A
+  target entity modified but not split keeps its record and is in no list (cube op 1: the caps stay 56).
+- **n3 (op+0x80)**: the ids of records that were on the target before the op and are on no result entity after it (deleted, or the
+  originals of split entities), pre-op order (edges then faces): 4,425 / 4,425 values are ids of earlier records; not cut-only (250 / 409
+  Boss and 677 / 1,982 Cut ops have it).
+- Ids: consecutive at 0x30 inside one list (one block) in 2,391 / 2,391 ops; op field = the op's id in 2,391 / 2,391.
+- After load: `FUN_180265c40` turns saved refs into pointers through `FUN_18026a240` (searches every op's n1 and n2 by id; 0 if none);
+  a two-ref kind with a saved ref 0 hits `_MCAssert` (McOperation.cpp line 0x40d). n3 values are converted the same way and
+  `mc_op_clearAllColor` -> `FUN_180267b10` -> `FUN_180262e80` writes through every n3 pointer **without a null check**: an n3 id that does
+  not resolve is [inferred] a crash - n3 must hold valid ids or be empty. Replay (`FUN_18026b6b0`) rebuilds all three lists and matches
+  them to the stored ones by content (`FUN_1802645c0` / `FUN_18002abd0`: kind, op, refs, two-ref kinds in either order).
+Order: the rules fix the order relative to Parasolid's PK_BODY_ask_edges / ask_faces order, which is NOT DECODED (no consumer traced
+depends on it). Also NOT DECODED: the name of tracking type 0x3844, the order `ps_get_edge_faces` returns the two faces, how a loaded,
+un-replayed solid gets its face / edge -> record links back before a new feature is added.
 
 ### 3.3 After loading
 PK_PART_receive restores the bodies but **not** the mcEptrPtr pointers (null in the file), and the reader zeroes the
@@ -324,8 +353,9 @@ Copy: SOLID_ID +0x48 stamp, op+0x41 = 12, op version 0x1a, draft angle default. 
 
 ## 6. NOT DECODED
 - ops header byte +0x0e; op+0xb / +0xc / +0x10 / +0x40 / +0x41 (=12); the per-op u64 list op+0x80 (cuts only).
-- McChainOp xa0 per chain (0 / 1).
-- McEptr kinds 0x38 / 0x18 / 0x2d producers and their refs; the second record list (kind | 0x10000000); record order.
+- McChainOp xa0 per chain: equals the first entity's reversed flag in all data (8), its setter NOT DECODED.
+- McEptr record order inside a kind group (Parasolid's ask_edges / ask_faces order); tracking type 0x3844's name (3.2.1). The Cut / Boss
+  lists, kinds 0x18 / 0x2d / 0x33 and the n3 list are decoded since 2026-11-18 (3.2.1).
 - Parasolid token names (0x138c, 0x138a, 0x7d2, 0x7d3, 0x1389, 0x16ae, 0x170d, 0x1715).
 - Readers of Boolean, Fillet, Chamfer, Revolve, Sweep, Loft, Primitive, Shell, Draft, Trim, Thicken, Pattern, FXF,
   FBM ops (dumped, no data); SldToolPOp's sub-object `FUN_180278610`; the Sweep class name.
@@ -355,3 +385,40 @@ every one of the 807 solids read.
 Serialiser `viewer/occt/sld_ops.py` (inverse of the readers above): **all 295 extrude ops of the user parts and all
 2,081 parsed extrude ops of the samples re-serialise byte-identical**; `spec` / `splice` / `addsolid` write solids
 into a copy of a part (formats/occt_xt.md section 6: the end-to-end proof and what to check in Mastercam).
+
+## 8. The writer here (2026-11-18, user decision SOL-1; viewer/sld_ops.c, core_ui cui_sldsave.c, mcam_saveops.c, viewer/occt_solid.cpp)
+
+A solid made by Solids > Extrude (now on OpenCASCADE, formats/extrude.md 7) is written into the part as Mastercam does, at every part
+save (File > Save As part, `qc_save_part`): SOLID_ID with the geometry, SOLIDXMT + XT + trailer + McOpsFile in section 13.
+
+| item | written | source |
+|---|---|---|
+| version | X9 part: SOLIDXMT +0x48 0x12, +0x49 0x1a, op version 0x1a, XT SCH_2700142_26105; 2017 part: 0x13, 0x1c, 0x1c, SCH_2800143_28002 | sld_save_solids' table; corpus: 386 X9 / 394 2017 SOLIDXMT records, the newest ops of 2017 files carry version 28 (15 ops) |
+| SOLID_ID | `head()` as the new geometry (sel 0x81, colour / level, attributes), +0x68 0, +0x70 u16 1, +0x78 / +0x90 box, +0xa8 N; len 0x100 | 1.1; survey of the 108 user records (+0x70 is 1 / 3 / 0x21 / 0x23 there; 1 = `sld_init_solid_ent`) |
+| box | OCCT's tight box converted as Parasolid's: (v / scale) x scale - test-cube's -5.000000000000001 is -0.005 m x 1000 | `sld_compute_bbox` (ps_get_body_bbox in metres); the tightness of PK's box is NOT DECODED (planar prisms: exact either way) |
+| N | the largest solid id of the part + 1 (0 in a part without solids) | the reader only matches ids (5.1) [inferred] |
+| colour / level | the solid colour (config 5052) and the main level when the body was created (ExFeat.level / color; older projects: at the save) | SOL-5d: dbput_solid mccore 0x1802da1a0 -> store_ent(.., *solidColor_exref, main_level, main_attrib) (h19_dbput_solid.c). The attributes (+0x10..+0x1f) come from main_attrib there; here head()'s defaults (NOT PORTED: 88 / 108 user records have point style 6) |
+| ops header | +0x0c 0 (Mastercam trusts the XT), +0x0e = the Solids manager row's open state, N, position = op count, eptr | 2.1; 807 / 807 corpus solids have 0 |
+| op base | n1 / n2 / n3 from the kernel's names (3.2.1), name = the panel name, flags 0, op id k, type, version, +0x40 0, +0x41 12 | 2,988 / 2,988 corpus extrude ops have 0 / 12 |
+| ids | 0x10000000 + op << 22 + list << 21 + 0x30 i (unique, 0x30 apart in a list) | ours (any unique values: `FUN_18026a240` matches ids) |
+| McChainOp | chains of the op (Create / per-group op: the group's root loop then its holes; single op: every chain of the feature), +0x90 0, **xa0[c] = the chain's first entity's reversed flag**, xc0 / xa8 0, entity eptrs, reversed flags | xa0: 2,894 / 2,894 corpus chains (its setter NOT DECODED); xc0 / xa8 0 in all |
+| P | the feature's SLD_EXTRUDE_PARAMS; vector = the first chain's direction; Cut / Boss target = the solid's own eptr; draft angle in radians; padding 0 | 2.5; 187 / 187 user cuts; padding 0 in 7,375 / 7,375 user bytes |
+| chain data | direction + the Top plane (0,0,0 / 0,0,1 / 1,0,0); a -Z direction as -(0,0,1) = (-0.0, -0.0, -1.0) | 311 / 311 user chain records; test-cube's -0.0 |
+
+**Refused** (the save writes the part without the solid and says why): bodies whose op names are NOT DECODED - Both directions, Draft,
+Thin wall (their sweep / boolean / thicken naming was not traced), primitives (SldPrimitiveOp NOT DECODED), and any later op on such a body.
+Solids of the part itself are written as stored (no op of this program changes them yet: Cut / Boss target bodies made here only).
+
+**Proofs** (all against Mastercam-written data; Mastercam itself cannot run here, so no written file has been opened in Mastercam):
+- `tools/tests/sld_ops_test.sh`: the C reader / writer re-serialises **2,988 / 2,988** corpus extrude ops and **1,150 / 1,150** whole ops
+  blocks byte-identical (user parts 295 / 295 and 108 / 108); 14 solids of pre-0x19 layouts are not read.
+- `tools/tests/sld_replay_test.sh`: every user solid's stored history replayed by the OCCT kernel (exact chains from the part, P, chain
+  data): **277 / 295 ops make the same names as Mastercam stored** (kinds of n1 / n2 as multisets, the chain entities they name, the kinds
+  their record refs point at, the n3 count); the 18 others are BRACKET4 x2 / buckle-v6, v7, v9, v9-back, v12 / NAKTO ops where OCCT splits
+  faces / edges Parasolid's boolean keeps whole or merges (extra 45 / 51 pieces, n3 +2) - the face counts differ the same way (occt_xt.md 5).
+  Volumes: 83 / 108 solids equal to 1e-9, the 25 buckle-v* differ by <= 6e-5 relative (chain gaps, occt_xt.md 5).
+- `tools/tests/sld_kernel_test.sh`: the Create names of a square [19 x 4, 4 x 4, 1 x 4 | 31 x 4, 56, 56] and a circle [4, 1 | 31, 56, 56], a
+  through-all cut of the circle n1 [24, 1, 31] / n2 [56, 56, 31, 1, 4] - exactly test-cube's stored op 1.
+- solid_compare scenes `sv_*`: a new part with a solid (2017), a solid added to a copy of test-cube-10mm (X9), an edited op regenerated and
+  saved, a refused draft; each written part is read back by tools/sld_hist.py (golden *.sldhist), reopened in the app (part solid +
+  history rows), and its history replays to the stored XT (sld_replay_test).

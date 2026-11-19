@@ -1004,8 +1004,9 @@ int stock_bbox_sel(int mask, const unsigned char *pick, int npick, double bb[6])
         else if (e->type == E_ARC && (mask & 4)) mm_arc(bb, e);
     }
     if ((mask & 0x10000) && !pick) {
-        for (int b = 0; b < nsbodies; b++) { float *t; int nv = body_mesh(&sbodies[b], &t);
-            for (int v = 0; v < nv; v++) mm_add(bb, t[6 * v], t[6 * v + 1], t[6 * v + 2]); free(t); }
+        for (int b = 0; b < nsbodies; b++) { float *t; int nt = body_mesh(&sbodies[b], &t);   /* body_mesh counts triangles (3 vertices each;
+                                                                                                    2026-11-18: the loop took only the first third) */
+            for (int v = 0; v < 3 * nt; v++) mm_add(bb, t[6 * v], t[6 * v + 1], t[6 * v + 2]); free(t); }
         const float *pt; int nv = scene_part_tris(&pt);
         for (int v = 0; v < nv; v++) mm_add(bb, pt[6 * v], pt[6 * v + 1], pt[6 * v + 2]);
     }

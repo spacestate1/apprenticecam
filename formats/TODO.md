@@ -3,6 +3,41 @@
 The work queue in one place. Details live in the linked docs. The user's answers are in `user_decisions.md`.
 When an item is done, mark it done here (with the commit) and record it in the doc it links to.
 
+## Solids on OpenCASCADE: save path + Extrude (2026-11-18, SOL-1..SOL-4; branch worktree-agent-a34e0d6f9f3a722e2, not merged)
+- DONE (not merged): stage 1 - the XT writer in the build, Parasolid 27 (X9) / 28 (2017) output, `tools/tests/xt_roundtrip.sh` (formats/
+  occt_xt.md 10); the C history serialiser `viewer/sld_ops.c` (`tools/tests/sld_ops_test.sh`: 2,988 / 2,988 corpus extrude ops and 1,150 /
+  1,150 ops blocks byte-identical). Stage 2 - the Cut / Boss names decoded (formats/solid_history.md 3.2.1: n1 / n2 / n3, kinds 24 / 45 / 51,
+  the 4 / 31 swap corrected), McChainOp xa0 = first entity reversed (2,894 / 2,894), every part save writes the solids made here (SOLID_ID +
+  SOLIDXMT + XT + McOpsFile, solid_history.md 8), refusing bodies with NOT DECODED names (Both directions, Draft, Thin wall, primitives).
+  Stage 3 - Extrude on OCCT (`viewer/occt_solid.cpp`, formats/extrude.md 7): exact arcs, every mode, Mastercam's names per op;
+  `tools/tests/sld_replay_test.sh` replays every user solid's history: 277 / 295 ops make Mastercam's names, 83 / 108 volumes equal
+  (buckle-v* chain gaps); `sld_kernel_test.sh` closed-form volumes; solid_compare `sv_*` scenes (new 2017 part, solid added to an X9 part,
+  edited op regenerated + saved, refused draft, thin open).
+- Regression vs rg_s3: solid 2 -> 61 + 5 new scenes (count word / exact volumes / edge order, extrude.md 7), chain 0 -> 19 (sc_*: solid
+  chaining of bodies made here walks their XT now), stockplanes 16 -> 18 (exact cylinder volume; the Iso-plane stock box of a body: a
+  pre-existing triangle-count bug in stock_bbox_sel fixed), wf 1 -> 3 (bbox_2d / bbox_cyl_z: exact cylinder volume), srf 0 / 92, fileop
+  205 / 205 moves files identical to rg_s3. Goldens re-blessed for exactly those scenes (the baseline failures left as they were).
+- Left: (a) Cut / Boss / edit on the part's own solids (convert a loaded solid's history into features: chains by eptr; Mastercam replays
+  on edit) and edit of a reopened part solid's ops; (b) the names of Both directions / Draft / Thin wall (trace ps_sweep_wire,
+  ps_thicken_sheet, ps_draft_extrude_faces, the Both union) so those solids can be written; (c) SldPrimitiveOp (Bounding Box solids);
+  (d) writing SWEPT_SURF / SPUN_SURF instead of exact B-surfaces for extruded / revolved splines (the reader maps them since xtfix2; check
+  what Mastercam writes for a spline extrude); (e) Boolean, Fillet / Chamfer (SOL-4 next); (f) delete solid25.c's slab kernel once the
+  no-OCCT build is not needed; (g) decode Parasolid's face merge after booleans + its naming (SOL-5a) and chain_to_pock_bound's gap
+  closing (SOL-5b); (h) the SOLID_ID attributes from main_attrib (dbput_solid). Not verified in Mastercam (no Windows): formats/windows_checklist.md should get "open sv_new_mcam.mcam /
+  sv_x9_add.mcx-9, Regen, edit the Extrude".
+## Constant Fillet decode (2026-11-18, branch worktree-agent-a351f00a68046add6, not merged; formats/solid_fillet.md)
+- DONE (phase 1, decode only): Solids > Modify > Constant Fillet fully decoded - flow, selection -> edges, every panel control
+  (defaults, limits, session persistence), PK_EDGE_set_blend_constant / PK_BODY_fix_blends options (field names from pskernel.dll's
+  printers), result naming, the SldFilletOp history record (tools/sld_fillet.py: 858 corpus ops parse exactly), failures, OCCT mapping.
+- DONE (phase 2, port, on int-s5 merged into the branch; user decisions SOL-F1..F5): the command, the panel, the pick, preview, OK / OK-New /
+  Cancel / Esc, edit + replay, session, project lines, the SldFilletOp record (858 / 858 corpus ops byte-identical through viewer/sld_ops.c);
+  solid_scenes fl_* / sv_fillet_* (solid_fillet.md 11).
+- Open (user): a fillet on a solid read from the part is refused ("not ported"): its faces / edges have no names until its history is
+  replayed (solid_history.md 3.3) - port the replay with names first, or write the op with id 0 records (a deviation)?
+- Open (user): SOL-F5 (smooth-edge test at OCCT's default angle) was decided by the main session - confirm.
+- Left: mitered fillets name some rebuilt faces 0x34 (OCCT rebuilds a previous blend face without history; no corpus op is mitered);
+  Variable / Face-to-Face Fillet (S17).
+
 ## Shaded face highlight (2026-11-18, branch worktree-agent-afdd857f29b50aa2a, not merged)
 - DONE (not merged): decoded gafgr's GAF stipple highlight (GrOGLPipe stipple lists, InitStippleData masks / passes, the draw items'
   user masks, MaintainGrRenderSurface's flags; formats/ui.md "Shaded face highlight (GAF stipple)", dumps decomp/gafhl/) and ported
@@ -80,6 +115,7 @@ trimmed branch (port)". Left:
   arc: the DLL refuses it too (tools/tests/ecv_simp_oracle.sh: 318 / 318, 1655 / 1658 - the 3 = a harness flag), nothing to fix.
 - RunLatheChainDlg's modes 1 / 2.
 
+**2026-11-18 night:** int-s5 + int-s6 MERGED (cb16450, rebuilt): the solid save path (SOL-1..6: XT writer, McOpsFile history, Extrude on OCCT, colour / level at creation, exact booleans) and Constant Fillet (solids made here; SOL-F1..F5). regress3 rg_s6 clean (solid 2/127 = the known ex_save files; op_sld_contour_block / op_sld_pocket_hole re-blessed for the XT edge order; horiz / pencil source lists fixed). Next: named history replay of part solids (then Fillet / Cut / Boss on them), Boolean; open: windows_checklist.md 10 (open our solids in Mastercam); SOL-F5 smooth-edge test chosen by the main session (user may object).
 **2026-11-18 evening:** int-s4 MERGED (a82b594, rebuilt): Shaded / Outline Shaded as two modes, the decoded shaded highlight in both, Outline Shaded trim loops only (S-15..S-17). regress3 rg_s4 = rg_s3 apart from the new / re-blessed srf_hl scenes. Running: the solid save path (SOL-1..4: XT writer + history + Extrude on OCCT), then Boolean / Fillet / Chamfer.
 **2026-11-18 later:** int-s3 MERGED (fcd6eac, rebuilt): Surfaces > Offset + the shaded face highlight. regress3 rg_s3 = rg_s2 apart from the 9 new srf scenes (op lface_project.mcamui re-blessed for the moved ~/mastercam-re path). Next: S-15 (Shaded vs Outline Shaded as two modes).
 **2026-11-18 (S-15, branch worktree-agent-a3a78fff9d3870e2a):** Shaded (render_cfg 3) and Outline Shaded (render_cfg 4) are two modes (formats/ui.md "Shaded vs Outline Shaded"): status bar / View tab / Alt+S (LastShadedMode) / Ctrl+T (only shaded, kept through wireframe) as decoded; Shaded draws no surface lines and no solid edges; Outline Shaded draws the surfaces' outline in config 5054 (was the entity colour). OPEN (question to the user): the decode does NOT support "Shaded: selected = list 1, Outline Shaded: recolour only" - the GrRender flags are set by the same paths in both modes (gl_Shade -> FUN_1802298b0 in every repaint sets Selected from the entity), and the only per-mode difference found there is MaintainGrRenderSurface's prop-set index (render_cfg 4: 1; 3: selected ? 2 : 0) into a one-entry UtPropSetList, which most likely changes nothing (an index past the list skips the prop push: GrPipe::Draw 0x10f42250 local_400 = 0) but is not fully decoded. If the gl_Shade path decides the frame, BOTH modes would show a selected surface with stipple list 1 (select colour lit + black 0xc4 dots) and a hovered one lit in its OWN colour (not config 5000) + black 0x40 + config 5000 0x80 dots - i.e. the pre-S-15 port (selected = recolour, hover pass 0 = 5000) would be wrong in both; both modes keep the pre-S-15 highlight until the user decides. To decode next: GrPipe::Draw 0x10f42250 after UtPropSetList::GetAt (what local_400 = 0 skips), and whether the face passes then still find materials 0xb / 0xc. Not ported: Dimmed / No Hidden (render_cfg 2, Alt+S's LastWireFlags choice), the start-up mode / persistence.
@@ -1449,6 +1485,11 @@ Ghidra only under `flock ~/mastercam-re/ghidra.lock`, builds only under `flock ~
 - View cursor black on XWayland (cfbc5b8).
 
 ## Waiting on the user
+- ANSWERED 2026-11-18 (user_decisions SOL-5a..d): SOL-5 (1) keep OCCT's faces, (2) keep the midpoint joints - both rules stay on the decode list; (3) fuzzy value 1e-5 m (implemented behind MCAM_OCS_FUZZY=1, not default - see SOL-6); (4) colour / level at creation (done).
+- SOL-6 (2026-11-18, user_decisions SOL-5c) The OCCT fuzzy value 1e-5 m breaks Through all cuts (the tool ends exactly 1e-5 m past the
+  target and OCCT merges them; replay 277 -> 226 / 295 names, 83 -> 66 / 108 volumes; Mastercam's test-cube cut shows Parasolid did not
+  merge). Options: (a) exact booleans as before (current default); (b) fuzzy 1e-5 m anyway (MCAM_OCS_FUZZY=1); (c) a smaller fuzzy value
+  (ours, no source). Which?
 - N13-35a (2026-11-14, formats/hst_linker.md 32, hst3d_port_plan.md 7 "W8") N13-35 switches MCAM_HST_MESH on once bull-tool Waterline follows the
   DLL. Done: SWARF op 4 with the switch on = the DLL's passes plan vertex for vertex (65 / 65 passes, 2705 / 2705 end points), cut p95 ref->ours /
   ours->ref 0.011 / 0.169 -> 0.005 / 0.002 in; SWARF_METRIC op 3 as stored (Corner rounding, refused before) now generates, 27 of 28 passes = DLL,

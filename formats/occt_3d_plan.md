@@ -266,6 +266,11 @@ FUN_18002dc80 / FUN_180032a00 seen in `cad_prim.c`), runtime defaults, Q1 / Q2.
 
 ## S8. Constant Fillet
 
+**Superseded by formats/solid_fillet.md (decoded 2026-11-18)**: the panel <-> P mapping below is now decoded
+(P+0x10 Overflow, P+0x14 Mitered corners = one fillet per edge in sequence, P+0x15 Propagate = the blend property
+`propagate`), the PK option fields are named from pskernel.dll, and the SldFilletOp record is proven on 858 corpus ops.
+The text below is the earlier plan, kept for history.
+
 - Ribbon Solids > Modify > Constant Fillet (53594, split button 53595; Face to Face / Variable are S17). FT
   `sld_do_fillet` 0x1800e3670 -> app ctor FUN_1801bc100 (name sld 823 "Constant Radius Fillet" 0x337) + FUN_1801bc2d0;
   `sld_new_const_fillet` 0x1800e2a10 programmatic; op `SldFilletOp`.

@@ -35,7 +35,7 @@ stamps the version bytes ent+0x48/0x49/0x4b..0x4e. It **skips any ent whose eptr
 | 10 | sub 0x0f + `u32 n` + n × op_group (0x1ae0 + members, §2), then wire change points | `TpGrpList::WriteFileGroups`, `write_wchgpts` | 0x4373b |
 | 11 | sub 0x0e + material table | save_db / `FUN_180302ad0` | 0x4a32f |
 | 12 | every non-ASSOC DB ent in DB order (points/lines/arcs/splines/surfaces/SOLID_ID 0x10000 ...), mask 0x3f1fff | `get_raw_ent` loop → `FUN_1802bbf60` | 0x4a3c5.. |
-| 13 | SOLIDXMT 0x20000 + Parasolid XT + ops history | `sld_save_solids` | 0x4ab51 |
+| 13 | SOLIDXMT 0x20000 + Parasolid XT + ops history (here: the part's solids as stored; solids made here appended after them with our XT + history, formats/solid_history.md 8) | `sld_save_solids` | 0x4ab51 |
 | 14 | **ASSOC 7 SETUP** (from `job_setup`), with sel bits 1 and 0x100 | save_db | 0x4d56a (= tp_hdr+0x74) |
 | 15 | **all ASSOC 1 OP_ID**, in DB order, only ops present in TpMainOpList (counted → tp_hdr+0x70) | 1st `get_ent_assoc` pass | 0x4e6be.. |
 | 16 | all other ASSOC in DB order (TL, M, MACHCOMP, ClassEnt 31/33/35, TP...); **TP_ID is written only if its op id exists** | 2nd `get_ent_assoc` pass | 0x58bae.. |

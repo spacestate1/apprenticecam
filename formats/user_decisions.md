@@ -586,3 +586,36 @@ searched. Reuse the other agent's surface-pick (u, v) decode. P-5: port the soli
   formats/ui.md where the earlier write-up was wrong; re-bless the affected srf_hl_* and shade scenes, explaining each changed .px.
 - S-17 (2026-11-18, same branch) In Outline Shaded, draw only the trim loops of a trimmed surface (not its flowlines), as Mastercam does -
   only with the decompiled code cited; if the exact rule is not decodable, report it instead.
+- SOL-5a (2026-11-18) Coplanar faces after a boolean: keep OpenCASCADE's separate faces (a boss flush with its block keeps its own side
+  faces). Parasolid's merge rule and which name a merged face keeps stay NOT DECODED, on the decode list (formats/TODO.md).
+- SOL-5b (2026-11-18) Chain gaps (buckle-v*: up to 2.2e-4 mm): keep the midpoint joints (formats/occt_xt.md 5). Mastercam's rule
+  (chain_to_pock_bound's gap closing) stays NOT DECODED, on the list.
+- SOL-5c (2026-11-18) Booleans use Parasolid's tolerance: OpenCASCADE's fuzzy value = 1e-5 m in the part's units (0.01 mm / 3.937e-4 in) -
+  FUN_18003e630 (ps_boolean_union / _cut / _isect -> PK_BODY_boolean_2) sets 1e-5 in its options (0x3ee4f8b588e368f1,
+  decomp/solid_history/h13_boolean_naming.c l.127 / 136 / 192; formats/occt_3d_plan.md S7). viewer/occt_solid.cpp set_fuzzy / boolop.
+  IMPLEMENTED BUT NOT DEFAULT (2026-11-18, back to the user as SOL-6): with the fuzzy value Through all cuts break - the tool ends exactly
+  1000e-5 mm = 1e-5 m past the target (extrude.md 4.2) and OCCT fuses its end cap with the target's face (test-cube: hole volume off by
+  0.08 mm3, its bottom edge 0.01 mm off the face); the user-part replay drops from 277 to 226 / 295 ops with Mastercam's names, from 83 to
+  66 / 108 equal volumes, 2 failures. Mastercam's own test-cube cut has a NEW edge at that bottom (kind 24), so Parasolid did not merge:
+  its 1e-5 option is not an OCCT fuzzy value. MCAM_OCS_FUZZY=1 switches it on.
+- SOL-5d (2026-11-18) A new solid's colour and level are taken when it is created, as Mastercam does: dbput_solid (mccore 0x1802da1a0,
+  decomp/solid_history/h19_dbput_solid.c) stores the SOLID_ID with store_ent(.., *solidColor_exref, main_level, main_attrib) - the solid
+  colour (config 5052) and the main level at that moment (called by sld_solid_from_tag 0x1800cccc0 when Extrude makes the body). Here:
+  ExFeat.level / color (core_ui cui_extrude.c ex_cur_feat, cui_bbox.c), kept in the project as an XATTR line, written by the save.
+- SOL-6 (2026-11-18) Boolean tolerance: exact booleans by default. Parasolid's 1e-5 m option (FUN_18003e630) is not the same as
+  OpenCASCADE's fuzzy value (with it, Through-all cuts break and the replay matches fewer stored names: 277 -> 226 / 295); the
+  option stays available as MCAM_OCS_FUZZY=1, Parasolid's tolerance semantics listed NOT DECODED.
+
+## 2026-11-18 (Solids > Modify > Constant Fillet: formats/solid_fillet.md 10 "Open questions", branch worktree-agent-a351f00a68046add6)
+- SOL-F1 (Q-F1) Propagate along tangencies OFF: the decoded setting is stored (panel, session, project, P+0x15 of the op record), but the
+  fillet is REFUSED with a message when it is off (not built): OpenCASCADE always fillets along the tangent edges.
+- SOL-F2 (Q-F2) Overflow: the decoded setting is stored (P+0x10); all three values are built with OpenCASCADE's own overflow handling,
+  marked as ours.
+- SOL-F3 (Q-F3 + Q-F5) Corner geometry, the success / failure cases and the order of the op's face / edge records differ from
+  Parasolid: accepted, marked as ours. The history record is written as decoded; the McOpsFile "needs regen" byte stays clear, as in
+  Mastercam's own ops (807 / 807 corpus solids).
+- SOL-F4 (Q-F4) Failure message: Mastercam's sld 538 "Blend creation failed." box with the sld 665 "Probable cause: Blend overflow
+  removes adjacent face or edge." line (caption sld 538), for every OpenCASCADE fillet failure.
+- SOL-F5 (Q-F6; not asked separately - decided by the main session under SOL-F3's acceptance, flagged in the report so the user can
+  object) The smooth-edge test (PK_EDGE_is_smooth in FUN_180036310) is OpenCASCADE's edge continuity check at its default angle
+  (BRepLib::ContinuityOfFaces, 1e-10 rad = BRepLib::EncodeRegularity's default), marked as ours.

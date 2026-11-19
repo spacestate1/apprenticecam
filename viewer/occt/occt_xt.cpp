@@ -749,6 +749,13 @@ bool Writer::run(const TopoDS_Shape &shape) {
     return true;
 }
 
+/* the transmit version (2026-11-18): X9 parts (SOLIDXMT ver 0x1a, PK transmit version 0x10e = 27.0) carry modeller 2700142 / schema
+   SCH_2700142_26105 (207 corpus .mcx-9 blobs), Mastercam 2017 parts (.mcam, ver 0x1c, 0x118 = 28.0) modeller 2800143 / SCH_2800143_28002
+   (202 corpus .mcam blobs; the 235 schema-28002 headers are byte-identical apart from KEY / FILE / DATE). sch_26105 and sch_28002 have the
+   same transmitted fields for every node this writer emits (they differ only in non-transmitted fields: BODY.data, EDGE.data) */
+static std::string modeller(const Options &o) { return o.pk == 28 ? "2800143" : "2700142"; }
+static std::string schema_key(const Options &o) { return o.pk == 28 ? "SCH_2800143_28002" : "SCH_2700142_26105"; }
+
 std::string header(const Options &o) {          /* byte for byte as Mastercam's blobs (survey2.py: 108 identical) */
     std::string date = o.date;
     if (date.empty()) { time_t t = time(nullptr); char b[64]; strftime(b, sizeof b, "%a %b %d %H:%M:%S %Y", localtime(&t)); date = b; }
@@ -760,7 +767,7 @@ std::string header(const Options &o) {          /* byte for byte as Mastercam's 
     h += "**PART1;\nMC=unknown;\nMC_MODEL=unknown;\nMC_ID=unknown;\nOS=Windows 95;\nOS_RELEASE=unknown;\n"
          "FRU=CNC Software, Inc.;\nAPPL=Mastercam;\nSITE=unknown;\nUSER=unknown;\nFORMAT=binary;\nGUISE=transmit;\n";
     h += "KEY=" + o.key + ";\nFILE=" + file + ".X_B;\nDATE=" + date + ";\n";
-    h += "**PART2;\nSCH=SCH_2700142_26105;\nUSFLD_SIZE=1;\n**PART3;\n";
+    h += "**PART2;\nSCH=" + schema_key(o) + ";\nUSFLD_SIZE=1;\n**PART3;\n";
     h += "**END_OF_HEADER*****************************************************************\n";
     return h;
 }
@@ -776,7 +783,7 @@ bool write(const TopoDS_Shape &shape, const xtocc::Schema &s, const Options &o, 
     Out b{out};
     /* binary prefix: 'B', u32 len + modeller string, u32 len + schema key, u32 user field size (formats/xt.md: the
        Mastercam blobs use a 4-byte length for the modeller string too, where ref 16 says 2 bytes) */
-    std::string mv = ": TRANSMIT FILE created by modeller version 2700142", sk = "SCH_2700142_26105";
+    std::string mv = ": TRANSMIT FILE created by modeller version " + modeller(o), sk = schema_key(o);
     b.u8('B');
     b.i32((int)mv.size()); out.insert(out.end(), mv.begin(), mv.end());
     b.i32((int)sk.size()); out.insert(out.end(), sk.begin(), sk.end());

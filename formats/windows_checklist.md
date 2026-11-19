@@ -134,3 +134,16 @@ Whichever command makes kind 4 (the record's class word) then gives the sample; 
 |---|---|---|
 | 9a | The commands used (in the order made) | |
 | 9b | Any surface Mastercam made trimmed although untrimmed was asked | |
+
+## 10. Solids written by apprenticeCAM (SOL-1..SOL-5, branch of the solid save path; formats/solid_history.md 3.2.1)
+apprenticeCAM now writes new solids as Parasolid XT + their Extrude history. Nothing it writes has been opened in Mastercam yet.
+Make the two test parts with `tools/tests/solid_compare.sh` (scenes `sv_new_mcam`, `sv_x9_add`; they are written to the run's output
+folder), copy them to the Windows disk, then in Mastercam 2017 (and X9 for the .mcx-9):
+
+| # | What | Answer |
+|---|---|---|
+| 10a | `sv_new_mcam.mcam` opens without a message; the solid shows and is listed in the Solids manager | |
+| 10b | Solids manager: right-click the solid > Regen - any error / change? | |
+| 10c | Edit the Extrude op (distance), OK - the solid regenerates correctly? | |
+| 10d | `sv_x9_add.mcx-9` in X9: the added solid opens, regens and edits like 10a-c | |
+| 10e | Any message about the part file (version / corrupt / repaired) | |

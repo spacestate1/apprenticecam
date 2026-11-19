@@ -25,12 +25,12 @@ OCC_INC ?= /usr/include/opencascade
 HAVE_OCCT := $(shell test -f $(OCC_INC)/BRepMesh_IncrementalMesh.hxx && echo 1)
 ifeq ($(HAVE_OCCT),1)
 OCCT_FLAGS = -DHAVE_OCCT -I$(OCC_INC)
-OCCT_OBJS = occt_mesh.o occt_prim.o occt_cad.o occt_edges.o xt_occt.o
+OCCT_OBJS = occt_mesh.o occt_prim.o occt_cad.o occt_edges.o xt_occt.o occt_xt.o occt_solid.o
 # OCCT >= 7.8: STEP / IGES in TKDESTEP / TKDEIGES; 7.6 / 7.7 (Debian 12, Ubuntu 22.04 / 24.04): TKSTEP* / TKIGES
 OCCT_DE := $(if $(filter /%,$(shell $(CXX) -print-file-name=libTKDESTEP.so)),-lTKDESTEP -lTKDEIGES,-lTKSTEP -lTKSTEP209 -lTKSTEPAttr -lTKSTEPBase -lTKIGES)
-OCCT_LIBS = $(OCCT_DE) -lTKXSBase -lTKBO -lTKBool -lTKMesh -lTKShHealing -lTKPrim -lTKTopAlgo -lTKGeomAlgo -lTKBRep -lTKGeomBase -lTKG3d -lTKG2d -lTKMath -lTKernel
+OCCT_LIBS = $(OCCT_DE) -lTKXSBase -lTKOffset -lTKFillet -lTKBO -lTKBool -lTKMesh -lTKShHealing -lTKPrim -lTKTopAlgo -lTKGeomAlgo -lTKBRep -lTKGeomBase -lTKG3d -lTKG2d -lTKMath -lTKernel
 else
-OCCT_OBJS = occt_mesh.o occt_prim.o occt_cad.o occt_edges.o
+OCCT_OBJS = occt_mesh.o occt_prim.o occt_cad.o occt_edges.o occt_solid.o
 endif
 occt_mesh.o: occt_mesh.cpp occt_mesh.h occt/xt_occt.h xt_mesh.h
 	$(CXX) -O2 -g -std=c++17 $(OCCT_FLAGS) -I. -c occt_mesh.cpp -o $@
@@ -43,11 +43,16 @@ occt_prim.o: occt_prim.cpp occt_prim.h
 	$(CXX) -O2 -g -std=c++17 $(OCCT_FLAGS) -I. -c occt_prim.cpp -o $@
 xt_occt.o: occt/xt_occt.cpp occt/xt_occt.h
 	$(CXX) -O2 -g -std=c++17 $(OCCT_FLAGS) -c occt/xt_occt.cpp -o $@
+# SOL-1 / SOL-3 (2026-11-18): the OCCT -> XT writer and the Extrude kernel on OCCT (formats/occt_xt.md, formats/extrude.md)
+occt_xt.o: occt/occt_xt.cpp occt/occt_xt.h occt/xt_refgeom.h occt/xt_occt.h
+	$(CXX) -O2 -g -std=c++17 $(OCCT_FLAGS) -c occt/occt_xt.cpp -o $@
+occt_solid.o: occt_solid.cpp occt_solid.h occt/occt_xt.h occt/xt_occt.h xt_mesh.h
+	$(CXX) -O2 -g -std=c++17 $(OCCT_FLAGS) -I. -c occt_solid.cpp -o $@
 
 # the core sources (viewer-qt/CMakeLists.txt CORE_C / CORE_UI_C)
 CORE_C = hmm_voronoi.c hmm_pipethin.c stockmodel.c cad_import.c stl_mesh.c dxf_read.c rpx.c scene.c mcam_load.c mcsurf.c mcsrfdl.c mcglhit.c mcsurf_build.c mcsrfint.c mcpartline.c mcpartline_mesh.c cam3d_mmodel.c mcsrfcrv.c mccsurf.c mcsurf_nrm.c mcspline.c mcspline_fit.c mcspline_simplify.c mcspline_chain.c mcspline_refit.c mcbiarc.c mcfilter.c mcfillet.c mcfillet_ent.c mcsurf_tonurbs.c part_tools.c xt_mesh.c cam2d.c cam2d_remach.c mcce_ctour.c mcce_dyn.c toollib.c toolprofile.c toolwiz.c feedspeed.c \
-         backplot.c mcam_write.c mcam_saveops.c geo2d.c solid25.c cam_fileop.c nc_post.c nci_reverse.c cam_postvals.c area_mill.c verify.c nci_write.c sldtoolp.c
-CORE_UI = cui_srfdl cui_srfedit cui_cedge cui_slice cui_plsel cui_srfint cui_csurf cui_partline cui_dsurf cui_spline cui_surf cui_attr cui_doc cui_geo cui_wfmisc cui_xform cui_xdyn cui_xroll cui_feat cui_sel cui_snap cui_overlay cui_undo cui_chain cui_sldchain cui_extrude cui_ops cui_opdlg \
+         backplot.c mcam_write.c mcam_saveops.c sld_ops.c geo2d.c solid25.c cam_fileop.c nc_post.c nci_reverse.c cam_postvals.c area_mill.c verify.c nci_write.c sldtoolp.c
+CORE_UI = cui_srfdl cui_srfedit cui_cedge cui_slice cui_plsel cui_srfint cui_csurf cui_partline cui_dsurf cui_spline cui_surf cui_attr cui_doc cui_geo cui_wfmisc cui_xform cui_xdyn cui_xroll cui_feat cui_sldsave cui_sel cui_snap cui_overlay cui_undo cui_chain cui_sldchain cui_extrude cui_fillet cui_ops cui_opdlg \
           cui_toolpage cui_optree cui_toolmgr cui_toolwiz cui_backplot cui_verify cui_analyze cui_ecp cui_lface cui_misc cui_stock cui_bbox cui_planes cui_grpprops \
           cui_dirty cui_defaults cui_preview cui_draft cui_draft_ord cui_draft_pick cui_draft_dim cui_draft_ang cui_draft_base cui_draft_tan cui_draft_pt cui_draft_note cui_note cui_nest
 CORE_C += bnci_update.c draft.c draft_create.c draft_create_circ.c draft_create_ang.c draft_create_tan.c draft_create_pt.c draft_ord.c draft_pick.c draft_note.c engrave.c lathe_face.c lathe_stock.c lathe_tool.c lathe_axis.c lathe_newop.c   # lathe_newop: a new Lathe Face (menu / ribbon); lathe_axis: lathe axis combinations + default Tplane; lathe_tool: lathe tools (Make_op_tool); lathe_face: Lathe Face engine (cam2d.c gen_lathe_face); lathe_stock: lathe stock boundaries (Face from stock); draft_note: notes (record, creation API); draft_create*: the Drafting tab's dimension creation (linear, circular, angular, tangent / perpendicular, point); draft_ord: ordinate; draft_pick: picking drafting entities; engrave: Engrave engine (cam2d_engrave.c); D2 (BnciUpdate NCI patch), drafting display
@@ -94,8 +99,8 @@ core_obj/%.o: core_ui/%.c $(wildcard core_ui/*.h core_ui/*.inc *.h) optree_text.
 core_obj/cam2d.o: cam2d_remach_gen.c cam2d_remach.h cam2d_ops.c cam2d_dyn.c cam2d_area.c cam2d_pock.c cam2d_pock_entry.c cam2d_pock_pspiral.c cam2d_pock_tspiral.c cam2d_pock_ovlp.c cam2d_pock_isl.c cam2d_pock_zz.c cam2d_pock_medax.c cam2d_pock_rem.c cam2d_pock_taper.c cam2d_pock_open.c cam2d_pock_open_k.c cam2d_pock_fin.c cam2d_pock_hsx.c cam2d_face.c cam2d_slot_arc.c cam3d_rough.c cam3d_finish.c cam3d_checktrim.c cam3d_hstlink.c cam3d_pencil.c cam3d_pencil.h cam3d_horiz.c cam3d_horiz.h cam3d_blend.c cam3d_blend.h cam3d_srough.c pgeo.c   # included by cam2d.c cam2d_engrave.c cam_smooth.c
 
 cam_cli: cam_cli.c cam2d.c stockmodel.c stockmodel.h cam2d.h cam2d_remach.c cam2d_remach_gen.c cam2d_remach.h cam2d_ops.c cam2d_dyn.c cam2d_area.c cam2d_pock.c cam2d_pock_entry.c cam2d_pock_pspiral.c cam2d_pock_tspiral.c cam2d_pock_ovlp.c cam2d_pock_isl.c cam2d_pock_zz.c cam2d_pock_medax.c cam2d_pock_rem.c cam2d_pock_taper.c cam2d_pock_open.c cam2d_pock_open_k.c cam2d_pock_fin.c cam2d_pock_hsx.c cam2d_face.c cam2d_slot_arc.c cam3d_rough.c cam3d_finish.c cam3d_checktrim.c cam3d_hstlink.c cam3d_pencil.c cam3d_pencil.h cam3d_horiz.c cam3d_horiz.h cam3d_blend.c cam3d_blend.h cam3d_srough.c cam3d_mmodel.c cam3d_mmodel.h mcpartline_mesh.c mcpartline.h mcsurf_nrm.c hmm_voronoi.c hmm_voronoi.h hmm_pipethin.c hmm_pipethin.h pgeo.c pgeo.h mcce_dyn.c mcce_dyn.h mcce_medax.c mcce_medax_par.c mcce_trace.c mcam_load.c mcspline.c part_tools.c part_tools.h toollib.c toollib.h toolprofile.c toolprofile.h feedspeed.c feedspeed.h feedspeed.c feedspeed.h backplot.c backplot.h mcam_write.c mcam_saveops.c xt_mesh.c xt_mesh.h cam_fileop.c sldtoolp.c sldtoolp.h cam_fileop.h nc_post.c nc_post.h nci_reverse.c nci_reverse.h cam_postvals.c cam_postvals.h area_mill.c area_mill.h verify.c verify.h nci_write.c nci_write.h offset.o clipper6.o $(OCCT_OBJS) occt_mesh.h paths.h mcce_medent.c engrave.c engrave.h cam2d_engrave.c cam_smooth.c mcce_ctour.c mcce_ctour.h mcce_sobool.inc mcce_offset.inc lathe_face.c lathe_face.h lathe_stock.c lathe_stock.h lathe_tool.c lathe_tool.h lathe_axis.c lathe_axis.h lathe_newop.c lathe_newop.h
-	$(CC) $(CFLAGS) -o cam_cli.o -c cam_cli.c && $(CC) $(CFLAGS) -c stockmodel.c cam2d.c cam3d_mmodel.c mcpartline_mesh.c mcsurf_nrm.c hmm_voronoi.c hmm_pipethin.c cam2d_remach.c mcce_ctour.c mcce_dyn.c mcam_load.c mcsurf.c mcspline.c part_tools.c toollib.c toolprofile.c feedspeed.c backplot.c mcam_write.c mcam_saveops.c xt_mesh.c cam_fileop.c sldtoolp.c nc_post.c nci_reverse.c cam_postvals.c area_mill.c verify.c nci_write.c engrave.c lathe_face.c lathe_stock.c lathe_tool.c lathe_axis.c lathe_newop.c
-	$(CXX) -o $@ cam_cli.o stockmodel.o cam2d.o cam3d_mmodel.o mcpartline_mesh.o mcsurf_nrm.o hmm_voronoi.o hmm_pipethin.o cam2d_remach.o mcce_ctour.o mcce_dyn.o mcam_load.o mcsurf.o mcspline.o part_tools.o toollib.o toolprofile.o feedspeed.o backplot.o mcam_write.o mcam_saveops.o xt_mesh.o cam_fileop.o sldtoolp.o nc_post.o nci_reverse.o cam_postvals.o area_mill.o verify.o nci_write.o engrave.o lathe_face.o lathe_stock.o lathe_tool.o lathe_axis.o lathe_newop.o offset.o clipper6.o $(OCCT_OBJS) $(OCCT_LIBS) -lsqlite3 -lm
+	$(CC) $(CFLAGS) -o cam_cli.o -c cam_cli.c && $(CC) $(CFLAGS) -c stockmodel.c cam2d.c cam3d_mmodel.c mcpartline_mesh.c mcsurf_nrm.c hmm_voronoi.c hmm_pipethin.c cam2d_remach.c mcce_ctour.c mcce_dyn.c mcam_load.c mcsurf.c mcspline.c part_tools.c toollib.c toolprofile.c feedspeed.c backplot.c mcam_write.c mcam_saveops.c sld_ops.c xt_mesh.c cam_fileop.c sldtoolp.c nc_post.c nci_reverse.c cam_postvals.c area_mill.c verify.c nci_write.c engrave.c lathe_face.c lathe_stock.c lathe_tool.c lathe_axis.c lathe_newop.c
+	$(CXX) -o $@ cam_cli.o stockmodel.o cam2d.o cam3d_mmodel.o mcpartline_mesh.o mcsurf_nrm.o hmm_voronoi.o hmm_pipethin.o cam2d_remach.o mcce_ctour.o mcce_dyn.o mcam_load.o mcsurf.o mcspline.o part_tools.o toollib.o toolprofile.o feedspeed.o backplot.o mcam_write.o mcam_saveops.o sld_ops.o xt_mesh.o cam_fileop.o sldtoolp.o nc_post.o nci_reverse.o cam_postvals.o area_mill.o verify.o nci_write.o engrave.o lathe_face.o lathe_stock.o lathe_tool.o lathe_axis.o lathe_newop.o offset.o clipper6.o $(OCCT_OBJS) $(OCCT_LIBS) -lsqlite3 -lm
 
 tool_cli: tool_cli.c toollib.c toollib.h toolprofile.c mcam_load.c mcam_load.h part_tools.c part_tools.h paths.h
 	$(CC) $(CFLAGS) -o $@ tool_cli.c toollib.c toolprofile.c mcam_load.c mcspline.c part_tools.c -lsqlite3 -lm

@@ -31,6 +31,8 @@
 #include "mcsurf.h"
 #include "sldtoolp.h"
 #include "lathe_newop.h"
+#include "sld_ops.h"
+#include "occt_solid.h"
 
 static uint32_t rd32(const uint8_t *b) { return b[0] | b[1] << 8 | b[2] << 16 | (uint32_t)b[3] << 24; }
 static uint16_t rd16(const uint8_t *b) { return b[0] | b[1] << 8; }
@@ -1633,12 +1635,77 @@ static int save_impl(const char *src, const char *dst, McamFile *F, CamOp **ops,
     if (toolnote[0]) NOTE("%s%s", notes[0] ? "; " : "", toolnote);
     if (tlb.n) { put(&tlb, tpb.b, tpb.n); free(tpb.b); tpb = tlb; tlb.b = NULL; }   /* TL_ID records first (their order is free) */
     int anydirty = 0; for (int i = 0; i < F->nops; i++) if (F->ops[i].regen || F->ops[i].stale) anydirty = 1;   /* a dirty stored op: its +0xfc byte */
+    /* ---- solids made here (user decision SOL-1, formats/solid_history.md 5; F->sldnew from core_ui cui_sldsave.c): per solid a SOLID_ID
+       record with the geometry (section 12) and its SOLIDXMT segment in section 13 (sld_save_solids 0x1800c6b50 -> FUN_1800c6d20):
+       u32 0x16c, the SOLIDXMT record, the XT (PK_PART_transmit; here viewer/occt/occt_xt.cpp), u32 N, the name, the McOpsFile
+       (FUN_18026dc50). The file's version picks (major, solid ver, Parasolid): X9 0x12 -> (0x12, 0x1a, 27.0 = SCH_2700142_26105), 2017 0x13 ->
+       (0x13, 0x1c, 28.0 = SCH_2800143_28002) - sld_save_solids' table, the corpus' 386 X9 / 394 2017 SOLIDXMT records. ---- */
+    Buf sldb = { 0 }; int nsldw = 0, nsldref = 0; char sldwhy[400] = "";
+    if (F->nsldnew > 0) {
+        int sver = major >= 0x13 ? 0x1c : 0x1a, pk = major >= 0x13 ? 28 : 27;
+        double scale = mcam_is_metric(F) ? 1000.0 : 1000.0 / 25.4;   /* part units per metre (the XT is in metres) */
+        uint32_t nid = 0; for (int k = 0; k < F->nsolids; k++) if (F->solids[k].sid >= nid) nid = F->solids[k].sid + 1;   /* sld_N: unused id
+            (DAT_1803e80cc counts up from the largest read; the reader only matches ids, solid_history.md 5.1 [inferred]) */
+        for (int k = 0; k < F->nsldnew; k++) {
+            SldNew *sn = &F->sldnew[k];
+            if (sn->why[0] || !sn->body || !sn->nops) { if (!sldwhy[0]) snprintf(sldwhy, sizeof sldwhy, "solid %d: %s", k + 1, sn->why[0] ? sn->why : "no history"); nsldref++; continue; }
+            uint32_t N = nid++;
+            char key[32]; snprintf(key, sizeof key, "sld_%u", N);
+            char xerr[300] = ""; size_t xn = 0; uint8_t *xt = ocs_xt(sn->body, scale, pk, key, &xn, xerr, sizeof xerr);
+            double lo[3], hi[3];
+            if (!xt || !ocs_bbox(sn->body, lo, hi)) { if (!sldwhy[0]) snprintf(sldwhy, sizeof sldwhy, "solid %d: %s", k + 1, xt ? "no box" : xerr); free(xt); nsldref++; continue; }
+            /* the ops: the file's layout and version, the solid's eptr, a Cut / Boss's target = the solid itself (187 / 187 user cuts),
+               the chain entities' eptrs (MCAM_EPTR_TOKEN) */
+            int64_t S = next_eptr; next_eptr += 0x400; int32_t idn = next_idn++;
+            int bad = 0;
+            for (int o = 0; o < sn->nops; o++) {
+                SldOp *op = &sn->ops[o]; op->fver = sver; op->ver = (uint32_t)sver; op->solid_eptr = (uint64_t)S;
+                if (op->cls == SLD_CLS_EXTRUDE) { SldExtP P; sld_extp_get(op->P, &P); P.target = op->type == SLD_OP_EXTRUDE ? 0 : (uint64_t)S; sld_extp_put(op->P, &P); }   /* a Cut / Boss target (a fillet has no P target) */
+                for (int c = 0; c < op->nch; c++) for (int q = 0; q < op->cnt[c]; q++) {
+                    uint64_t t = op->ent[c][q]; if (!(t >> 62)) continue;
+                    int ei = (int)(t & 0xffffffff); if (ei < 0 || ei >= F->nents || !F->ents[ei].type || !F->ents[ei].eptr) { bad = 1; continue; }
+                    op->ent[c][q] = (uint64_t)F->ents[ei].eptr;
+                }
+                for (int l = 0; l < 2; l++) { SldEptr *e = l ? op->e2 : op->e1; int n = l ? op->n2 : op->n1;
+                    for (int i = 0; i < n; i++) for (int r = 0; r < 2; r++) { uint64_t *ref = r ? &e[i].ref2 : &e[i].ref1;
+                        if (!(*ref >> 62)) continue;
+                        int ei = (int)(*ref & 0xffffffff); if (ei < 0 || ei >= F->nents || !F->ents[ei].eptr) { bad = 1; continue; }
+                        *ref = (uint64_t)F->ents[ei].eptr; } }
+            }
+            if (bad) { if (!sldwhy[0]) snprintf(sldwhy, sizeof sldwhy, "solid %d: a chain entity is gone", k + 1); free(xt); nsldref++; next_idn--; continue; }
+            SldOpsHdr oh = { 0, sn->expanded, N, (uint32_t)sn->nops, (uint64_t)S };   /* +0x0c 0: Mastercam trusts the XT (807 / 807 corpus) */
+            size_t obn = 0; uint8_t *ob = sld_opsfile_write(&oh, sn->ops, sn->nops, &obn);
+            if (!ob) { if (!sldwhy[0]) snprintf(sldwhy, sizeof sldwhy, "solid %d: history not writable", k + 1); free(xt); nsldref++; next_idn--; continue; }
+            /* SOLID_ID (class 0x10000, len 0x100; sld_init_solid_ent 0x1800bd5c0): the header as the geometry's (head(): sel 0x81, the
+               attributes), +0x68 i32 body tag (runtime: 0), +0x70 u16 flags = 1 (init), +0x78 / +0x90 the box in part units = Parasolid's
+               metre box x 1000 (test-cube: -5.000000000000001 = -0.005 x 1000; ours: OCCT's tight box), +0xa8 N; the rest 0
+               (runtime fields, formats/solid_history.md 5.4) */
+            uint8_t sr[4 + 0x100]; memset(sr, 0, sizeof sr); w32(sr, 0x100);
+            uint8_t *e = sr + 4;
+            head(e, 0x10000, 0, 0, sn->color ? sn->color : 1, sn->level ? sn->level : 1, S, now, idn, major, minor, 1);
+            w16(e + 0x70, 1);
+            for (int a = 0; a < 3; a++) { wd(e + 0x78 + 8 * a, (lo[a] / scale) * scale); wd(e + 0x90 + 8 * a, (hi[a] / scale) * scale); }
+            w32(e + 0xa8, N);
+            put(&geob, sr, sizeof sr); newgeo++;
+            /* section 13: u32 0x16c, SOLIDXMT (+0x00 0x20000, +0x48 major, +0x49 solid ver, +0x68 "sld_N", +0x168 xt size), the XT, u32 N,
+               the name (0x100 bytes from ver 0x1c, else 0x40), the ops */
+            uint8_t xr[4 + 0x16c]; memset(xr, 0, sizeof xr); w32(xr, 0x16c);
+            w32(xr + 4, 0x20000); xr[4 + 0x48] = (uint8_t)major; xr[4 + 0x49] = (uint8_t)sver;
+            snprintf((char *)xr + 4 + 0x68, 0x100, "%s", key); w32(xr + 4 + 0x168, (uint32_t)xn);
+            uint8_t tr[4 + 0x100]; memset(tr, 0, sizeof tr); w32(tr, N);
+            size_t nl = sver > 0x1b ? 0x100 : 0x40; snprintf((char *)tr + 4, nl, "%s", sn->desc);
+            /* reverse DB order (FUN_1800c6d20 walks DAT_1803e8130 backwards): a later solid's segment goes first */
+            Buf one = { 0 }; put(&one, xr, sizeof xr); put(&one, xt, xn); put(&one, tr, 4 + nl); put(&one, ob, obn);
+            put(&one, sldb.b, sldb.n); free(sldb.b); sldb = one;
+            free(xt); free(ob); nsldw++;
+        }
+    }
     int anysolid = 0; for (int k = 0; k < F->nsolids; k++) if (F->solids[k].edited) anysolid = 1;
     int moddim = 0; for (int k = 0; k < F->ndnew; k++) if (F->dnew[k].on && rd64(F->dnew[k].E + 0x20)) moddim = 1;
     int anyattr = 0; for (int k = 0; k < F->nents; k++) if (F->ents[k].type && !F->ents[k].created && F->ents[k].attr_edited) anyattr = 1;   /* Home > Attributes (core_ui cui_attr.c) */
     for (int k = 0; k < F->nsurfs; k++) if (F->surfs[k].edited) anyattr = 1;
-    if (!added && !newgeo && !newdim && !newnote && !moddim && !fresh && !anydel && !nrev && !ntoolw && !F->stock_dirty && !F->grp_dirty && !anydirty && !anysolid && !anyattr && !lvl_new) { mcw_close(&m); free(geob.b); free(opb.b); free(tpb.b); free(refs); free(tlm_new);
-        free(gone); free(mtnew.b); free(noteb.b); snprintf(msg, msgn, "nothing to add%s%s", notes[0] ? ": " : "", notes); return 0; }
+    if (!added && !newgeo && !newdim && !newnote && !moddim && !fresh && !anydel && !nrev && !ntoolw && !F->stock_dirty && !F->grp_dirty && !anydirty && !anysolid && !anyattr && !lvl_new && !nsldw) { mcw_close(&m); free(geob.b); free(sldb.b); free(opb.b); free(tpb.b); free(refs); free(tlm_new);
+        free(gone); free(mtnew.b); free(noteb.b); snprintf(msg, msgn, "nothing to add%s%s%s%s", notes[0] ? ": " : "", notes, sldwhy[0] ? "; solids not written: " : "", sldwhy); return 0; }
     /* ---- records left out: part geometry deleted here; Mastercam operations replaced by an edited version (their OP,
        TP and NCI records - NCI positions are reset when Mastercam loads, formats/mcam_write.md) ---- */
     char *keep = xmalloc(m.nseg); int ndel = 0, ndropped = 0;
@@ -1799,6 +1866,15 @@ static int save_impl(const char *src, const char *dst, McamFile *F, CamOp **ops,
     }
     if (tlm_new) { insv[ninsv].before = tlm_seg; insv[ninsv].bytes = tlm_new; insv[ninsv].len = tlm_n; ninsv++; }
     if (lvl_new) { insv = xrealloc(insv, sizeof(McwInsert) * (size_t)(ninsv + 1)); insv[ninsv].before = lvl_seg; insv[ninsv].bytes = lvl_new; insv[ninsv].len = lvl_n; ninsv++; }
+    if (sldb.n) {                                                      /* the new solids' section 13 segments: after the part's own solids (section
+                                                                          13 is in reverse DB order and the new SOLID_IDs come first in the DB),
+                                                                          else before the setup record (ASSOC 7, section 14) */
+        int at = -1;
+        for (int i = 0; i < m.nseg; i++) if (m.seg[i].kind == SEG_SOLID_TAIL) at = i + 1;
+        for (int i = 0; at < 0 && i < m.nseg; i++) if (m.seg[i].kind == SEG_ENT && m.seg[i].cls == 0x4000 && m.seg[i].sub == 7) at = i;
+        if (at < 0) at = first_assoc;
+        insv = xrealloc(insv, sizeof(McwInsert) * (size_t)(ninsv + 1)); insv[ninsv].before = at; insv[ninsv].bytes = sldb.b; insv[ninsv].len = sldb.n; ninsv++;
+    }
 #undef REVOP
     /* ---- the solids that got a whole-body SldToolPOp (see sldtoolp_whole_bytes): their XT + trailer + history segment rewritten with the
        ops appended. McOpsFile write FUN_18026dc50 (decomp/solid_history/h1_read_save_regen.c l.774-890): u8 +0xc, u8 +0xe, u32 +0x10,
@@ -1847,7 +1923,7 @@ static int save_impl(const char *src, const char *dst, McamFile *F, CamOp **ops,
     if (F->grp_dirty) grp_patch(&m, F);
     if (anysolid) solid_patch(&m, F);
     size_t outn; uint8_t *out = mcw_build(&m, keep, insv, ninsv, &outn);
-    free(keep); free(dropped_ids); free(insv); for (int u = 0; u < nsldtail; u++) free(sldtail[u]); free(mtb.b); free(noteb.b);
+    free(keep); free(dropped_ids); free(insv); for (int u = 0; u < nsldtail; u++) free(sldtail[u]); free(mtb.b); free(noteb.b); free(sldb.b);
     int ok = 0;
     {   char tmp[4200]; FILE *o = snprintf(tmp, sizeof tmp, "%s.tmp", dst) < (int)sizeof tmp ? fopen(tmp, "wb") : NULL;
         if (o) { ok = fwrite(out, 1, outn, o) == outn; if (fclose(o) != 0) ok = 0; if (ok && file_replace(tmp, dst) != 0) ok = 0; if (!ok) remove(tmp); }
@@ -1859,6 +1935,8 @@ static int save_impl(const char *src, const char *dst, McamFile *F, CamOp **ops,
     if (!ok) snprintf(msg, msgn, "%s", err);
     else snprintf(msg, msgn, "wrote %s: %d new entities, %s%d deleted, %d operation(s) added (%d replacing stored ones), %d operation(s) deleted, %d new tool(s), %d tool(s) rewritten, %d reversed%s%s%s%s%s", dst, newgeo, dimnote, ndel, added, ndropped - nopgone, nopgone, ntlw, ntoolw, nrevw, F->stock_dirty ? ", stock setup" : "", F->grp_dirty ? ", group settings" : "",
                   added ? " (they open with the red X - regenerate them)" : "", skipped || notes[0] ? ". " : "", notes);
+    if (ok && (nsldw || nsldref)) { size_t k = strlen(msg);
+        snprintf(msg + k, msgn - k, "; %d solid(s) made here written%s%d not written%s%s", nsldw, nsldw ? " (Parasolid XT + history) - " : ", ", nsldref, sldwhy[0] ? ": " : "", sldwhy); }
     mcw_close(&m); free(geob.b); free(opb.b); free(tpb.b); free(refs); free(tlm_new); free(lvl_new);
     return ok;
 #undef NOTE

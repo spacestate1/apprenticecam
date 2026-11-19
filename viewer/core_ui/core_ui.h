@@ -29,6 +29,7 @@ extern "C" {                                     /* the core headers have no C++
 #include "cam2d.h"
 #include "geo2d.h"
 #include "solid25.h"
+#include "occt_solid.h"
 #include "xt_mesh.h"
 #include "toollib.h"
 #include "feedspeed.h"
@@ -164,8 +165,26 @@ void camops_attach(void);
 /* prim (ours storage of a SldPrimitiveOp, decomp/mcgeomsld_primop.c): 0 = an Extrude feature; 15 Block / 17 Cylinder (the op
    types sld_basic_primitive records, opmanres 27601 + type = "Block" / "Cylinder") made by the Bounding Box panel's Solids
    output: pv = box[6] (xmin xmax ymin ymax zmin zmax, world = the Top view here) / cylinder r, len, c[3], dir[3] */
-typedef struct { ExtrudeParams p; int nch; Chain *ch; int *cdir; char name[64]; int single; int prim; double pv[8]; } ExFeat;
+/* level / color (SOL-5d): the new body's SOLID_ID level and colour, taken when the feature is made - dbput_solid (mccore 0x1802da1a0,
+   decomp/solid_history/h19_dbput_solid.c) stores the solid with store_ent(.., *solidColor_exref, main_level, main_attrib): the solid colour
+   (config 5052) and the main level at that moment; 0 = not recorded (an older project: the save's current values) */
+/* fl (cui_fillet.c, formats/solid_fillet.md): a Constant Fillet op on body p.target (sld_fillet: one SldFilletOp per body; p.type = EX_CUT:
+   it modifies its body); NULL = not a fillet. The picks are kept as Mastercam keeps them (McSldEntOp lists A / B): the face's / edge's
+   record (its name, -1 none) + its bbox centre (ps_get_bbox_center, part units); whole = a body pick (op+0x90) */
+typedef struct FilFeat { int whole; int nf, ne; int *frec, *erec; double (*fpt)[3], (*ept)[3]; double radius; int overflow, mitered, propagate; } FilFeat;
+typedef struct { ExtrudeParams p; int nch; Chain *ch; int *cdir; char name[64]; int single; int prim; double pv[8]; int level, color; FilFeat *fl; } ExFeat;
+FilFeat *filfeat_dup(const FilFeat *f);
+void filfeat_free(FilFeat *f);
+int fil_apply(Body **bs, int *nb, ExFeat *f, ExErr *e);              /* cui_fillet.c: the feature on its body (feat_apply calls it) */
 int prim_body(int prim, const double *pv, const char *name, Body *out);   /* the body of a Block / Cylinder (cui_feat.c) */
+/* SOL-3 (cui_feat.c): the features on the OpenCASCADE kernel (occt_solid.h) - the groups of a feature as the kernel's input */
+typedef struct { OcsGroup *g; OcsChain *ch; OcsSeg *seg; int *first; int ng; } OcsIn;   /* first[k] = group k's first chain (ExFeat.ch index) */
+int feat_ocs_groups(const ExFeat *f, OcsIn *in, ExErr *e);
+void ocsin_free(OcsIn *in);
+void ocs_params_of(const ExtrudeParams *ep, int single, OcsParams *p);
+double feat_xt_scale(void);                                          /* part units per metre */
+Body body_of_occ(OcsBody *ob, const char *name);                     /* takes the reference */
+struct SldNew; int sld_new_build(struct SldNew **out);              /* cui_sldsave.c: the solids made here for the part save (sld_ops.h) */
 /* undo record payload: the features one OK / Apply made (sec. 6: one per body / group) */
 typedef struct { int n; ExFeat *f; } FeatPack;
 typedef struct { int *ix, n; } ExGrp;
@@ -924,6 +943,41 @@ extern int ex_exp[8];                            /* expanders: Operation, Chains
 const char *ex_sld(int id);
 void ex_log(const char *fmt, ...);
 void ex_report(const ExErr *e);
+void ex_err_text(const ExErr *e, char *out, size_t n);   /* the box's text in one line (the preview's warning) */
+/* ---- Solids > Modify > Constant Fillet (cui_fillet.c; formats/solid_fillet.md) */
+#define FL_MAXPICK 4096
+#define FL_ERR_REFUSE (-1001)                    /* ours: SOL-F1, Propagate along tangencies off is not built */
+typedef struct { double radius; int overflow, mitered, propagate; } FilSess;   /* SLD_FILLET_PARAMS fields (P+0x08 / +0x10 / +0x14 / +0x15) */
+typedef struct { int body, idx, rec; double pt[3]; } FlPick;                   /* a pick: body, face / edge index (-1 body), its record, bbox centre */
+enum { FLV_NAME, FLV_LIST, FLV_RADIUS, FLV_N };
+extern FilSess fl_sess, fl_p; extern int fl_selbtn[3], fl_mode, fl_phase, fl_edit_idx, fl_prev, fl_prev_req, fl_tab, fl_adding, fl_sel_changed;
+extern char fl_name[64], fl_warn[300]; extern FlPick fl_pk[3][FL_MAXPICK]; extern int fl_npk[3]; extern unsigned char fl_lsel[3][FL_MAXPICK];
+void fl_units(void);
+void fl_start(void);
+void fl_edit(int fi);
+void fl_click(float mx, float my, int shift);
+void fl_unselect_all(void);
+void fl_sel_done(void);
+void fl_add_sel(int all);
+void fl_escape(void);
+int fl_list_n(void);
+void fl_list_item(int i, char *out, size_t n, int *kind, int *k);
+void fl_list_select(int i, int on);
+int fl_list_selected(int i);
+void fl_remove_sel(void);
+void fl_validate(const char **e);
+void fl_preview(void);
+void fl_panel_frame(void);
+void fl_end(int accepted, int restart);
+void fl_cancel(void);
+void fl_accept(int apply);
+void fl_set_radius(double r);
+void fl_set_overflow(int o);
+void fl_set_check(int which, int on);           /* 0 Propagate along tangencies, 1 Mitered corners, 2 Automatically preview */
+void fl_ov(float **pv, int *pn, int *pcap);
+void fl_dump(void);
+void fl_part_solid_msg(void);                      /* ours: a part solid picked (not ported) */
+int cui_fillet_script(const char *st, const char *arg);   /* the fillet / fl* MCAMUI_SCRIPT steps (cui_extrude_script calls it) */
 void ex_prompt_panel(void);
 void ex_chaining(void);
 void ex_start(void);

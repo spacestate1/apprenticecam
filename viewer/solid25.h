@@ -7,6 +7,8 @@
 #define SOLID25_H
 #include "offset.h"
 #include "btopo.h"
+#include <stdint.h>
+#include <stddef.h>
 
 typedef struct { double z0, z1; CPaths reg; } Slab;          /* region: non-zero, outer CCW / holes CW */
 /* a true arc the slabs' faceted outlines came from (formats/extrude.md "Round edges"): the source chain's arc entity
@@ -14,7 +16,11 @@ typedef struct { double z0, z1; CPaths reg; } Slab;          /* region: non-zero
    facets lie (tol: the chord tolerance the chain was flattened with + the offset term of a thin wall). The facets
    of the cap outlines are matched back to these in body_brep_edges. */
 typedef struct { double cx, cy, r, a0, sw, tol; int cw; } BArc;   /* cw: the entity's sweep was negative */
-typedef struct { Slab *s; int n; char name[64]; BArc *arc; int narc; } Body;
+/* SOL-3 (2026-11-18): the bodies are made on OpenCASCADE (occt_solid.h): occ = the body (then n = 0, no slabs), xt = its Parasolid XT
+   (occt_xt writer, metres x xt_scale = part units) - the AutoCursor edges / faces come from the XT exactly as for the part's own solids
+   (xt_mesh.c xt_brep_edges / xt_brep_topo). The slab kernel below stays for builds without OpenCASCADE only (then Extrude refuses). */
+struct OcsBody;
+typedef struct { Slab *s; int n; char name[64]; BArc *arc; int narc; struct OcsBody *occ; uint8_t *xt; size_t xt_n; double xt_scale; } Body;
 
 enum { EX_CREATE = 0, EX_CUT = 1, EX_BOSS = 2 };              /* P+0x00 (BAML OperationTypeCreateBody/Cut/Boss) */
 enum { EXM_DISTANCE = 0, EXM_THROUGH_ALL = 1 };                /* P+0x10 (BAML DistanceMethodDistance/ThroughAll) */
