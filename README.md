@@ -17,8 +17,8 @@ What the code is:
 | 2D High Speed in a pocket | Contour + 2D High Speed around a block |
 |---|---|
 | ![2D High Speed toolpath in a pocket](docs/screenshots/pocket_high_speed.png) | ![Contour and 2D High Speed toolpaths around a block](docs/screenshots/block_contour_high_speed.png) |
-| **Verify: the simulator after the cut, with the move list** | **A multi-part job: every operation's toolpath (top view)** |
-| ![Verify simulator](docs/screenshots/verify_simulator.png) | ![Top view of a multi-part job's toolpaths](docs/screenshots/buckle_top_toolpaths.png) |
+| **Verify: the simulator after the cut, with the move list** | **A multi-part job: every operation's toolpath** |
+| ![Verify simulator](docs/screenshots/verify_simulator.png) | ![A multi-part job with every toolpath (isometric)](docs/screenshots/buckle_iso_toolpaths.png) |
 
 The first three screenshots show the app with the icon pack built from the author's own Mastercam installation
 (`tools/setup_from_install.py`); without one, the buttons show the open-source stand-in icons, as in the fourth.
