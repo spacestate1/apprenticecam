@@ -568,3 +568,6 @@ searched. Reuse the other agent's surface-pick (u, v) decode. P-5: port the soli
 - S-15 (2026-11-18, shaded face highlight, branch worktree-agent-afdd857f29b50aa2a) Split the status bar's Shaded (render_cfg 3)
   out of Outline Shaded as its own display mode, as Mastercam has them, so each shows its decoded highlight (Shaded: the selected
   pass list, select colour + dark dots; Outline Shaded: recolour only). Follow-up task after int-s3.
+- PUB-3 (2026-11-18) The README screenshots: the user's three manual screenshots (pocket High Speed, Verify simulator, block
+  Contour + High Speed; taken with the icon pack from their own Mastercam install, so Mastercam's icons are visible - the user's
+  choice after being told) plus the buckle top view (stand-in icons). The README says so; it no longer claims "no Mastercam artwork".
