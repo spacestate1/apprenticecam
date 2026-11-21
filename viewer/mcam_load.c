@@ -503,6 +503,11 @@ static void entity_rec(McamFile *f, const uint8_t *rec, uint32_t n) {
                 t->req_pilot_dia = rdd(b + 0x288); t->flute_len = rdd(b + 0x290); t->oal = rdd(b + 0x298);
                 t->shoulder_len = rdd(b + 0x2a0); t->arbor_dia = rdd(b + 0x2a8); t->shoulder_dia = rdd(b + 0x470); t->taper_len = rdd(b + 0x478);
                 t->tl_tip_dia = rdd(b + 0x3f8);   /* engrave.dll FUN_18001bb30: the tip diameter of a chamfer mill / engrave tool */
+                /* regen-consistency 2026-11-19: and the tool's own tip diameter - TlToolEndmill::SetFromOldTool (decomp/mccore_tooladd.c
+                   l.10357: +0x970 TipDiameter = tp_tool +0x3f8) / TlToolFeedMill (l.11870: +0x968); toollib.c tool_tp_tool writes it there.
+                   A tool saved here without a TlMgr entry (a new tool: its TL_ID only) lost it, and a 2D chamfer with it regenerated
+                   0.25 mm off (cam2d.c chamfer_geometry) */
+                if ((t->type >= 10 && t->type <= 19) || t->type == 21 || t->type == 23) t->tip_dia = t->tl_tip_dia;   /* toollib.c tool_class: TC_ENDMILL / TC_SLOT (14) / TC_FEED (23) */
             }
             /* TlToolThreading::SetOpToolInfo (decomp/mccore_tooladd.c): +0x18 holds threads per inch for an inch tool
                (pitch = 1 / value when not metric and value > tol) */
@@ -537,7 +542,8 @@ static void entity_rec(McamFile *f, const uint8_t *rec, uint32_t n) {
             o->seq = rd16(rec + 0xe6);
             o->slot = n >= 0x5ac + 4 ? (int32_t)rd32(rec + 0x5ac) : -1;                 /* part_tools.md 1.1 */
             o->regen = n > 0xfc && rec[0xfc] != 0;   /* op +0x94 dirty as saved (record +0xfc; InitTvItem's X image, DirtyOperationWarning) */
-            cstr(o->comment, sizeof o->comment, rec + 0x6e, 0x16a);
+            { size_t k = 0; for (; k + 1 < sizeof o->comment && k < 0x78 && rec[0x6e + k]; k++) o->comment[k] = rec[0x6e + k] >= 32 ? (char)rec[0x6e + k] : '?';
+              o->comment[k] = 0; }   /* op +6, 0x78 bytes of ANSI (Windows-1252) text as stored: bytes >= 0x80 kept (the front end shows them, cp1252.h) */
             snprintf(o->type, sizeof o->type, "%s", mcam_opcode_name(o->opcode));
         }
     }

@@ -340,10 +340,11 @@ Body *bodies_dup(int *nt) {
     *nt = nsbodies; return t;
 }
 void bodies_show(const Body *bs, int nb) {
-    float *all = NULL; int nt = 0;
+    float *all = NULL; int nt = 0, *bn = malloc(sizeof(int) * (nb ? nb : 1));
     for (int i = 0; i < nb; i++) { float *t; int k = body_mesh(&bs[i], &t);
-        all = realloc(all, sizeof(float) * 18 * (nt + k + 1)); memcpy(all + 18 * nt, t, sizeof(float) * 18 * k); nt += k; free(t); }
+        all = realloc(all, sizeof(float) * 18 * (nt + k + 1)); memcpy(all + 18 * nt, t, sizeof(float) * 18 * k); nt += k; free(t); if (bn) bn[i] = k; }
     scene_set_user_solids(all, nt); free(all);
+    scene_set_user_bodies(bn, bn ? nb : 0); free(bn);       /* each body's triangles (the GAF body highlight, scene.c draw_solid_mesh) */
     float *eg = NULL; int ne = 0;                        /* the edges (sld_draw_solid_wire): solid25.c body_edges */
     for (int i = 0; i < nb; i++) { float *s; int k = body_edges(&bs[i], &s);
         if (k > 0) { eg = realloc(eg, sizeof(float) * 6 * (ne + k)); memcpy(eg + 6 * ne, s, sizeof(float) * 6 * k); ne += k; } free(s); }
@@ -355,11 +356,12 @@ void bodies_show(const Body *bs, int nb) {
    Allocation failures leave the drawing without the failed part (ours) */
 void bodies_show_with(const Body *bs, int nb, const Body *extra) {
     if (!extra) { bodies_show(bs, nb); return; }
-    float *all = NULL; size_t nt = 0; int okm = 1;
+    float *all = NULL; size_t nt = 0; int okm = 1, *bn = calloc((size_t)nb + 1, sizeof(int));
     for (int i = 0; i <= nb && okm; i++) { float *t = NULL; int k = body_mesh(i < nb ? &bs[i] : extra, &t);
-        if (k > 0) { float *na = realloc(all, sizeof(float) * 18 * (nt + k)); if (!na) okm = 0; else { all = na; memcpy(all + 18 * nt, t, sizeof(float) * 18 * k); nt += k; } }
+        if (k > 0) { float *na = realloc(all, sizeof(float) * 18 * (nt + k)); if (!na) okm = 0; else { all = na; memcpy(all + 18 * nt, t, sizeof(float) * 18 * k); nt += k; if (bn) bn[i] = k; } }
         free(t); }
     scene_set_user_solids(all, (int)nt); free(all);
+    scene_set_user_bodies(bn, bn && okm ? nb + 1 : 0); free(bn);
     float *eg = NULL; size_t ne = 0; okm = 1;
     for (int i = 0; i <= nb && okm; i++) { float *t = NULL; int k = body_edges(i < nb ? &bs[i] : extra, &t);
         if (k > 0) { float *na = realloc(eg, sizeof(float) * 6 * (ne + k)); if (!na) okm = 0; else { eg = na; memcpy(eg + 6 * ne, t, sizeof(float) * 6 * k); ne += k; } }

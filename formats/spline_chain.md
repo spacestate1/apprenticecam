@@ -127,8 +127,11 @@ standalone port; the engine port (`viewer/engrave.c`) depends on vertex density 
 
 ## 7. Open questions
 
-- The engine port's sensitivity to long segments (section 6): which estamp7 step (eg_load_layer / the offset precompute
-  FUN_00501550, NOT DECODED) is density-independent.
+- The engine port's sensitivity to long segments (section 6): root cause found 2026-11-19 (formats/engrave_engine.md 10): the
+  missing rough pass is an exact f32 tie in the hatch link FUN_004f3334 (decided in estamp7 by the last bits of its boundary),
+  the 0.077 spike comes from a 0.0006 in segment of this breaking at (0.88617, 0.93180)-(0.88593, 0.93125) in inside chain 2's
+  NURBS, which FUN_004fab4c keeps next to a long segment (its collinearity test is area-based). The density dependence is
+  estamp7's own; whether Mastercam's breaking makes that short segment is the open question here (windows_checklist.md 11r).
 - Mastercam's own spline drawing and picking (mastercam.dll draw_ent / proj_pt_on_ent for splines), length_ent's spline branch.
 - The users' config 1004 / 1005 (curve_min_step / curve_max_step) are taken at their defaults (as chain_tol is).
 - The other ops' spline handling (Contour's ctour path with splines_ok = 0 + their own conversion, pocket bounds).

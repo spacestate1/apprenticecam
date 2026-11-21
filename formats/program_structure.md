@@ -72,7 +72,9 @@ cam_cli PART bpinfo ...                                   backplot motion list +
 Options of the generate form: `--dia --depth --top --step --stepover --side out|in|on --stock --finish --lead --tabs
 --tabpts --noarcs --tool N --lib LIB --libtool NAME --tipcomp --coolant --chamfer W --chamfer-tip T --engrave --pitch
 --major --external --lh --passes --single --outside --wall --width --minrad --oneway --angle --box X0 Y0 X1 Y1 --holes
---nc OUT.nc --svg OUT.svg --side-svg --mcam OUT --verify`. Environment: `VERIFY_HIGH` (print high-engagement moves),
+--nc OUT.nc --svg OUT.svg --side-svg --mcam OUT --verify` (tests, also on `fileop`: `--movesf F` = --moves + the feed, `--params F` =
+the op's parameters as the sidecar writes them). `--engrave` is ours, not a Contour type: a 2D contour with Compensation Off (record
+0x5d0 = 4) and Lead In/Out off (0x8f0 = 0), the fields the saved op carries (formats/mcam_write.md 12). Environment: `VERIFY_HIGH` (print high-engagement moves),
 `VERIFY_PGM` (write the verify raster), `MCAM_H_OFFSET=tool` (H<tool> instead of H0), `MCCE_DEBUG=1..3`,
 `PEEL_DUMP=FILE` (Peel Mill Motion / Material loops before / after PeelAesthetics, testing), `PK_DEBUG` (pocket engine
 trace). (`MCCE_DCTOUR` is gone: Dynamic Contour is generated since 2026-10-23.)

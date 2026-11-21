@@ -372,7 +372,12 @@ void az_start(int picked) {                                 /* AnalyzeStart: the
 /* AnalyzeStart (F4, mccadutil 18008d050): an open dialog commits first; with nothing selected the entity pick (6333) */
 void analyze_start(void) {
     if (az_i >= 0) az_close(1);
-    az_start(-1); if (az_i < 0) { analyze_pick = 1; snprintf(cam_msg, sizeof cam_msg, "Select entities to analyze"); }   /* mccadutilres 6333 */
+    az_start(-1);
+    if (az_i < 0 && sld_sel_count() == 1) {             /* the pre-selection is one part solid: its dialog (as its double-click). A solid
+                                                          among other selected entities is not in the list (the mixed walk NOT DECODED) */
+        for (int i = 0; i < F.nsolids; i++) if (sld_sel_is(i)) { az_start_solid(i); return; }
+    }
+    if (az_i < 0) { analyze_pick = 1; snprintf(cam_msg, sizeof cam_msg, "Select entities to analyze"); }   /* mccadutilres 6333 */
 }
 /* the analyze pick: a point / line / arc under the cursor starts the dialog (1 = taken) */
 int analyze_pick_ent(int e) {

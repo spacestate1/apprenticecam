@@ -82,6 +82,10 @@ void scene_reupload(void);
 void scene_remesh_solids(void);
 extern int (*scene_ent_hl)(int e);               /* the shaded face highlight (core_ui): bit 0 auto-highlighted, bit 1 selected */
 extern int scene_hl_colors[2], scene_hl_stipple; /* config 5000 / 5033 colours, config 4053 StippleHighlight */
+extern int (*scene_sld_hl)(int kind, int i, int f);   /* a solid face's GAF highlight flags (core_ui): kind 0 = part solid i, face f of its
+                                                   topology (the face order of cui_sldchain.c topo / sld_pick_part_face); kind 1 = body i of
+                                                   the solids made here (f -1); bit 0 AutoHighlighted, bit 1 Selected */
+void scene_set_user_bodies(const int *ntri, int nb);   /* the solids made here: each body's triangle count in scene_set_user_solids' mesh */
 int scene_srf_look(int i);                       /* surface i's face highlight: bit 0 AutoHighlighted, bit 1 Selected, bit 2 StippleHighlight; 0 none */
 extern int scene_tp_hide_id;                     /* Q20 (core_ui cui_preview.c): this op's toolpath is left out; 0 = none */
 void scene_set_user_edges(const float *seg, int nseg);   /* their edges: x y z x y z per segment (sld_draw_solid_wire) */

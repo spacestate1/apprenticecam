@@ -317,9 +317,108 @@ mccore_tempmid.c + mccore_tempmid_at.c (Temporary Center Point / Temporary Midpo
     selected (ours, as before). Test: srf_scenes.txt srf_hl_* (step `srfhl`: look = autohl / selected / autohl-selected, -stipple).
     Before S-16 a hovered surface was lit in config 5000's colour and a selected one only recoloured (no dots) - corrected.
   - NOT DECODED / not ported: the translucent display (the pipe's alpha scaling +0x2f4 / +0x2f8), Glow type 1 / 2 (the glow
-    shaders OglGlow1 / 2ShaderOp), solids' faces / bodies (sld_draw paths, FUN_1800bc970; the GAF solid's flags are the same
-    pipe), meshes (GrPolygonalMesh), the frames between a draw_ent and the next repaint (FUN_180229d90's colour / flags would show only
-    if the GAF scene were drawn without FUN_1801dbc80, which no caller does).
+    shaders OglGlow1 / 2ShaderOp), meshes (GrPolygonalMesh), the frames between a draw_ent and the next repaint (FUN_180229d90's colour /
+    flags would show only if the GAF scene were drawn without FUN_1801dbc80, which no caller does). Solids: next item.
+- **Hover radius against wireframe (user decision SH-1, 2026-11-20, ours):** select_ent_univ (hover and click alike) lets any visible
+  wire within sel_dist (17.4 px) beat the shaded face (candidates sorted by FUN_180203a70 = std::sort, first visible wins). On hover
+  only, ours lets a wire win within 5 px (cui_sel.c SLD_HOVER_WIRE_PX / pick_sld_hover); clicks keep 17.4 px.
+- **Shaded face highlight of solids** (2026-11-19, user report "when I mouse over solids it still doesn't highlight the surfaces"; dumps
+  decomp/sldhl/: mccore_pump.c (PumpPreSelection, FUN_1804e50a0, FUN_1804e6250), mccore_mousemove.c (FUN_1804e55b0 = message 0x8032),
+  mccore_gs.c (get_event's FUN_1804e9920, the idle click FUN_1804e4550, FUN_1804e0390, FUN_1804df190), mccore_selents.c (select_ents,
+  SelectEntsOrderedSldMask), mcgeomsld_gaf1.c (drawAllSolids, sld_get_highlight_face_on_body_from_cursor, sld_pick_solid_from_cursor),
+  mcgeomsld_gafsolid.c (FUN_18025a4a0 tag -> GrRender, MaintainGrSolid FUN_18025a620, FUN_18025a9c0, FUN_18025b140, FUN_180259810),
+  mcgeomsld_pshilite.c (ps_hilight_edges, ps_unhilight_edges, ps_redraw_hilights, ps_reset_all_hilights, CreateNewGrSolid FUN_1802598d0),
+  mcgeomsld_36fc0.c, gafgr_altrender.c + gafgr_vtslots.txt (GrFace / GrSolid SetAltRender / GetAltRender = vtable +0x180 / +0x188),
+  callers.txt, mc_data.txt / mc_syms.txt, mc_seluniv.asm; earlier: decomp/mccore_autocursor.c, mcgeomsld_snap.c, mcgeomsld_hover.c,
+  mastercam_acdlg.c, mastercam_selpre.c, mastercam_seluniv.c, mccore_dlg292.c).
+  - **The flags are the surfaces' ones**: a GAF solid is a GrSolid (CreateNewGrSolid FUN_1802598d0) holding one GrFace per Parasolid face
+    (list +0x70); the stipple passes read the face's GetAltRender (GrFace +0xc0 = vtable +0x188 & 3, the draw items' mask 8 / 0x10).
+    GrSolid::SetAltRender (gafgr 0x10e72370) passes a changed flag to every face, so a flagged body = all its faces flagged. FUN_18025b140(tag,
+    bit, on) / FUN_180259770(tag, on) find the tag's GrRender (FUN_18025a4a0: the body's GrSolid, or its GrFace for a face tag) and set
+    the bit; FUN_180259770 sets bit 1 (SetGrRenderAutoHighlighted) and in the wireframe modes (render_cfg 1 / 2) also draw mask 3 + edge
+    data (not ported: wireframe). The looks are the stipple lists of the item above (list 0 hovered, list 1 selected).
+  - **Who sets them (hover)** - mccore FUN_1804df930 on every mouse move: idle (PumpPreSelection -> FUN_1804e50a0 case 0x8032 ->
+    FUN_1804e55b0 -> FUN_1804df190 -> FUN_1804df930), select_ents (the same pump, mode 0x212) and point entry (get_event):
+    (a) mfMODE & 0x7000 and an enabled-kind hit (get_event's solid modes) -> the solid tag; (b) render_cfg 3 (Shaded) and not translucent
+    and sld_identify_from_cursor(.., highlight) hits -> the tag (needs the solid pick mask); (c) DrawAutoHighlight (when auto-highlight
+    is on) with the current selection mask; then, if no entity is auto-highlighted, sld_identify_from_cursor(.., highlight) again.
+    - **DrawAutoHighlight on a solid** (mastercam.dll 0x18031f290): FUN_18020d280 -> select_ent_univ; with shading on (MayBeHidden(3))
+      its first call FUN_180207a70 ("SelectFace", mastercam_selpre.c) takes the shaded surface hit (gl_Hit_Surfs, mask 0x100) and then the
+      solid under the cursor (mask 0x10000: sld_pick_solid_from_cursor(.., 1, true, ..)), the solid only when nearer the viewer (world_to_view
+      z: surface z < solid z); that shaded candidate meets the wireframe candidates as the surface did. A hit SOLID_ID entity with
+      **config 4037 "Solids by faces?"** = auto_highlight_solid_faces (mastercam.dll 0x18088522e, .data 1; the config dialog's key 0xfc5
+      mccore_dlg292.c:74-75; the user's config y): `sld_get_highlight_face_on_body_from_cursor(cursor, solid)` (sld_select(cursor, 4) with
+      the From back button forced off, the first face hit of that body; 0 -> FUN_180205990(1): nothing highlighted) ->
+      SetAutoHighlightSolidsFace(face) -> FUN_180259770(face, 1): **that face** AutoHighlighted. 4037 off: the solid entity is the
+      auto-highlighted node (DAT_1809a0c38) and MaintainGrSolid (FUN_18025a620, at sld_draw_solids) sets AutoHighlighted on its GrSolid
+      when GetAutoHighlightEntity is this solid: **every face**.
+    - **The solid pick mask** (GetSolidSelectionPickMask, mcgeomsld .data 0; set by get_event's solid modes FUN_1804e1340, sld_pick_one_ent =
+      the allowed kinds less the Selection Bar buttons not checked, SelectEntsOrdered / DragOnEntity): sld_identify_from_cursor
+      (mcgeomsld_snap.c:495) = sld_select with the mask, the first hit; a face hit becomes its body unless the mask has 4 (LAB_1800bd1c3);
+      FUN_180099aa0(tag, type): a body (1) or face (4) tag flagged through FUN_180259770; at the repaint FUN_180098b20 draws a body / edge
+      tag's topology as wire in select_color (FUN_180042a00) - a face tag gets nothing more. Idle: mask 0 -> (b) and the last call find
+      nothing; only (c) highlights solids.
+    So: **idle / general selection, shaded**: the front face of the solid under the cursor (4037 y), or the whole solid (4037 n), unless a
+    wireframe entity within the aperture or a nearer shaded surface wins. **A solid selection with the Body / Face buttons** (the drive /
+    check prompt): Shaded = the tag (Face on: the face; else the body, + its edges in select_color); Outline Shaded = (c) first (select_ents'
+    mask 0x110100 takes solid entities: the 4037 rule), the tag only where (c) found nothing. **Select Target Body** (sld_pick_one_ent mask
+    1, point entry: the auto-highlight is off, FUN_1804e11e0 TurnOffAutoHighlight) = the body tag. Wireframe edges win over solid faces
+    only through select_ent_univ's candidate rule (they are candidates of (c); the tag paths (b) / last call erase the wireframe hover).
+  - **Who sets them (selected)**: a face picked in a solid selection is kept in ps_hilight_edges' list (sld_sel_solid_surfs, solid
+    chaining); ps_redraw_hilights -> FUN_180036fc0(tag, flag, colour -1): a face -> FUN_1800bc970(face, select_color, 0, 0) ->
+    FUN_18025b140(face, 2, 1) = **Selected** (render_cfg 3 / 4 only; list 1), and its wire (sldFace_select_color) only when not shaded;
+    ps_unhilight_edges clears it (FUN_18025b120(face, 0)), ps_reset_all_hilights clears every solid's flags (FUN_180259810). A whole
+    solid selected (selection bit 4): MaintainGrSolid gives its GrSolid SetVisibility(1, render_cfg 4 ? 1 : selected ? 2 : 0) - the prop set
+    index of the GrSolid's own list (built by FUN_18023a290 at CreateNewGrSolid) - and **no** Selected flag; that prop set's content is
+    NOT DECODED. MaintainGrSolid's colour is the entity's own (sld_draw_solids passes ent +6; with Glow the select / ahl colour replaced by
+    it).
+  - **Ported** (core_ui cui_sel.c cui_hover_update / pick_entity `pick_sld_on`, cui_overlay.c `cui_sld_hl`, cui_chain.c `ms_sld_pick_mask` /
+    `ms_face_picked`, cui_sldchain.c `sld_pick_part_face_front` / `sld_face_picked`; scene.c `draw_solid_mesh` / `gaf_face_draw` with the
+    display mesh's face ranges (xt_mesh `fntri`, occt_brep_mesh_faces), cui_feat.c the bodies' ranges; config 4037 `cfg_sld_by_faces`):
+    the rules above in the opaque shaded display (solid_mode 1, Shaded and Outline Shaded) for the part's solids (XT and imported OCCT) -
+    the general selection (idle) and the drive / check prompt (Body / Face buttons) - and the solids made here as the Select Target Body
+    tag (whole body); the selected faces of the drive / check prompt and of the solid chaining (list 1). The flagged faces are drawn after
+    the solids' other triangles with the passes of the item above; "own colour" = this program's solid colour (config 5052, as the base
+    draw - MaintainGrSolid's entity / face colours are not used by this program's solid display). The face under the cursor = this
+    program's tessellation along the cursor ray (N13-3, as the drive prompt's face click). Test: solid_scenes.txt sh_hl_* (step `sldhl`;
+    the shots' colour counts .px).
+  - **Selecting a whole solid with no command running** (2026-11-19, coordinator answer to Q1; dumps decomp/sldhl/mccore_click.c,
+    mcgeomsld_grsolid_build.c, mc_winpoly.c, mcgeomsld_inpoly.c): the idle pump's click (0x8030 -> FUN_1804e4550) with no solid pick mask
+    -> FUN_1804dff70: the auto-highlighted entity (GetAutoHighlightEntity), else find_an_entity with the same mask -> FUN_1804e8d50 flips
+    its selection bit 4 (FUN_1804e78f0). So a click on a shaded solid selects (or unselects) **the whole solid entity** - the same pick as
+    the hover, whatever face config 4037 highlights. Ported: core_ui pick_entity_gs + the solids' bit 4 (cui_chain.c sld_sel_*: the bit
+    sld_sel_selected_solid_surfs reads at the drive / check prompt), Qt MainWindow's idle click; Esc / sel_clear clears it
+    (set_clr_sel_bits_all with 0x1f1fff); Analyze (F4) with exactly one selected solid and nothing else opens that solid's dialog.
+    **Its look**: MaintainGrSolid (repaint, own colour) gives the GrSolid SetVisibility(1, render_cfg 4 ? 1 : selected ? 2 : 0); the
+    GrSolid's prop sets are AddGrPropSets(obj, colour) (FUN_18023a290 -> FUN_180239cd0), whose set 2 differs in the line colour
+    (select_color) - Shaded draws no solid lines, Outline Shaded uses set 1 - and no face flag was found (FUN_18023a290 sets Selected
+    on a face only when FUN_180030a20(face), the hilite list). The selected-solid look is therefore **NOT DECODED**; decision
+    (coordinator 2026-11-19): every face drawn Selected (stipple list 1, the existing select look). Window / polygon selection of
+    solids (ent_in_polygon_view -> sld_in_polygon: sld_visible, not blanked, level mask; the body box's 12 edges all inside, else
+    ps_tag_in_polygon on the rendered edges; ent_intersect_polygon -> sld_intersect_polygon = ps_tag_in_polygon == 0) is decoded but
+    this program has no window selection in the general selection (only Window chaining, which takes no solids): not ported.
+    Not ported: Delete of a selected solid (removing a part solid needs the part writer - mcam_saveops.c, another branch's file; the
+    solid stays, still selected), Select All with solids (SelectAllMask's mask NOT DECODED), Transform of solids (the transforms take
+    no solids), Ctrl+click (FUN_1804e4550: Ctrl sets lock mode 0 and starts no pick - the existing click ignores modifiers, unchanged).
+    Tests: solid_scenes.txt sh_sel_*.
+    **Fix 2026-11-19 (merge regression az_dbl_line)**: a wireframe candidate's depth point is the point on the entity at the cursor's
+    parameter (select_ent_univ pt_on_ent_from_t(t) with t from t_on_line, decomp/mastercam_seluniv.c l.500-506) - pick_entity kept the
+    segment's END VERTEX, so a long line lying on a solid's face (tramming-rod: the line's end 74 mm away, 42 mm deeper in view z than the
+    face point under the cursor) lost to the solid, and its double-click opened the solid's dialog instead of the line's Analyze. Now
+    the candidate point is the line's point at the cursor, and against a solid a wireframe candidate stays when that point is visible
+    (IsPosVisible(pt, 1, -1, 1e-5), seluniv l.547: hidden only by a face nearer by more than |z * 1e-5 * 150|; cui_snap.c
+    sld_pos_visible) - comparing the view z of the two different points failed for a line lying on a face in an oblique view.
+    select_ent_univ's own resolution of listed wireframe candidates against a shaded one (FUN_18020f2f0 / FUN_180203a70) is not dumped.
+    The surfaces keep their rule (wire wins when its view z >= the surface point's), with the corrected point. A double-click on the
+    solid's face itself (no wireframe in the aperture): the first click selects the solid (FUN_1804dff70 -> FUN_1804e8d50), the
+    double-click (0x802f -> FUN_1804e3a10 / FUN_1804e3af0) does not toggle again; this program then opens the solid's Analyze dialog as
+    before (analyze_dblclick; how Mastercam's idle state turns the double-click into Analyze stays NOT DECODED). Tests: misc_scenes.txt
+    az_dbl_line, az_dbl_solid, az_dbl_solid_face (misc_compare now keeps the "analyze solid" lines).
+  - NOT DECODED / not ported: a whole selected solid's look (above), the
+    translucent and wireframe displays (select_ent_univ's translucent solid pick l.842-866; FUN_180259770's draw mask 3 + edge data),
+    the From back button of the solid selection, edge tags (mask 2) outside the solid chaining, faces of the solids made in this session
+    (no face ranges: they are picked only as Select Target Body), get_event's solid modes (a) (no ported prompt uses them), the moment the
+    drive prompt's highlight list is reset (here: shown while the prompt runs).
 - **Shaded vs Outline Shaded** (S-15, 2026-11-18; dumps decomp/shade15/: handlers.c (the commands), repaint.c (the repaint's helpers,
   MaintainGrRenderSurface, FUN_180229d90), glshade.c (gl_Shade), gr_vis.c / gr_propset.c / gr_vt.txt / gr_mem.txt (gafgr GrRender /
   GrObject), callers.txt, refs.txt, f620.asm, mem.txt; S-16 / S-17: gr_push.c (GrPipe::Draw, CreateDfltProperties, UpdateProperties),
@@ -624,7 +723,8 @@ mccore_tempmid.c + mccore_tempmid_at.c (Temporary Center Point / Temporary Midpo
     sld_pick_one_ent (restored after each event), SelectEntsOrdered / DragOnEntity and the Selection Bar's solid
     buttons (OnSolidsSelectBody / Face / Edge, enabled only while such a selection is active - OnUpdateSolidsSelect*).
     So in **plain idle, point entry and chaining** (no solid selection; the chaining dialog's Solids button 351 is not
-    ported) the mask is 0 and **nothing on a solid is highlighted** - what both apps already do. The one solid
+    ported) the mask is 0 and nothing on a solid is highlighted **through the pick mask**. (Corrected 2026-11-19: in the idle general
+    selection the solid ENTITY is a DrawAutoHighlight candidate and config 4037 highlights its face - "Shaded face highlight of solids".) The one solid
     selection this program has is the Extrude panel's **Select Target Body** (sld 857, sld_pick_one_ent with mask 1 =
     bodies; FUN_1800a44c0 checks the Bodies button): hovering a body highlights it (hit type 1).
   - **Drawing** (sld_repaint_hilite_ents -> FUN_180098b20 for the highlighted tag): type != 4 -> FUN_1800bc970(tag,

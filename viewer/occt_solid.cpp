@@ -810,19 +810,26 @@ int ocs_hit(const OcsBody *b, const double o[3], const double d[3], double *t) {
     } catch (...) { return 0; }
 }
 
-uint8_t *ocs_xt(const OcsBody *b, double scale, int pk, const char *key, size_t *n, char *err, size_t errn) {
-    *n = 0; if (!b || b->s.IsNull()) { if (err) snprintf(err, errn, "no body"); return nullptr; }
+uint8_t *ocs_xt_ex(const OcsBody *b, double scale, int pk, const char *key, const char *date, int entinfo, size_t *n, int *ne, int *nf,
+                   char *err, size_t errn) {
+    *n = 0; if (ne) *ne = 0; if (nf) *nf = 0;
+    if (!b || b->s.IsNull()) { if (err) snprintf(err, errn, "no body"); return nullptr; }
     auto S = schema_for(pk);
     if (!S) { if (err) snprintf(err, errn, "no Parasolid schema file (sch_%s.s_t: paths.conf schema)", pk == 28 ? "28002" : "26105"); return nullptr; }
     try {
-        occxt::Options o; o.scale = scale; o.pk = pk; o.key = key ? key : "sld_1";
+        occxt::Options o; o.scale = scale; o.pk = pk; o.key = key ? key : "sld_1"; if (date) o.date = date; o.mc_entinfo = entinfo != 0;
         std::vector<uint8_t> v; occxt::Report r;
         if (!occxt::write(b->s, *S, o, v, r)) {
             std::string u; for (auto &x : r.unmapped) { if (u.find(x) == std::string::npos) u += (u.empty() ? "" : "; ") + x; }
             if (err) snprintf(err, errn, "XT writer: %s%s%s", r.error.c_str(), u.empty() ? "" : " ", u.c_str()); return nullptr; }
+        if (ne) *ne = r.counts.count("EDGE") ? r.counts["EDGE"] : 0;
+        if (nf) *nf = r.counts.count("FACE") ? r.counts["FACE"] : 0;
         uint8_t *m = (uint8_t *)malloc(v.size()); memcpy(m, v.data(), v.size()); *n = v.size(); return m;
     } catch (Standard_Failure &x) { if (err) snprintf(err, errn, "XT writer: %s", x.GetMessageString()); return nullptr; }
     catch (...) { if (err) snprintf(err, errn, "XT writer failed"); return nullptr; }
+}
+uint8_t *ocs_xt(const OcsBody *b, double scale, int pk, const char *key, size_t *n, char *err, size_t errn) {
+    return ocs_xt_ex(b, scale, pk, key, nullptr, 0, n, nullptr, nullptr, err, errn);
 }
 
 uint8_t *ocs_brep(const OcsBody *b, size_t *n) {
@@ -1186,6 +1193,7 @@ int ocs_nfaces(const OcsBody *) { return 0; }
 int ocs_nedges(const OcsBody *) { return 0; }
 int ocs_valid(const OcsBody *) { return 0; }
 uint8_t *ocs_xt(const OcsBody *, double, int, const char *, size_t *n, char *err, size_t errn) { *n = 0; nocc(err, errn); return nullptr; }
+uint8_t *ocs_xt_ex(const OcsBody *, double, int, const char *, const char *, int, size_t *n, int *, int *, char *err, size_t errn) { *n = 0; nocc(err, errn); return nullptr; }
 uint8_t *ocs_brep(const OcsBody *, size_t *n) { *n = 0; return nullptr; }
 OcsBody *ocs_from_brep(const uint8_t *, size_t) { return nullptr; }
 OcsBody *ocs_from_xt(const uint8_t *, size_t, double, char *err, size_t errn) { nocc(err, errn); return nullptr; }

@@ -1559,9 +1559,14 @@ static ShL bnds_to_sl(const McceBnd *b, int n, double z) {
     for (int i = 0; i < n; i++) {
         if (b[i].n < 2) continue;
         Sh *s = sh_new(); s->z = z;
-        int m = b[i].open ? b[i].n - 1 : b[i].n;
-        for (int k = 0; k < m; k++) { int k2 = (k + 1) % b[i].n;
-            sh_push(s, ent_line(p2(b[i].xy[2 * k], b[i].xy[2 * k + 1]), p2(b[i].xy[2 * k2], b[i].xy[2 * k2 + 1]))); }
+        if (b[i].ne > 0) {   /* the bound's true lines / arcs (as mcmill's pock_bound, CopyPockBndsToShAr) */
+            for (int k = 0; k < b[i].ne; k++) { const double *v = b[i].ent + 5 * k;
+                sh_push(s, b[i].ety[k] == 'A' ? ent_arc(p2(v[0], v[1]), v[2], v[3], v[4]) : ent_line(p2(v[0], v[1]), p2(v[2], v[3]))); }
+        } else {
+            int m = b[i].open ? b[i].n - 1 : b[i].n;
+            for (int k = 0; k < m; k++) { int k2 = (k + 1) % b[i].n;
+                sh_push(s, ent_line(p2(b[i].xy[2 * k], b[i].xy[2 * k + 1]), p2(b[i].xy[2 * k2], b[i].xy[2 * k2 + 1]))); }
+        }
         if (b[i].open) s->dir = 0;
         else { CPath c = { b[i].xy, b[i].n }; s->dir = cl_area(&c) > 0 ? 1 : -1; }   /* +1 if ccw (CopyPockBndsToShAr) */
         s->fl = b[i].island ? 1 : 0;
@@ -1689,6 +1694,16 @@ static void prep_material(const McceParm *P, const ShL *A, const ShL *B, double 
 /* FUN_180092950 (l.81078-81359): Dynamic Contour regions; closed walls via FUN_180091d40 (l.80681-80839) and
    FUN_1800922e0 (l.80883-81075). Open chains (FUN_1800930c0 with the contour band kernels of §6.5, MCCECalcContourOffset
    internals NOT DECODED) are not ported: they are skipped. */
+/* the offsets of FUN_1800922e0 (decomp/mcce_all.c l.80951-80985: MCCECalcOffset flags 0x121 for the first, 0x100 for the others) and of its
+   caller FUN_180090290 (l.81276-81278: the WALL grown by P+0x60 with 0x127) through the DLL-identical port (sl_offset_dllf); where that port
+   refuses, our own model (sl_offset_m). MCCE_CTOFFDLL=0 = sl_offset_m everywhere (the earlier port). */
+static ShL ct_off(const ShL *G, double d, double z, unsigned flags) {
+    static _Thread_local int on = -1; if (on < 0) { const char *e = getenv("MCCE_CTOFFDLL"); on = !(e && *e == '0'); }
+    ShL o = { 0 };
+    if (on && dlloff_on() && sl_offset_dllf(G, d, z, 0, flags, &o)) return o;
+    sl_free(&o);
+    return sl_offset_m(G, d, z);
+}
 static void prep_ctour(const McceParm *P, const ShL *A, double z, ShL *M, ShL *AIR) {
     int sep = (P->flags & 0x200000) && !(P->flags & 0x800000);    /* IsEaShSepCtour (l.848) */
     double W = P->ct_n * P->ct_w, rad = P->min_rad + P->R, t = P->ct_t0 + P->ct_t1 + P->ct_t2, u = P->ct_t1 + P->ct_t2;
@@ -1703,15 +1718,15 @@ static void prep_ctour(const McceParm *P, const ShL *A, double z, ShL *M, ShL *A
         ShL G = { L.s + i, e - i, e - i };
         int left = sep ? (((P->flags & 0x400000) && G.s[0]->dir == 1) || (!(P->flags & 0x400000) && G.s[0]->dir == -1)) : 1;
         double c = left ? 1 : -1;
-        ShL o1 = sl_offset_m(&G, -(W + rad) * c, z), O = sl_offset_m(&o1, rad * c, z); sl_free(&o1);
+        ShL o1 = ct_off(&G, -(W + rad) * c, z, 0x121), O = ct_off(&o1, rad * c, z, 0x100); sl_free(&o1);
         for (int k = 0; k < O.n; ) {
             int ke = sl_group_end(&O, k); if (ke < 0) ke = O.n;
             ShL K = { O.s + k, ke - k, ke - k };
-            ShL t1a = sl_offset_m(&K, -t * c, z), T1 = sl_offset_m(&t1a, u * c, z); sl_free(&t1a);
+            ShL t1a = ct_off(&K, -t * c, z, 0x100), T1 = ct_off(&t1a, u * c, z, 0x100); sl_free(&t1a);
             /* FUN_1800922e0 param_4 (the caller's local_70 = REG, l.81268-81270; M = local_70, AIR = local_70 - offset(local_c0), l.81276-81287; formats/mcce_engines.md 6.13.3) gets nest(K u offset(K, -P c)) (l.80980-80996)
                or K itself with CTOUR_POCKET; param_5 (local_c0 = WALL) gets nest(K u T1) (l.81007-81012). (The earlier reading
                had the two swapped, which left AIR = REG - grown WALL empty and the band as thin as t: "nothing to cut".) */
-            if (!(P->flags & 0x800000)) { ShL kp = sl_offset_m(&K, -Pp * c, z), w = sl_bool_m(&K, &kp, 3, z); sl_move_append(&REG, &w); sl_free(&w); sl_free(&kp); }
+            if (!(P->flags & 0x800000)) { ShL kp = ct_off(&K, -Pp * c, z, 0x100), w = sl_bool_m(&K, &kp, 3, z); sl_move_append(&REG, &w); sl_free(&w); sl_free(&kp); }
             else { ShL w = sl_copy(&K); sl_move_append(&REG, &w); sl_free(&w); }
             ShL r = sl_bool_m(&K, &T1, 3, z);   /* nest(K u T1): the band between the two loops */
             sl_move_append(&WALL, &r); sl_free(&r); sl_free(&T1);
@@ -1720,7 +1735,7 @@ static void prep_ctour(const McceParm *P, const ShL *A, double z, ShL *M, ShL *A
         sl_free(&O);
         i = e;
     }
-    ShL wg = sl_offset_m(&WALL, P->first_off, z);
+    ShL wg = ct_off(&WALL, P->first_off, z, 0x127);
     *AIR = sl_minus_m(&REG, &wg, z);
     *M = REG;
     sl_free(&wg); sl_free(&WALL); sl_free(&L);
@@ -3116,7 +3131,7 @@ static int circles_meet(Pock *C, const Sh *X, double t0, double t1) {
         Sh c; memset(&c, 0, sizeof c); sh_push(&c, ent_arc(e_at(&X->e[2], 1 - t), P->R - P->r, 0, 2 * M_PI)); c.dir = 1; sh_upd_bbox(&c);
         IsabL I = { 0 }; isect1(&c, &C->mat, &I); int hit = I.n > 0; il_free(&I); free(c.e);
         if (!hit) return 0;
-        if (t1 - t0 <= 0) break;
+        if (t1 - t0 <= 0) break;   /* ours, user decision NS-9: equal fractions stop here (the DLL loop l.24343-24383 would not advance) */
     }
     return 1;
 }
@@ -3138,9 +3153,13 @@ static int probe(Pock *C, const Ent *step) {
         isect1(&X, &C->mat, &I2);
         if (I2.n) {
             mark3(C, &X, &I2);
-            int k = after_class3(&I2), contact = 0;
-            if (k >= 0 && I2.r[k].xe == 0 && I2.r[k].xt <= I1.r[0].xt && pdist2(I2.r[k].pt, I1.r[0].pt) >= 1e-10 && circles_meet(C, &X, I2.r[k].xt, I1.r[0].xt)) contact = 1;
-            ret = !contact;
+            /* FUN_180024d50 (l.24809-24867) is true when the conditions hold and FUN_1800236f0 returns 0 (l.24863
+               "return (char)uVar7 == '\0'", disasm 0x180024efe test al / 0x180024f00 sete al); FUN_180023460 answers 1
+               when it is false (l.24191). Before 2026-11-19 ours took the circles test the other way round (buckle-v6
+               op 36 commit 5276: DLL probe 1 + offset attach, port probe 0, NS-7). */
+            int k = after_class3(&I2), gap = 0;
+            if (k >= 0 && I2.r[k].xe == 0 && I2.r[k].xt <= I1.r[0].xt && pdist2(I2.r[k].pt, I1.r[0].pt) >= 1e-10 && !circles_meet(C, &X, I2.r[k].xt, I1.r[0].xt)) gap = 1;
+            ret = !gap;
         }
     }
     il_free(&I1); il_free(&I2); free(X.e);
@@ -3187,27 +3206,59 @@ static int leadin_reject(Pock *C, const Gbap *G) {
     il_free(&I1); il_free(&I2); free(X.e);
     return r;
 }
-/* FUN_180025040 + FUN_180026120 / 26170 / 25f80 inside FUN_180025700 (l.24910-25457): offset copy of the step */
+/* FUN_180025040 + FUN_180026120 / 26170 / 25f80 inside FUN_180025700 (l.24910-25457): offset copy of the step, in the DLL's
+   own arithmetic (2026-11-19, NS-7: before, ours - unit(tangent) x rho, e_tan for an arc's start tangent, the zero test on the
+   offset arc - put the lead-in crossing X a few ulps off (buckle-v6 Dynamic Contour chain 13 commit 2), which grew into a
+   graze decided the other way at commit 385):
+   - FUN_180025700 l.25071-25081: a step with (p1.y - p2.y)^2 + (p1.x - p2.x)^2 (line) / sw r sw r (arc) < 1e-8 has none;
+   - FUN_180025040 l.24920-25060: the last record's tangent (FUN_18008e710; none or both components <= 1e-12: no arc), the
+     step's start tangent unnormalised (a line's p2 - p1; an arc's (start - centre) x |sw| turned by the sweep sign, sw = 0:
+     none), d = angle difference wrapped once; when not (d > 0 and rho > 0) and not (d < 0 and rho < 0): an arc of radius
+     |rho| at the step start from a +- pi/2 to b +- pi/2 (each wrapped by loops), sweep wrapped once;
+   - FUN_180026170 l.25399-25455 (line): L = sqrt(dy dy + dx dx) (< 1e-12: none), shift (-(dy / L) rho, (dx / L) rho) added to both ends;
+   - FUN_180025f80 l.25307-25373 (arc): r2 = (sw >= 0 ? -rho : rho) + r; r2 < -1e-12: r = |r2|, sa + pi wrapped by loops; else
+     r = max(r2, 0); kept when the step's own |r sw| >= 1e-12 (the source arc's, l.25311 / l.25356, not the offset's). */
 static int offset_step(Pock *C, const Ent *step, Sh *S2) {
     const McceParm *P = &C->P;
     sh_clear(S2);
-    if (e_len(step) * e_len(step) < 1e-8) return 0;
+    double z2;
+    if (step->id == 'L') { double ex = step->p1.x - step->p2.x, ey = step->p1.y - step->p2.y; z2 = ey * ey + ex * ex; }
+    else if (step->id == 'A') z2 = step->sw * step->r * step->sw * step->r;
+    else return 0;
+    if (z2 < 1e-8) return 0;
     double rho = (P->flags & 1) ? P->min_rad : -P->min_rad;
     P2 lt;
-    if (last_tan(C, &lt)) {
-        double a = atan2(lt.y, lt.x); P2 bt = e_tan(step, 0); double b = atan2(bt.y, bt.x), d = wrap_pi(b - a);
-        if (!((d > 0 && rho > 0) || (d < 0 && rho < 0))) {
-            double sg = rho > 0 ? 1 : -1, sa = wrap_pi(a + sg * M_PI / 2);
-            sh_push(S2, ent_arc(e_start(step), fabs(rho), sa, wrap_pi(wrap_pi(b + sg * M_PI / 2) - sa)));
+    if (last_tan(C, &lt) && !(fabs(lt.x) <= 1e-12 && fabs(lt.y) <= 1e-12)) {
+        double a = atan2(lt.y, lt.x), tx = 0, ty = 0;
+        if (step->id == 'L') { tx = step->p2.x - step->p1.x; ty = step->p2.y - step->p1.y; }
+        else {
+            double an = step->sw * 0.0 + step->sa, fx = (cos(an) * step->r + step->c.x) - step->c.x, fy = (sin(an) * step->r + step->c.y) - step->c.y;
+            double gx = fx * fabs(step->sw), gy = fy * fabs(step->sw);
+            if (step->sw > 0) { tx = -gy; ty = gx; } else if (step->sw < 0) { tx = gy; ty = -gx; }
+        }
+        if (1e-12 < fabs(tx) || 1e-12 < fabs(ty)) {
+            double b = atan2(ty, tx), d = b - a;
+            if (d < -M_PI) d += 2 * M_PI; else if (M_PI < d) d -= 2 * M_PI;
+            if ((d <= 0 || rho <= 0) && (0 <= d || 0 <= rho)) {
+                double sa = (rho > 0 ? M_PI / 2 : -M_PI / 2) + a; while (M_PI < sa) sa -= 2 * M_PI; while (sa < -M_PI) sa += 2 * M_PI;
+                double ea = (rho <= 0 ? -M_PI / 2 : M_PI / 2) + b; while (M_PI < ea) ea -= 2 * M_PI; while (ea < -M_PI) ea += 2 * M_PI;
+                double sw = ea - sa; if (sw < -M_PI) sw += 2 * M_PI; else if (M_PI < sw) sw -= 2 * M_PI;
+                sh_push(S2, ent_arc(e_start(step), fabs(rho), sa, sw));
+            }
         }
     }
     Ent o = *step;
-    if (step->id == 'L') { int ok; P2 u = unit(psub(step->p2, step->p1), &ok); if (!ok) return 0; P2 sh = pmul(p2(-u.y, u.x), rho); o.p1 = padd(o.p1, sh); o.p2 = padd(o.p2, sh); }
-    else if (step->id == 'A') {
-        double r2 = step->r + (step->sw >= 0 ? -rho : rho);
-        if (r2 < -1e-12) { o.r = fabs(r2); o.sa = wrap_pi(o.sa + M_PI); } else o.r = fmax(r2, 0);
-        if (fabs(o.r * o.sw) < 1e-12) return 0;
-    } else return 0;
+    if (step->id == 'L') {
+        double dx = step->p2.x - step->p1.x, dy = step->p2.y - step->p1.y, L = sqrt(dy * dy + dx * dx);
+        if (L < 1e-12) return 0;
+        double sy = (dx / L) * rho, sx = -(dy / L) * rho;
+        o.p1 = p2(sx + step->p1.x, sy + step->p1.y); o.p2 = p2(sx + step->p2.x, sy + step->p2.y);
+    } else {
+        if (!(1e-12 <= fabs(step->r * step->sw))) return 0;
+        double r2 = (step->sw >= 0 ? -rho : rho) + step->r;
+        if (r2 < -1e-12) { o.r = fabs(r2); double a = step->sa + M_PI; while (M_PI < a) a -= 2 * M_PI; while (a < -M_PI) a += 2 * M_PI; o.sa = a; }
+        else o.r = 0.0 <= r2 ? r2 : 0.0;
+    }
     sh_push(S2, o); S2->dir = 0; sh_upd_bbox(S2);
     return 1;
 }
@@ -3244,15 +3295,31 @@ static int offset_attach(Pock *C, Ent *step, Gbap *G) {
     il_free(&I); free(S2.e); gbap_free(&G2);
     return ok;
 }
-/* FUN_1800216c0 (l.23157-23330): U-turn arc at the step end */
+/* FUN_1800216c0 (l.23157-23330): U-turn arc at the step end. The arc is built in the DLL's own arithmetic (l.23196-23262):
+   the end tangent unnormalised - a line's p2 - p1, an arc's (end - centre) x |sw| turned by the sweep sign -, the normal
+   (X, Y) = climb ? (dy, -dx) : (-dy, dx) (both components > 1e-12 in magnitude for at least one), sa = atan2(Y, X),
+   centre = pointAt(step, 1) (FUN_180021580) - (X, Y) x (min_rad / sqrt(X X + Y Y)) (needs the length >= 1e-12).
+   (Before 2026-11-19 ours: unit(tangent) x min_rad; the centre differed in the last bits, enough to move the crossing of
+   an arc that only grazes the boundary 1.1e-7 mm along it: buckle-v6 Dynamic Contour chain 13 commit 385, NS-7.) */
 static void uturn(Pock *C, const Ent *step, Gbap *G) {
-    const McceParm *P = &C->P; int climb = P->flags & 1, ok;
+    const McceParm *P = &C->P; int climb = P->flags & 1;
     G->valid = 0; G->lead.n = 0;
-    P2 t = unit(e_tan(step, 1), &ok); if (!ok) return;
-    P2 n = climb ? p2(t.y, -t.x) : p2(-t.y, t.x);
-    Ent a = ent_arc(psub(e_end(step), pmul(n, P->min_rad)), P->min_rad, atan2(n.y, n.x), climb ? M_PI : -M_PI);
+    double dx = 0, dy = 0;
+    if (step->id == 'L') { dx = step->p2.x - step->p1.x; dy = step->p2.y - step->p1.y; }
+    else if (step->id == 'A') {
+        double a = step->sw + step->sa, fy = (sin(a) * step->r + step->c.y) - step->c.y, fx = (cos(a) * step->r + step->c.x) - step->c.x;
+        if (step->sw > 0) { dx = -(fy * fabs(step->sw)); dy = fx * fabs(step->sw); }
+        else if (step->sw < 0) { dx = fy * fabs(step->sw); dy = -(fx * fabs(step->sw)); }
+    }
+    double X = climb ? dy : -dy, Y = climb ? -dx : dx;
+    if (!(fabs(X) > 1e-12 || fabs(Y) > 1e-12)) return;
+    double sa = atan2(Y, X), len = sqrt(X * X + Y * Y);
+    if (!(len >= 1e-12)) return;
+    double k = P->min_rad / len; P2 E = e_at(step, 1.0);
+    Ent a = ent_arc(p2(E.x - X * k, E.y - Y * k), P->min_rad, sa, climb ? M_PI : -M_PI);
     Sh L; memset(&L, 0, sizeof L); sh_push(&L, a); L.dir = 0; sh_upd_bbox(&L);
     IsabL I = { 0 }; isect1(&L, &C->cur, &I);
+    mcce_trace_aui(&I, &L);   /* ours: MCCE_TRACE_SW level 5 */
     if (I.n && I.r[0].xt >= 0) {
         a = e_cut(&a, I.r[0].xt);
         if (fabs(a.r * a.sw) >= 1e-7) {
@@ -3262,6 +3329,7 @@ static void uturn(Pock *C, const Ent *step, Gbap *G) {
         }
     }
     il_free(&I); free(L.e);
+    mcce_trace_au(G);   /* ours: MCCE_TRACE_SW level 5 */
 }
 /* FUN_180022500 (l.23582-23793) */
 static void uturn_attach(Pock *C, Ent *step, Gbap *G) {
@@ -3278,11 +3346,12 @@ static void uturn_attach(Pock *C, Ent *step, Gbap *G) {
         gbap_free(&Gm);
     }
 }
+static int probe_t(Pock *C, const Ent *step) { int r = probe(C, step); mcce_trace_ap(r); return r; }   /* ours: MCCE_TRACE_SW level 5 "AP" */
 /* FUN_180024720 -> FUN_180021e40 (l.23335-23361) */
 static void attach(Pock *C, Ent *step, Gbap *G) {
     gbap_clear(G);
     attach_direct(C, step, G);
-    if ((G->valid || probe(C, step)) && !offset_attach(C, step, G) && !G->valid) uturn_attach(C, step, G);
+    if ((G->valid || probe_t(C, step)) && !offset_attach(C, step, G) && !G->valid) uturn_attach(C, step, G);
 }
 
 /* ---------------------------------------------------------------------------- trial steps */
@@ -3321,6 +3390,8 @@ static void zero_len_step(Pock *C, Ent *step, Gbap *G) {
 /* FUN_180017a10 (l.18381-18471): trial line from the last point, heading = last tangent (or the material direction) + ang */
 static void mcce_trace_trial(double ang, double len);   /* ours: MCCE_TRACE_LEVEL >= 5 "T" lines (mcce_trace.c) */
 static void mcce_trace_tan(const char *k, int r, P2 v);   /* ours: MCCE_TRACE_SW level 5 "TAN" lines (mcce_trace.c) */
+static void mcce_trace_tg(const Gbap *G);
+static void mcce_trace_ap(int r); static void mcce_trace_aui(const IsabL *I, const Sh *A); static void mcce_trace_au(const Gbap *G);   /* ours: MCCE_TRACE_SW level 5 (mcce_trace.c) */   /* ours: MCCE_TRACE_SW level 5 "TG" line (mcce_trace.c) */
 static void trial_line(Pock *C, double ang, double len, const Pos *pos, EnCut *E, Gbap *G) {
     mcce_trace_trial(ang, len);
     encut_clear(E); gbap_clear(G);
@@ -3339,6 +3410,7 @@ static void trial_line(Pock *C, double ang, double len, const Pos *pos, EnCut *E
     }
     E->head = ang;
     measure(C, pos, dir, E);
+    mcce_trace_tg(G);   /* ours: MCCE_TRACE_SW level 5 "TG" line (mcce_trace.c) */
 }
 /* predicates (l.20296-20365) */
 static int inside_lim(double l1, double l2, const EnCut *E) { return E->m1.w < l1 && E->m2.w < l2; }   /* FUN_18001bb30 */
@@ -8393,11 +8465,21 @@ done:
     sh_free(nearB); sh_free(otherB); sh_free(ap); sl_free(&b2); il_free(&I);
     return ok;
 }
+static void bnd_set_ents(McceBnd *b, const Sh *sh) {   /* the shape's own entities on the bound (McceBnd.ne / ety / ent) */
+    b->ne = 0; b->ety = NULL; b->ent = NULL;
+    for (int k = 0; k < sh->n; k++) if (sh->e[k].id != 'L' && sh->e[k].id != 'A') return;   /* (points: chords only) */
+    b->ety = malloc((size_t)sh->n + 1); b->ent = malloc(sizeof(double) * 5 * (size_t)(sh->n + 1));
+    for (int k = 0; k < sh->n; k++) { const Ent *e = &sh->e[k]; double *v = b->ent + 5 * k; b->ety[k] = e->id;
+        if (e->id == 'L') { v[0] = e->p1.x; v[1] = e->p1.y; v[2] = e->p2.x; v[3] = e->p2.y; v[4] = 0; }
+        else { v[0] = e->c.x; v[1] = e->c.y; v[2] = e->r; v[3] = e->sa; v[4] = e->sw; } }
+    b->ne = sh->n;
+}
+void mcce_bnd_free_ents(McceBnd *b) { free(b->ety); free(b->ent); b->ety = NULL; b->ent = NULL; b->ne = 0; }
 static McceBnd *pa_to_bnds(const ShL *l, int *n) {
     McceBnd *r = calloc(l->n + 1, sizeof(McceBnd)); *n = 0;
     for (int i = 0; i < l->n; i++) {
         CPath c = sh_to_cpath(l->s[i], g_chord);
-        r[*n].xy = c.xy; r[*n].n = c.n; r[*n].island = sh_island(l->s[i]); r[*n].open = l->s[i]->dir == 0; (*n)++;
+        r[*n].xy = c.xy; r[*n].n = c.n; r[*n].island = sh_island(l->s[i]); r[*n].open = l->s[i]->dir == 0; bnd_set_ents(&r[*n], l->s[i]); (*n)++;
     }
     return r;
 }
@@ -8434,13 +8516,24 @@ int mcce_peel_aesthetics(double R, double mr, double px, double py, double chain
    diagonal direction by 10 x |d| + 1), MCCECalcOffset(1, |d|, list, 0x101, 0, 1e-6, 1e-6) grows the region between them, so the
    hole - the bound - shrinks; with fewer than two output shapes nothing is left (LAB_1801ad23b, l.17208-17212), else the
    largest (pock_ccw area: the box) is dropped. Every shape keeps `dir` (MCCECalcOffset keeps the input orientation). */
+/* the offsets of FUN_1801ac7e0: MCCECalcOffset(1, d, bound, 0x101, 0, 1e-6, 1e-6) (decomp/mcmill_hst2d.c l.17281-17321, l.17426-17522).
+   A bound with its true entities (McceBnd.ne) goes through the DLL-identical port (sl_offset_dllf, viewer/mcce_offset.inc; the unit
+   oracle tools/tests/off_oracle.sh); our own model sl_offset_m (checked on chords only) keeps the chord bounds. g_off_ref: the port
+   refused - the caller redoes the bound as chords. */
+static _Thread_local int g_off_exact, g_off_ref;
+static ShL off_wall(const ShL *l, double d) {
+    if (!g_off_exact) return sl_offset_m(l, d, 0);
+    ShL o = { 0 };
+    if (sl_offset_dllf(l, d, 0, 0, 0x101, &o)) return o;
+    sl_free(&o); g_off_ref = 1; return (ShL){ 0 };
+}
 static ShL wall_dummy(const ShL *one, double ad, int dir) {
     ShL L = { 0 }, r = { 0 }; double bb[4]; sl_bbox(one, bb);
     double dx = bb[2] - bb[0], dy = bb[3] - bb[1], h = hypot(dx, dy), ex = ad * 10.0 + 1.0;
     double vx = h > 0 ? dx / h * ex : 0, vy = h > 0 ? dy / h * ex : 0;
     sl_push(&L, rect_sh(bb[0] - vx, bb[1] - vy, bb[2] + vx, bb[3] + vy, 0));
     Sh *is = sh_copy(one->s[0]); is->fl |= 1; sl_push(&L, is);
-    ShL g = sl_offset_m(&L, ad, 0);
+    ShL g = off_wall(&L, ad);
     sl_free(&L);
     if (g.n >= 2) {
         int big = -1; double ba = -1;
@@ -8455,7 +8548,7 @@ static void bnds_add_sl(McceBnd **r, int *n, int *cap, const ShL *g, int island)
         if (g->s[k]->dir == 0 || !g->s[k]->n) continue;
         CPath c = sh_to_cpath(g->s[k], g_chord);
         if (*n == *cap) { *cap *= 2; *r = realloc(*r, *cap * sizeof(McceBnd)); }
-        (*r)[*n].xy = c.xy; (*r)[*n].n = c.n; (*r)[*n].island = island; (*r)[*n].open = 0; (*n)++;
+        (*r)[*n].xy = c.xy; (*r)[*n].n = c.n; (*r)[*n].island = island; (*r)[*n].open = 0; bnd_set_ents(&(*r)[*n], g->s[k]); (*n)++;
     }
 }
 /* mcmill FUN_1801ac7e0 (decomp/mcmill_hst2d.c l.17164), islands, param_4 = s: each avoidance chain on its own (no union, mcmill
@@ -8470,17 +8563,24 @@ int mcce_grow_islands(double d, double chord, const McceBnd *in, int n, McceBnd 
     int cap = 4 * n + 4; McceBnd *r = calloc(cap, sizeof(McceBnd)); *nout = 0;
     for (int i = 0; i < n; i++) {
         McceBnd b = in[i]; b.island = 0; b.open = 0;
-        ShL one = bnds_to_sl(&b, 1, 0);
-        if (!one.n) { sl_free(&one); continue; }
-        int dir = one.s[0]->dir;
-        ShL g;
-        if (d < -1e-12) g = wall_dummy(&one, -d, dir);
-        else {
-            g = d > 1e-12 ? sl_offset_m(&one, d, 0) : sl_copy(&one);
-            for (int k = 0; k < g.n; k++) if (g.s[k]->dir && g.s[k]->dir != dir) sh_rev(g.s[k]);
+        for (int att = 0; att < 2; att++) {             /* the true entities through the DLL's offset; refused: as chords (ours) */
+            if (att) b.ne = 0;
+            g_off_exact = b.ne > 0; g_off_ref = 0;
+            ShL one = bnds_to_sl(&b, 1, 0);
+            if (!one.n) { sl_free(&one); break; }
+            int dir = one.s[0]->dir;
+            ShL g;
+            if (d < -1e-12) g = wall_dummy(&one, -d, dir);
+            else {
+                g = d > 1e-12 ? off_wall(&one, d) : sl_copy(&one);
+                for (int k = 0; k < g.n; k++) if (g.s[k]->dir && g.s[k]->dir != dir) sh_rev(g.s[k]);
+            }
+            if (g_off_ref && b.ne > 0) { sl_free(&g); sl_free(&one); continue; }
+            bnds_add_sl(&r, nout, &cap, &g, 1);
+            sl_free(&g); sl_free(&one);
+            break;
         }
-        bnds_add_sl(&r, nout, &cap, &g, 1);
-        sl_free(&g); sl_free(&one);
+        g_off_exact = 0;
     }
     *out = r;
     return *nout;
@@ -8494,6 +8594,9 @@ int mcce_wall_region(double d, int from_out, double chord, const McceBnd *reg, M
     g_chord = chord; tess_reset();
     int cap = 8; McceBnd *r = calloc(cap, sizeof(McceBnd)); *nout = 0;
     McceBnd b = *reg; b.island = 0; b.open = 0;
+    for (int att = 0; att < 2; att++) {                  /* (as mcce_grow_islands) */
+    if (att) b.ne = 0;
+    g_off_exact = b.ne > 0; g_off_ref = 0;
     ShL one = bnds_to_sl(&b, 1, 0), g = { 0 };
     if (one.n) {
         int dir = one.s[0]->dir;
@@ -8501,14 +8604,18 @@ int mcce_wall_region(double d, int from_out, double chord, const McceBnd *reg, M
         else if ((d > 0) == (from_out != 0)) {
             /* pock_ccw (decomp/mccore_pock.c l.2424: *area is signed, negative for counter-clockwise), compared signed (l.17333-17341, l.17431-17439): the greatest
                value; MCCECalcOffset keeps the input orientation, a hole of the output is the opposite way round */
-            ShL o = sl_offset_m(&one, fabs(d), 0); int big = -1; double ba = -1e300;
+            ShL o = off_wall(&one, fabs(d)); int big = -1; double ba = -1e300;
             for (int k = 0; k < o.n; k++) { if (!o.s[k]->n || o.s[k]->dir == 0) continue; CPath c = sh_to_cpath(o.s[k], g_chord); double a = fabs(cl_area(&c)); free(c.xy); int orient = sh_island(o.s[k]) ? -dir : dir; a = -orient * a; if (a > ba) { ba = a; big = k; } }
             if (big >= 0) { Sh *c = sh_copy(o.s[big]); c->fl &= ~1; if (c->dir != dir) sh_rev(c); sl_push(&g, c); }
             sl_free(&o);
         } else g = wall_dummy(&one, fabs(d), dir);
+        if (g_off_ref && b.ne > 0) { sl_free(&g); sl_free(&one); continue; }
         bnds_add_sl(&r, nout, &cap, &g, 0);
     }
     sl_free(&g); sl_free(&one);
+    break;
+    }
+    g_off_exact = 0;
     *out = r;
     return *nout;
 }
@@ -8584,6 +8691,10 @@ int mcce_calc_dyn_pock(const McceParm *pin, const McceBnd *s1, int n1, const Mcc
         if (getenv("MCCE_DEBUG") && atoi(getenv("MCCE_DEBUG")) >= 3) {   /* ours: full precision, as tools/peloader --out */
             if (o.id == 'A') fprintf(stderr, "  c %.6f %.6f r %.6f sa %.6f sw %.6f\n", o.cx, o.cy, o.r, o.sa, o.sw);
             else fprintf(stderr, "  %.6f %.6f %.6f %.6f\n", o.x1, o.y1, o.x2, o.y2);
+        }
+        if (getenv("MCCE_DEBUG") && atoi(getenv("MCCE_DEBUG")) >= 4) {   /* ours: bits, as tools/peloader --out's "R" lines */
+            if (o.id == 'A') fprintf(stderr, "R A 0 0 0 0 %a %a %a %a %a\n", o.cx, o.cy, o.r, o.sa, o.sw);
+            else fprintf(stderr, "R %c %a %a %a %a 0 0 0 0 0\n", o.id ? o.id : '?', o.x1, o.y1, o.x2, o.y2);
         }
     }
     if (getenv("MCCE_DEBUG")) fprintf(stderr, "mcce: %d records, %ld measures, fail_plunge %d, exact regions %ld (%ld Clipper fallbacks)\n", C->T.n, C->nmeasure, C->T.fail_plunge, g_exr_n, g_exr_fb);

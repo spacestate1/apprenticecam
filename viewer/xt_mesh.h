@@ -18,6 +18,8 @@ typedef struct {
     float *tri;          /* 3 vertices per triangle, each: x y z nx ny nz (metres, model space) */
     int ntri;
     int nfaces, nfaces_meshed, nnodes;
+    int *fntri;          /* per FACE node in node order (nfaces entries, = xt_faces / xt_brep_topo's face order): its triangles in tri,
+                            which holds them face after face (0 = not meshed); the shaded face highlight draws one face's range */
     char error[128];     /* non-empty if parsing failed */
 } XtMesh;
 

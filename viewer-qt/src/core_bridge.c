@@ -144,16 +144,16 @@ static int part_major(const char *path) {                /* version byte of a pa
 }
 const char *qc_save_ext(void) { return loaded && F.path[0] ? mcam_part_ext(part_major(F.path)) : ".mcam"; }
 
+int qc_ext_mismatch(const char *dst) { return mcam_ext_mismatch(dst, !strcmp(qc_save_ext(), ".mcam") ? 0x13 : 0x12); }
+const char *qc_ext_warning(void) { return mcam_ext_warning(); }
 int qc_save_part(const char *dst, char *msg, size_t n) {
     if (!loaded) { snprintf(msg, n, "Open a part, or start one with File > New."); return 0; }   /* mcamui export_mcam_dialog */
     if (F.path[0] && same_file(F.path, dst)) { snprintf(msg, n, "Refusing to write %s: part files are never overwritten.", dst); return 0; }
     CamOp **sv; int nsv = dirty_save_list(&sv);           /* the ops made here (a dirty one's changed parameters: cui_dirty.c) + stored ops changed here */
     SldNew *sn = NULL; F.nsldnew = sld_new_build(&sn); F.sldnew = sn;   /* SOL-1: the solids made here (cui_sldsave.c), written by the save */
     int ok = mcam_save_part(F.path[0] ? F.path : NULL, dst, &F, sv, nsv, msg, n);   /* as mcamui export_mcam */
-    sld_new_free(sn, F.nsldnew); F.sldnew = NULL; F.nsldnew = 0;
+    sld_new_drop(sn, F.nsldnew); F.sldnew = NULL; F.nsldnew = 0;   /* the imported solids (STEP) are written as bricks: formats/solid_import_save.md */
     free(sv);
-    if (ok) { int nocc = 0; for (int i = 0; i < F.nsolids; i++) if (F.solids[i].brep) nocc++;
-        if (nocc) { size_t k = strlen(msg); snprintf(msg + k, n - k, "\n\nThe %d solid%s imported from a STEP file %s not written to the Mastercam part (no Parasolid output): save the project (.mcamui) to keep %s.", nocc, nocc == 1 ? "" : "s", nocc == 1 ? "is" : "are", nocc == 1 ? "it" : "them"); } }
     if (ok) qc_recent_add(dst);
     return ok;
 }

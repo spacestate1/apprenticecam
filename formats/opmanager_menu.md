@@ -184,6 +184,20 @@ group (`OMcreateGroup`), `LoadTree`. It is "start over", not "new operation".
 * **3585 Rename**: `TVM_EDITLABEL` on the clicked group. Ops and groups are renamable (op label = comment, ≤120 chars).
   Group rules: text cut at first ':', ≤259 chars; empty -> revert; "Undefined" refused (msg 4159); duplicate refused
   (msg 4161 "Group already exists with the same name"). [code OnEndlabeledit@180361440, TpGrpList::CheckGroupName]
+  **Operation rename** (decoded 2026-11-19, branch op-rename; core_ui cui_misc.c op_rename_begin / op_set_comment): menu 3585 is
+  greyed unless a *group* item was right-clicked (local_9b98 is set only for lParam -1, opman_tree_all.c l.20981-20994 /
+  l.21183-21187), and Mastercam sends TVM_EDITLABEL only from 3585 and CreateGroup - an op's edit is started by the tree control
+  itself: the Toolpaths tree (opmanres dialog 145, control 197) has style 0x5091082f = TVS_EDITLABELS, so a click on the label of
+  the already-selected item starts it (after the double-click time; the Windows tree control's rule). F2 / a keymap entry: NOT DECODED.
+  OnBeginlabeledit@1803609f0: refused for a disabled item / list-only manager / Ctrl or Shift held / lParam < -1; for an op
+  (lParam = op id > 0) the edit text = the op's **comment** (op +6), not the row text. OnEndlabeledit@180361440, op item: Esc
+  (no text) = nothing; else DatabaseRetrieve, `strcpy0(record + 0x6e, text, 0x78)` (field cleared, at most 119 bytes, no trim,
+  no refused text, **empty text clears the comment**), `UpdateListAndDB(rec, false, true)` (DatabaseUpdate@180907520: no time
+  stamp, rewrite_ent -> db_has_changed = part modified; the op is **not** marked dirty, its toolpath / NCI stay), RefreshOperation
+  (InitTvItem -> InitTvOpText: the row = "N - type - [WCS] - [Tplane]" + " - comment" when not empty), ReallySelectItem; no
+  message, no undo. The comment is the op's +6 field the post / Doc file / saved part read (decision L-5).
+  The same slow click on a **group** row edits its name (lParam -1: the item text; OnEndlabeledit's group rules above). Text is ANSI
+  (Windows-1252, the `_mbsnbcpy_s` byte cut); the Qt front end converts (viewer-qt/src/cp1252.h). Ported 2026-11-19 (user Q1-Q3).
 * **3586 Delete (group)**: `DeleteGroup(selectedGroup)`@180395fd0: commits undelete buffer; refuses deleting the last
   machine group / last group (msg 3824); group with ops -> msg 3823 "You cannot delete groups that contain operations…"
   (in one branch instead Yes/No 28049 "Delete group and all operations in the group?" which deletes ops permanently;

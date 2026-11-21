@@ -797,7 +797,7 @@ int wm_let_arcpick(int e, V3 w) {
     if (w.y > a->c.y + a->r * 0.5) let.align = 2;
     if (w.y < a->c.y - a->r * 0.5) let.align = 3;
     V3 c = wm_proj_cp(a->c);                             /* proj_pt_cp */
-    wm_let_exec(c);
+    geo_let_point(c);                                    /* wm_let_exec(c) built live: ours, user decision LET-1 (cui_geo.c) */
     return 1;
 }
 int wm_let_wants_arc(void) { return let.mode < 6 && let.align >= 2 && !let.chain; }

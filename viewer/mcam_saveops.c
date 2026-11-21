@@ -6,8 +6,9 @@
  *  - new geometry (entities with no file id yet) becomes line / arc / point records;
  *  - each operation is a copy of a Mastercam operation of the same type and style (this part, the user's other parts
  *    of the same version, then Mastercam's operation defaults library - config 2303, the library Mastercam itself
- *    takes new operations from), with ids, links and our parameters patched; it is written dirty (red X):
- *    Mastercam regenerates the toolpath;
+ *    takes new operations from), with ids, links and our parameters patched; an op whose toolpath was computed here
+ *    gets its NCI section (nci_write.c) and is written clean, any other is written dirty (red X): Mastercam regenerates
+ *    the toolpath (../formats/nci_save.md);
  *  - chains are TP records (kind 6 header + kind 7 per entity), points kind 1, generated from the decoded layout;
  *  - the header record (system sub 0x0d) gets the counts, max id and shifted setup / NCI offsets.
  * Source files are only read. */
@@ -33,6 +34,7 @@
 #include "lathe_newop.h"
 #include "sld_ops.h"
 #include "occt_solid.h"
+#include "nci_write.h"
 
 static uint32_t rd32(const uint8_t *b) { return b[0] | b[1] << 8 | b[2] << 16 | (uint32_t)b[3] << 24; }
 static uint16_t rd16(const uint8_t *b) { return b[0] | b[1] << 8; }
@@ -250,6 +252,7 @@ static int save_opcode_for(const CamParams *p, int *style) {
     default: return 0;
     }
 }
+int mcam_save_opcode_for(const CamParams *p, int *style) { return save_opcode_for(p, style); }
 /* the entity a kind 4 record names: tp_surf_list (decomp/mcmsurf_all.c l.22463-22600) copies from the entity record +0x34 (idn) ->
    TP +0x6c, +0x30 (its creation stamp) -> +0x70, its class -> +0x78, +0x20 (eptr) -> +0x80. A surface of the part (made here: the
    ids the save just gave it), a solid by its SOLID_ID record in the base part (solids made / imported here are not written to the
@@ -535,6 +538,16 @@ static size_t new_pos(const McwFile *m, const char *keep, const McwInsert *ins, 
     return p;
 }
 
+/* the output offset of insertion K (mcw_build's order: before segment i its insertions in list order, then the segment if kept) */
+static size_t ins_out_off(const McwFile *m, const char *keep, const McwInsert *ins, int nins, int K) {
+    size_t q = 0;
+    for (int i = 0; i <= m->nseg; i++) {
+        for (int k = 0; k < nins; k++) if (ins[k].before == i) { if (k == K) return q; q += ins[k].len; }
+        if (i < m->nseg && keep[i]) q += m->seg[i].len;
+    }
+    return q;
+}
+
 /* a stored op of F with id ID whose NCI was rewritten here and that is not replaced by an edited version */
 static const Op *rev_op(const McamFile *F, int32_t id, const int32_t *dropped, int ndropped) {
     if (id_in(dropped, ndropped, id)) return NULL;
@@ -581,7 +594,9 @@ static void heights_to_record(const McamFile *F, const CamOp *op, uint8_t *e) {
         if (p->retract_z > -1e29) { if (!e[0x189] || !SAME(ret0, p->retract_z)) { wd(e + 0x180, p->retract_z); e[0x188] = 0; } e[0x189] = 1; }
         else e[0x189] = 0;                                          /* off: the stored value / abs-inc kept */
         /* clearance off reads as the retract (on) or top + feed plane: kept off when that is ours */
-        double clr_off = e[0x189] ? (p->retract_z > -1e29 ? p->retract_z : ret0) : top + p->feed_plane;
+        /* regen-consistency 2026-11-19: a drill op's feed plane field 0x190 holds the R plane (written below), and the reader's clearance-off
+           value is top + its feed plane = the R plane (cam_fileop.c params_from_record) - not top + CamParams.feed_plane */
+        double clr_off = e[0x189] ? (p->retract_z > -1e29 ? p->retract_z : ret0) : p->type == CAM_DRILL ? p->r_plane : top + p->feed_plane;
         if (e[0x179] ? !SAME(clr0, p->clearance) : !SAME(clr_off, p->clearance)) { wd(e + 0x170, p->clearance); e[0x178] = 0; e[0x179] = 1; }
         if (p->type == CAM_DRILL) {                                 /* the R plane (p->r_plane absolute) */
             double r0 = rdd(e + 0x190) + (rd32(e + 0x198) ? top0 : 0);
@@ -791,9 +806,9 @@ static void op_fields_to_record(const McamFile *F, const CamOp *op, uint8_t *e, 
             }
             if (p->side_rel) {                                     /* side relative to each chain's direction (as read) */
                 int c0 = (int16_t)rd16(e + 0x5d0);
-                w16(e + 0x5d0, (uint16_t)(p->side == SIDE_ON || p->contour_type == 2 ? 4 : (keep_seq && c0 != 4 ? c0 : p->ct_comp)));   /* ct_comp: batch 5 */
-                if (p->side != SIDE_ON && p->contour_type != 2) e[0x5d2] = p->side == 2;   /* 0 left, 1 right; comp off: kept */
-            } else { w16(e + 0x5d0, (uint16_t)(p->side == SIDE_ON || p->contour_type == 2 ? 4 : p->ct_comp)); e[0x5d2] = 0; }   /* computer (or ct_comp), left */
+                w16(e + 0x5d0, (uint16_t)(p->side == SIDE_ON ? 4 : (keep_seq && c0 != 4 ? c0 : p->ct_comp)));   /* ct_comp: batch 5 */
+                if (p->side != SIDE_ON) e[0x5d2] = p->side == 2;   /* 0 left, 1 right; comp off: kept */
+            } else { w16(e + 0x5d0, (uint16_t)(p->side == SIDE_ON ? 4 : p->ct_comp)); e[0x5d2] = 0; }   /* computer (or ct_comp), left */
             /* roll cutter around corners: 0 none, 1 sharp, 2 all - u8 0x5d3 (page 2938 control 1335, UpdateLocalOp
                FUN_180157e30; formats/opdlg_fields_notes.md F1 conflict 1); 0x5d4 "Optimize cutter comp in control" (2144)
                and 0x5d5 are not touched */
@@ -808,6 +823,21 @@ static void op_fields_to_record(const McamFile *F, const CamOp *op, uint8_t *e, 
     if (p->type == CAM_POCKET) {
         wd(e + 0x1240, p->tool_dia * p->stepover_pct / 100); wd(e + 0x1248, p->stepover_pct);
         e[0x1239] = p->finish_n > 0; if (p->finish_n > 0) { w16(e + 0x125a, (uint16_t)p->finish_n); wd(e + 0x1260, p->finish_step); }
+        /* regen-consistency 2026-11-19: zigzag (pocket_style 1) is cutting method S16 0x123c = 0 - the engines take method 0 for it
+           (cam2d_pock.c / cam2d_pock_zz.c: pks(0x123c), pocket_style 1 -> 0) and params_from_record reads style 1 back from 0 */
+        if (p->pocket_style == 1 && (int16_t)rd16(e + 0x123c) != 0) w16(e + 0x123c, 0);
+    }
+    if (p->type == CAM_HELIX && fabs(rdd(e + 0x1250) - p->helix_pitch) > 1e-12)
+        wd(e + 0x1250, p->helix_pitch);   /* regen-consistency 2026-11-19: Helix Bore rough pitch 0x1250 (dialog 2823; params_from_record helix_pitch) */
+    if (p->type == CAM_THREAD) {
+        /* regen-consistency 2026-11-19: the Thread Mill fields the engine cuts with and cam_fileop.c params_from_record reads back -
+           pitch 0x1258 (op +0x11f0: the thread mill engine's pitch, FUN_1802350f0 / FUN_180235a80 / FUN_180236170, decomp/mcmill_all.c l.385268 / l.385626 / l.385807; a new op takes
+           the tool's pitch, cam_fileop.c cam_defaults_from_file - unsaved, the saved op regenerated with the default op's), ID / OD
+           S16 0x1290 (0 ID, 1 OD), hand u8 0x12a0 (0 right), direction u8 0x12a2 (1 bottom up); each only when it differs */
+        if (fabs(rdd(e + 0x1258) - p->thread_pitch) > 1e-12) wd(e + 0x1258, p->thread_pitch);
+        if (((int16_t)rd16(e + 0x1290) == 0) != (p->thread_internal != 0)) w16(e + 0x1290, (uint16_t)(p->thread_internal ? 0 : 1));
+        if ((e[0x12a0] == 0) != (p->thread_rh != 0)) e[0x12a0] = p->thread_rh ? 0 : 1;
+        if ((e[0x12a2] == 1) != (p->thread_up != 0)) e[0x12a2] = p->thread_up ? 1 : 0;
     }
     if (p->type == CAM_DRILL) {
         /* P10100 cycle, P10108 first peck +0x1230, P10115 tip comp +0x1268; P10109 subsequent peck +0x1238 / P10110
@@ -825,6 +855,18 @@ static void op_fields_to_record(const McamFile *F, const CamOp *op, uint8_t *e, 
     }
     for (int k = 0; k < p->nrpatch; k++)                           /* Edit Common Parameters: its record bytes last */
         if (p->rpatch[k].off + p->rpatch[k].n + 4 <= reclen) memcpy(e + p->rpatch[k].off, p->rpatch[k].v, p->rpatch[k].n);
+    if (opcode == 134) {
+        /* regen-consistency 2026-11-19: the fields cam2d_dyn.c gen_dynamic_mcce cuts with from CamParams and cam_fileop.c
+           params_from_record reads back (LoadDynPockParm, decomp/mcmill_hst2d_dyn.c): stepover % 0x1730 when 0x1700 and 0x1701 are
+           set (the reader's choice, l.1612-1624; 0x1580 above otherwise), min toolpath radius % 0x1658, micro lift 0x16d0, plunge
+           angle 0x1678, back feed 0x1248, gap size 0x1600 (or % of D 0x1608 when 0x15cd); each only when it reads back otherwise; after the patches (the dialog's 0x15cd / 0x1700 / 0x1701 decide the field) */
+#define WDIF(off, v) do { if (fabs(rdd(e + (off)) - (v)) > 1e-9) wd(e + (off), (v)); } while (0)
+        if (e[0x1700] && e[0x1701]) WDIF(0x1730, p->stepover_pct);
+        WDIF(0x1658, p->min_rad_pct); WDIF(0x16d0, p->micro_lift); WDIF(0x1678, p->ramp_deg);
+        if (!(rdd(e + 0x1248) > 1e-5 ? fabs(rdd(e + 0x1248) - p->back_feed) <= 1e-9 : fabs(p->feed - p->back_feed) <= 1e-9)) wd(e + 0x1248, p->back_feed);
+        if (e[0x15cd]) { if (p->tool_dia > 0) WDIF(0x1608, p->link_retract * 100 / p->tool_dia); } else WDIF(0x1600, p->link_retract);
+#undef WDIF
+    }
 }
 
 /* nci_write (Q23): the OP_ID record (and a new TL_ID record) each op would be saved with, captured instead of written */
@@ -1203,6 +1245,11 @@ static int save_impl(const char *src, const char *dst, McamFile *F, CamOp **ops,
     for (int i = 0; i < m.nseg; i++) if (m.seg[i].kind == SEG_ENT && m.seg[i].cls == 0x4000 && m.seg[i].sub == 2) { if (m.seg[i].len == 4 + 0x398) tpsz = 0x398; break; }
     NewSldTp newsld[64]; int nnewsld = 0;                              /* whole-body SldToolPOps this save appends to solids' histories */
     int32_t uidmap[512][2]; int nuidmap = 0;                         /* contour ops with a separate Tab Cutoff: ct_uid -> the op id written */
+    /* the ops whose NCI section this save writes (formats/nci_save.md 4): the op's record (its place in opb), its new TL_ID record (tlc,
+       NULL: the part's record of its slot) and its tp records (drill points: bnci_drill's list) */
+    typedef struct { int k; size_t rec_at; uint32_t recn; uint8_t *tp; uint32_t tpn; } NciPend;
+    NciPend *npend = NULL; int nnpend = 0;
+    uint8_t **tlc = cap ? NULL : xcalloc((size_t)nops + 1, sizeof *tlc);
     for (int k = 0; k < nops; k++) {
         const CamOp *op = ops[k]; const CamParams *p = &op->p;
         size_t tp0 = tpb.n;                                            /* this op's tp records start here (nci_write's capture) */
@@ -1343,6 +1390,14 @@ static int save_impl(const char *src, const char *dst, McamFile *F, CamOp **ops,
         w64(e + 0x20, (uint64_t)op_eptr); w32(e + 0x30, (uint32_t)now); w32(e + 0x34, (uint32_t)op_idn);
         e[0x48] = (uint8_t)major; e[0x49] = (uint8_t)minor; memcpy(e + 0x4b, g_vstamp + 3, 4);   /* the writer's stamp (head) */
         int keep_seq = p->file_op_id > 0 && tf == &m && (int32_t)rd32(e + 0x68) == p->file_op_id;
+        /* B2: a new Multisurface Pocket (op 131) is computed from the default record with its pocket block un-shifted (user decision
+           T-1, cam_fileop.c cam_default_op_record: 0x13c8.. moved up by 8 + the 1312 page's init forcing); the shipped template copied
+           above still holds the shifted block, so the record the op was computed from is written (0x1300..0x165f) - else a reopened op
+           reads other values at the code's offsets than it was made with */
+        if (!keep_seq && p->type == CAM_SRMPOCKET && tf->seg[tmpl].len >= 4 + 0x1660) {
+            uint32_t dn = 0; const uint8_t *dr = cam_default_op_record(CAM_SRMPOCKET, mcam_is_metric(F), &dn);
+            if (dr && dn >= 0x1660) memcpy(e + 0x1300, dr + 0x1300, 0x1660 - 0x1300);
+        }
         w32(e + 0x68, (uint32_t)op_id);
         memset(e + 0x6e, 0, 0x78);                                      /* comment: 0x6e .. 0xe5 (an edited op without one keeps none) */
         if (!(keep_seq && !strcmp(op->name, cam_type_label(p->type)))) snprintf((char *)e + 0x6e, 0x78, "%s", op->name);
@@ -1385,13 +1440,15 @@ static int save_impl(const char *src, const char *dst, McamFile *F, CamOp **ops,
             for (int i = 0; i < m.nseg; i++) if (m.seg[i].kind == SEG_ENT && m.seg[i].cls == 0x4000 && m.seg[i].sub == 2 && m.seg[i].len >= 4 + 0x100
                 && (int32_t)rd32(m.d + m.seg[i].off + 4 + 0x68) == p->file_op_id && (int16_t)rd16(m.d + m.seg[i].off + 4 + 0x90) == 30) ntabrec++;
         int ntp = ntabrec + nk4; for (int c = 0; c < op->nchains; c++) ntp += 1 + (op->chains[c].solid_idn > 0 ? 1 : op->chains[c].n);
-        int nptrec = 0;
-        if (keep_seq && pts)
+        int nptrec = 0, pl3 = p->type == CAM_SRPLUNGE;   /* Rough Plunge: its two grid corners are the op's point TP records (kind 1;
+                                                                     formats/surf_classic2.md 2.9 step 2; user decision T-2), with its
+                                                                     kind 4 references and chains */
+        if (keep_seq && (pts || pl3))
             for (int i = 0; i < m.nseg; i++) if (m.seg[i].kind == SEG_ENT && m.seg[i].cls == 0x4000 && m.seg[i].sub == 2 && m.seg[i].len >= 4 + 0x100
                 && (int32_t)rd32(m.d + m.seg[i].off + 4 + 0x68) == p->file_op_id) { int k_ = (int16_t)rd16(m.d + m.seg[i].off + 4 + 0x90); if (k_ == 1 || k_ == 27) nptrec++; }
         if (nptrec != op->nholes) nptrec = 0;                       /* holes changed here: written fresh */
         int nnewtab = pts ? 0 : new_tab_recs(F, op, p, ntabrec); ntp += nnewtab;
-        if (pts) ntp = op->nholes;
+        if (pts) ntp = op->nholes; else if (pl3) ntp += op->nholes;
         w32(e + 0xf0, (uint32_t)ntp); w32(e + 0xf4, (uint32_t)(pts ? 0 : op->nchains));
         if (!keep_seq) w32(e + 0xf8, (uint32_t)(pts ? 0 : op->nchains));   /* second chain count (NOT DECODED): an edited op keeps its own */
         if (my_group >= 0) { w32(e + 0x2f4, (uint32_t)my_group); w32(e + 0x5bc, (uint32_t)my_mgroup); }
@@ -1428,6 +1485,7 @@ static int save_impl(const char *src, const char *dst, McamFile *F, CamOp **ops,
                     w32(t + 0x68 + 0x274, rd32(e + 0x5bc));   /* op_tool_info +0x274 machine group (TlTool +0x138) */
                     put(&tlb, tr, sizeof tr); ntlw++;
                     if (cap) { cap->tl[k] = xmalloc(0x700); memcpy(cap->tl[k], tr + 4, 0x700); cap->tln[k] = 0x700; }
+                    else { tlc[k] = xmalloc(0x700); memcpy(tlc[k], tr + 4, 0x700); }
                 }
                 tool.slot = s_;
             }
@@ -1439,6 +1497,10 @@ static int save_impl(const char *src, const char *dst, McamFile *F, CamOp **ops,
             else { tool_op_info(&tool, blk); memcpy(blk + 0x274, e + 0x5bc, 4); }   /* machine group: the op's (+0x5bc) */
             /* the op's own values (op = tool block, but for these: 189/189 user ops) */
             wd(blk + 0x30, p->feed); wd(blk + 0x38, p->plunge_feed); w32(blk + 0x48, (uint32_t)p->rpm);
+            /* regen-consistency 2026-11-19: and the retract rate the engines feed retracts at (+0x40 = record 0x388, op +0x320;
+               cam_fileop.c reads it into mc_rrate; cam2d.c / cam2d_ops.c / cam2d_face.c retract moves) - the tool's value went in
+               when the op had another (a new op's from its default record) */
+            if (p->mc_rrate > 0 && fabs(rdd(blk + 0x40) - p->mc_rrate) > 1e-9) wd(blk + 0x40, p->mc_rrate);
             if ((p->coolant != 0) != (rd16(blk + 0x50) == 16)) w16(blk + 0x50, (uint16_t)(p->coolant ? 16 : 8));   /* TlCoolant.OldStyle 16 Flood / 8 Off */
             memcpy(e + 0x348, blk, 0x288);
         }
@@ -1452,6 +1514,7 @@ static int save_impl(const char *src, const char *dst, McamFile *F, CamOp **ops,
            +0x97 = 0 (decomp/mcmsurf_all.c l.19917-19925, 20087-20089) - record +0xfc / +0xff */
         if (is3d && anysolidref && tf->seg[tmpl].len >= 4 + 0x152) e[0x151] = 1;
         if (is3d && op->nref && tf->seg[tmpl].len >= 4 + 0x100) e[0xff] = 0;
+        size_t rec_at = opb.n;                                          /* the record's place in opb (its NCI section: below) */
         put(&opb, r, tf->seg[tmpl].len);
         if (cap) { cap->recn[k] = tf->seg[tmpl].len - 4; cap->rec[k] = xmalloc(cap->recn[k]); memcpy(cap->rec[k], r + 4, cap->recn[k]); }
         free(r);
@@ -1485,7 +1548,7 @@ static int save_impl(const char *src, const char *dst, McamFile *F, CamOp **ops,
                 int32_t ri = (int32_t)rd32(t + 0x6c); if (ri) { refs = xrealloc(refs, sizeof(int32_t) * (nref + 1)); refs[nref++] = ri; }
                 put(&tpb, tr, m.seg[i].len); free(tr);
             }
-        for (int h = 0; pts && !nptrec && h < op->nholes; h++) {
+        for (int h = 0; (pts || pl3) && !nptrec && h < op->nholes; h++) {
             const Ent *se = NULL;
             for (int i = 0; i < F->nents && !se; i++) {
                 const Ent *en = &F->ents[i];
@@ -1523,7 +1586,7 @@ static int save_impl(const char *src, const char *dst, McamFile *F, CamOp **ops,
                given that direction so Mastercam's contour runs the same way; an open chain cut on the right (side 2)
                is reversed for the same reason */
             int reverse = 0;
-            if (p->type == CAM_CONTOUR && !p->side_rel && p->side != SIDE_ON && p->contour_type != 2) {
+            if (p->type == CAM_CONTOUR && !p->side_rel && p->side != SIDE_ON) {
                 if (ch->closed) { double a = chain_area(F, ch); reverse = p->side == SIDE_OUTSIDE ? a > 0 : a < 0; }
                 else reverse = p->side == SIDE_INSIDE;
             }
@@ -1608,6 +1671,14 @@ static int save_impl(const char *src, const char *dst, McamFile *F, CamOp **ops,
                 put(&tpb, tr, m.seg[i].len); free(tr);
             }
         if (cap && cap->tp && tpb.n > tp0) { cap->tpn[k] = (uint32_t)(tpb.n - tp0); cap->tp[k] = xmalloc(cap->tpn[k]); memcpy(cap->tp[k], tpb.b + tp0, cap->tpn[k]); }
+        /* its NCI: an op whose toolpath was computed here and not changed since (formats/nci_save.md 3: Mastercam clears op +0x94 only
+           when the op's bnci_section run ended with its -3 record, mccore FUN_180103fb0; a dirty op (CamOp.dirty, an edit not computed)
+           has no NCI saved, save_db l.1451) */
+        if (!cap && op->nm > 0 && !op->dirty && (!op->gen_units || op->gen_units - 1 == (mcam_is_metric(F) != 0))) {
+            npend = xrealloc(npend, sizeof *npend * (size_t)(nnpend + 1));
+            NciPend *np = &npend[nnpend++]; np->k = k; np->rec_at = rec_at; np->recn = (uint32_t)(tf->seg[tmpl].len - 4); np->tp = NULL; np->tpn = 0;
+            if (tpb.n > tp0) { np->tpn = (uint32_t)(tpb.n - tp0); np->tp = xmalloc(np->tpn); memcpy(np->tp, tpb.b + tp0, np->tpn); }
+        }
         added++;
     }
     if (cap) {                                                         /* nci_write: the records only, nothing is written */
@@ -1635,6 +1706,7 @@ static int save_impl(const char *src, const char *dst, McamFile *F, CamOp **ops,
     if (toolnote[0]) NOTE("%s%s", notes[0] ? "; " : "", toolnote);
     if (tlb.n) { put(&tlb, tpb.b, tpb.n); free(tpb.b); tpb = tlb; tlb.b = NULL; }   /* TL_ID records first (their order is free) */
     int anydirty = 0; for (int i = 0; i < F->nops; i++) if (F->ops[i].regen || F->ops[i].stale) anydirty = 1;   /* a dirty stored op: its +0xfc byte */
+    int anycmt = 0; for (int i = 0; i < F->nops; i++) if (F->ops[i].cmt_edited && F->ops[i].raw) anycmt = 1;   /* a stored op renamed in the tree (Op.cmt_edited) */
     /* ---- solids made here (user decision SOL-1, formats/solid_history.md 5; F->sldnew from core_ui cui_sldsave.c): per solid a SOLID_ID
        record with the geometry (section 12) and its SOLIDXMT segment in section 13 (sld_save_solids 0x1800c6b50 -> FUN_1800c6d20):
        u32 0x16c, the SOLIDXMT record, the XT (PK_PART_transmit; here viewer/occt/occt_xt.cpp), u32 N, the name, the McOpsFile
@@ -1644,14 +1716,37 @@ static int save_impl(const char *src, const char *dst, McamFile *F, CamOp **ops,
     if (F->nsldnew > 0) {
         int sver = major >= 0x13 ? 0x1c : 0x1a, pk = major >= 0x13 ? 28 : 27;
         double scale = mcam_is_metric(F) ? 1000.0 : 1000.0 / 25.4;   /* part units per metre (the XT is in metres) */
-        uint32_t nid = 0; for (int k = 0; k < F->nsolids; k++) if (F->solids[k].sid >= nid) nid = F->solids[k].sid + 1;   /* sld_N: unused id
+        uint32_t nid = 0; for (int k = 0; k < F->nsolids; k++) if (!F->solids[k].brep && F->solids[k].sid >= nid) nid = F->solids[k].sid + 1;   /* sld_N: unused id
+            (an imported solid not saved yet has no id: F.solids[].brep) -
             (DAT_1803e80cc counts up from the largest read; the reader only matches ids, solid_history.md 5.1 [inferred]) */
         for (int k = 0; k < F->nsldnew; k++) {
             SldNew *sn = &F->sldnew[k];
             if (sn->why[0] || !sn->body || !sn->nops) { if (!sldwhy[0]) snprintf(sldwhy, sizeof sldwhy, "solid %d: %s", k + 1, sn->why[0] ? sn->why : "no history"); nsldref++; continue; }
             uint32_t N = nid++;
             char key[32]; snprintf(key, sizeof key, "sld_%u", N);
-            char xerr[300] = ""; size_t xn = 0; uint8_t *xt = ocs_xt(sn->body, scale, pk, key, &xn, xerr, sizeof xerr);
+            char xerr[300] = ""; size_t xn = 0; uint8_t *xt = NULL;
+            if (!sn->imported) xt = ocs_xt(sn->body, scale, pk, key, &xn, xerr, sizeof xerr);
+            else {
+                /* an imported solid = a brick (formats/solid_import_save.md 4): the SOLIDXMT XT, and the SldBodyOp's own copy of the body
+                   (FUN_18026fa70: PK_ENTITY_copy, CNC/mcEntinfoPtr kind 0 on every edge / 0x34 on every face, the key "sld_N" + "_bo";
+                   FUN_18026fc80 -> ps_save_body in the op version's Parasolid, FUN_18026e380: 0x1a -> 27.0, 0x1c -> 28.0 = the SOLIDXMT's).
+                   One header DATE for both (equal in 301 / 317 corpus pairs: one save) */
+                time_t tn = time(NULL); char date[64]; strftime(date, sizeof date, "%a %b %d %H:%M:%S %Y", localtime(&tn));
+                char bkey[40]; snprintf(bkey, sizeof bkey, "%s_bo", key);
+                int ne = 0, nf = 0, ne2 = -1, nf2 = -1; size_t bn = 0;
+                xt = ocs_xt_ex(sn->body, scale, pk, key, date, 0, &xn, &ne, &nf, xerr, sizeof xerr);
+                uint8_t *bx = xt ? ocs_xt_ex(sn->body, scale, pk, bkey, date, 1, &bn, &ne2, &nf2, xerr, sizeof xerr) : NULL;
+                SldOp *op = sn->nops == 1 && sn->ops[0].cls == SLD_CLS_BODY ? &sn->ops[0] : NULL;
+                if (!bx || !op || ne != ne2 || nf != nf2) {
+                    if (!sldwhy[0]) snprintf(sldwhy, sizeof sldwhy, "imported solid %d: %s", k + 1, !bx ? xerr : "the body op's XT differs from the solid's");
+                    free(xt); free(bx); nsldref++; continue; }
+                free(op->bxt); op->bxt = bx; op->nbxt = bn;
+                /* the records (ps_import_solid 0x18004c3e0 -> FUN_1802656b0): one per edge (PK_BODY_ask_edges), then one per face, kind
+                   0 / 0x34, op 0, no refs, x28 / b2c / b2d 0; ids 0x30 apart (one block) - ours: the base of cui_sldsave.c's rec_id(0, 0, i) */
+                free(op->e1); op->n1 = ne + nf; op->e1 = calloc((size_t)op->n1 + 1, sizeof *op->e1);
+                for (int i = 0; i < op->n1; i++) { op->e1[i].id = 0x10000000ull + 0x30ull * (uint64_t)i; op->e1[i].kind = i < ne ? 0 : 0x34; }
+                op->n2 = 0; op->n3 = 0;
+            }
             double lo[3], hi[3];
             if (!xt || !ocs_bbox(sn->body, lo, hi)) { if (!sldwhy[0]) snprintf(sldwhy, sizeof sldwhy, "solid %d: %s", k + 1, xt ? "no box" : xerr); free(xt); nsldref++; continue; }
             /* the ops: the file's layout and version, the solid's eptr, a Cut / Boss's target = the solid itself (187 / 187 user cuts),
@@ -1704,8 +1799,8 @@ static int save_impl(const char *src, const char *dst, McamFile *F, CamOp **ops,
     int moddim = 0; for (int k = 0; k < F->ndnew; k++) if (F->dnew[k].on && rd64(F->dnew[k].E + 0x20)) moddim = 1;
     int anyattr = 0; for (int k = 0; k < F->nents; k++) if (F->ents[k].type && !F->ents[k].created && F->ents[k].attr_edited) anyattr = 1;   /* Home > Attributes (core_ui cui_attr.c) */
     for (int k = 0; k < F->nsurfs; k++) if (F->surfs[k].edited) anyattr = 1;
-    if (!added && !newgeo && !newdim && !newnote && !moddim && !fresh && !anydel && !nrev && !ntoolw && !F->stock_dirty && !F->grp_dirty && !anydirty && !anysolid && !anyattr && !lvl_new && !nsldw) { mcw_close(&m); free(geob.b); free(sldb.b); free(opb.b); free(tpb.b); free(refs); free(tlm_new);
-        free(gone); free(mtnew.b); free(noteb.b); snprintf(msg, msgn, "nothing to add%s%s%s%s", notes[0] ? ": " : "", notes, sldwhy[0] ? "; solids not written: " : "", sldwhy); return 0; }
+    if (!added && !newgeo && !newdim && !newnote && !moddim && !fresh && !anydel && !nrev && !ntoolw && !F->stock_dirty && !F->grp_dirty && !anydirty && !anycmt && !anysolid && !anyattr && !lvl_new && !nsldw) { mcw_close(&m); free(geob.b); free(sldb.b); free(opb.b); free(tpb.b); free(refs); free(tlm_new);
+        free(gone); free(mtnew.b); free(noteb.b); free(npend); for (int k = 0; tlc && k < nops; k++) free(tlc[k]); free(tlc); snprintf(msg, msgn, "nothing to add%s%s%s%s", notes[0] ? ": " : "", notes, sldwhy[0] ? "; solids not written: " : "", sldwhy); return 0; }
     /* ---- records left out: part geometry deleted here; Mastercam operations replaced by an edited version (their OP,
        TP and NCI records - NCI positions are reset when Mastercam loads, formats/mcam_write.md) ---- */
     char *keep = xmalloc(m.nseg); int ndel = 0, ndropped = 0;
@@ -1740,6 +1835,11 @@ static int save_impl(const char *src, const char *dst, McamFile *F, CamOp **ops,
         }
         if (sg->kind == SEG_ENT && sg->cls == 0x4000 && sg->sub == 1 && sg->len >= 4 + 0x100 && regen_op(F, (int32_t)rd32(m.d + sg->off + 4 + 0x68))) {
             m.d[sg->off + 4 + 0xfc] = 1; m.d[sg->off + 4 + 0xff] = 0; }   /* Mark2dHSTOpsRefMachStockDef4Regen: op +0x94 = 1, +0x97 = 0 */
+        /* a stored op renamed in the Toolpaths manager (core_ui cui_misc.c op_set_comment): OnEndlabeledit @180361440 writes the
+           comment into the op's record (strcpy0(record + 0x6e, text, 0x78); UpdateListAndDB -> rewrite_ent): the kept record's 0x6e..0xe5 */
+        if (sg->kind == SEG_ENT && sg->cls == 0x4000 && sg->sub == 1 && sg->len >= 4 + 0x6e + 0x78)
+            for (int k = 0; k < F->nops; k++) if (F->ops[k].cmt_edited && F->ops[k].raw && F->ops[k].raw_n >= 0x6e + 0x78 && F->ops[k].id == (int32_t)rd32(m.d + sg->off + 4 + 0x68)) {
+                memcpy(m.d + sg->off + 4 + 0x6e, F->ops[k].raw + 0x6e, 0x78); break; }
         if (sg->kind == SEG_NCI && sg->sub == -2 && sg->len >= 2 + 0x20) {
             const Op *ro = REVOP((int32_t)rd32(m.d + sg->off + 2 + 0x1c));
             if (ro && nrevw >= nrev) ro = NULL;                  /* (ours: a second section of the same op is kept as stored - insv has nrev slots) */
@@ -1910,12 +2010,73 @@ static int save_impl(const char *src, const char *dst, McamFile *F, CamOp **ops,
             break;
         }
     }
+    /* ---- the NCI sections of the ops computed here (formats/nci_save.md 4). bnci_section (mccore @180088880) deletes the op's old section
+       and writes the new one at the end of the session NCI file (bnci_wr_sos seeks to the end, decomp/nciw/core_wr.c l.2785); save_db copies
+       every valid section in that file's order (decomp/mccore_fileio.c l.1400-1490), each record by bnci_write_to_disk (+0x10 = its offset
+       in the part file). So: the replaced ops' sections are left out (above, in_dropped), the new ones follow the kept ones; an NCI_ID
+       record (ASSOC 5, all zero but its header: save_db l.1381-1387, measured 16 / 16 user parts) precedes them when the base has none.
+       The op's record: +0xe8 / +0xec = the -2 / -3 positions (bnci_wr_sos / bnci_wr_eos: op +0x80 / +0x84; the loader resets them,
+       FUN_1802cfb60), +0xfc = 0 (FUN_180103fb0, decomp/mccore_filter.c l.3554-3556: op +0x94 cleared after the -3 record). An op the
+       writer refuses stays as before: dirty, no section. ---- */
+    int nnciw = 0, nci_ins = -1, add_nciid = 0; Buf ncib = { 0 }; size_t nci_X = 0;
+    if (nnpend) {
+        int at = m.nseg; for (int i = 0; i < m.nseg; i++) if (m.seg[i].kind == SEG_NCI && m.seg[i].sub == 0x7fff) { at = i; break; }
+        insv = xrealloc(insv, sizeof(McwInsert) * (size_t)(ninsv + 1)); nci_ins = ninsv;
+        insv[ninsv].before = at; insv[ninsv].bytes = NULL; insv[ninsv].len = 0; ninsv++;
+        nci_X = ins_out_off(&m, keep, insv, ninsv, nci_ins);           /* the block's place does not depend on its length */
+        add_nciid = nci_id < 0;
+        if (add_nciid) { uint8_t r[4 + 0xb2]; memset(r, 0, sizeof r); w32(r, 0xb2); head(r + 4, 0x4000, 1, 5, 0, 0, 0, 0, 0, major, minor, 0); put(&ncib, r, sizeof r); }
+        size_t sec0 = ncib.n;
+        NciwPart *P = nciw_part_load(src && src[0] && !fresh ? src : NULL);
+        int metric = mcam_is_metric(F);
+        /* which ops: Mastercam's engines write a section-start block (bnci_wr_sof) + 1002 per pass - in the user parts 128 / 149 Contour,
+           8 / 41 2D High Speed and 1 / 1 Pocket sections hold several (formats/nci_save.md 6) - and Reverse toolpath takes each 1000-1002 as
+           one pass (formats/reverse_toolpath.md 3.3). Where an engine starts a new block is decoded for Drill only (bnci_drill: one
+           bnci_wr_sof, at the first cycle, decomp/mcmill_all.c l.69999; nci_writer.md 10) and, ported with Move.sof (nci_save.md 7), for
+           Pocket's section starts (wr_pock_toolpath l.316183) and the standard 2D Contour's passes (FUN_180045770 l.6732; NS-4) and the 2D High Speed Dynamic region path (nci_save.md 7.3) - CamOp.nci_blocks:
+           the op went through them - the gate is lifted for those
+           (user decision NS-1: per op type where the block placement matches every corpus section whose moves regenerate identically).
+           MCAMUI_SAVE_NCI=all (ours, testing) writes every op the writer takes */
+        const char *sw = getenv("MCAMUI_SAVE_NCI"); int all = sw && !strcmp(sw, "all");
+        int nkept = 0;
+        for (int u = 0; u < nnpend; u++) {
+            const NciPend *np = &npend[u]; const CamOp *op = ops[np->k];
+            uint8_t *e = opb.b + np->rec_at + 4;
+            if (!all && rd16(e + 0x6c) != 2 && !((rd16(e + 0x6c) == 3 || rd16(e + 0x6c) == 1 || rd16(e + 0x6c) == 134) && op->nci_blocks)) { nkept++; continue; }
+            const uint8_t *t = tlc[np->k]; uint32_t tn = t ? 0x700 : 0;   /* its new TL_ID, another op's new one of its slot, else the part's */
+            for (int q = 0; !t && q < nops; q++) if (tlc[q] && rd32(tlc[q] + 0x2cc) == rd32(e + 0x5ac)) { t = tlc[q]; tn = 0x700; }
+            Move *mv = xmalloc(sizeof(Move) * (size_t)op->nm); memcpy(mv, op->m, sizeof(Move) * (size_t)op->nm);
+            if (!cam_op_top(&op->p)) for (int q = 0; q < op->nm; q++) {   /* world -> op coordinates (wpt_to_op, as nci_write.c nciw_view) */
+                double w[3] = { mv[q].p.x, mv[q].p.y, mv[q].p.z }, c[3]; cam_plane_w2v(op->p.tplane, op->p.torg, w, c);
+                mv[q].p.x = c[0]; mv[q].p.y = c[1]; mv[q].p.z = c[2]; }
+            long base = (long)(nci_X + ncib.n);
+            NciwOp no = { e, np->recn, t, tn, F, metric, base, np->tp, np->tpn };
+            NciwBuf sec = { 0 }; NciwStats st; memset(&st, 0, sizeof st); char e2[300] = "";
+            if (nciw_section(P, &no, mv, op->nm, &sec, &st, e2, sizeof e2)) {
+                w32(e + 0xe8, (uint32_t)base); w32(e + 0xec, (uint32_t)(base + st.eos_off)); e[0xfc] = 0;
+                put(&ncib, sec.b, sec.n); nnciw++;
+            } else NOTE("%s%s: toolpath not saved (%s) - it opens with the red X", notes[0] ? "; " : "", cam_op_label(op), e2);
+            free(sec.b); free(mv);
+        }
+        nciw_part_free(P);
+        if (nkept) NOTE("%s%d operation(s) written without their toolpath (where Mastercam starts a new NCI pass is NOT DECODED for their type)", notes[0] ? "; " : "", nkept);
+        if (nnciw) { insv[nci_ins].bytes = ncib.b; insv[nci_ins].len = ncib.n; }
+        else { ncib.n = 0; add_nciid = 0; }
+        nci_X += add_nciid ? sec0 : 0;                                  /* the first section's offset */
+    }
+    for (int u = 0; u < nnpend; u++) free(npend[u].tp);
+    free(npend); for (int k = 0; tlc && k < nops; k++) free(tlc[k]); free(tlc);
     uint32_t setup_pos = rd32(H + 0x74), nci_pos = rd32(H + 0x78);
 #define NEWPOS(pos) new_pos(&m, keep, insv, ninsv, pos)
     w32(H + 0x6c, (uint32_t)ndist);
     w32(H + 0x70, rd32(H + 0x70) + (uint32_t)added - (uint32_t)ndropped);
     if (setup_pos && setup_pos != 0xffffffffu) w32(H + 0x74, (uint32_t)NEWPOS(setup_pos));
     if (nci_pos && nci_pos != 0xffffffffu) w32(H + 0x78, (uint32_t)NEWPOS(nci_pos));
+    if (nnciw) {   /* +0x78 = the first NCI record (bnci_restore seeks there): ours when no section of the base is left */
+        int base_nci = nrevw > 0;
+        for (int i = 0; i < m.nseg && !base_nci; i++) base_nci = keep[i] && m.seg[i].kind == SEG_NCI && m.seg[i].sub != 0x7fff;
+        if (!base_nci || !nci_pos || nci_pos == 0xffffffffu) w32(H + 0x78, (uint32_t)nci_X);
+    }
     w32(H + 0x7c, (uint32_t)(next_idn - 1));
 #undef NEWPOS
 #undef DROPPED
@@ -1923,7 +2084,17 @@ static int save_impl(const char *src, const char *dst, McamFile *F, CamOp **ops,
     if (F->grp_dirty) grp_patch(&m, F);
     if (anysolid) solid_patch(&m, F);
     size_t outn; uint8_t *out = mcw_build(&m, keep, insv, ninsv, &outn);
-    free(keep); free(dropped_ids); free(insv); for (int u = 0; u < nsldtail; u++) free(sldtail[u]); free(mtb.b); free(noteb.b); free(sldb.b);
+    {   /* every NCI record's +0x10 = its offset in the part: save_db writes each record with bnci_write_to_disk (decomp/mccore_fileio.c l.1488;
+           nci_writer.md 2). The kept stored records move when records before them change (the reader overwrites +0x10 anyway,
+           bnci_read_from_disk, formats/mcam_write.md 6) */
+        uint32_t np = rd32(H + 0x78);
+        if (np && np != 0xffffffffu) for (size_t o = np; o + 2 <= outn; ) {
+            uint16_t sz = rd16(out + o); if (!sz || o + 2 + sz > outn) break;
+            if (sz >= 0x14) w32(out + o + 2 + 0x10, (uint32_t)o);
+            o += 2 + (size_t)sz;
+        }
+    }
+    free(keep); free(dropped_ids); free(insv); for (int u = 0; u < nsldtail; u++) free(sldtail[u]); free(mtb.b); free(noteb.b); free(sldb.b); free(ncib.b);
     int ok = 0;
     {   char tmp[4200]; FILE *o = snprintf(tmp, sizeof tmp, "%s.tmp", dst) < (int)sizeof tmp ? fopen(tmp, "wb") : NULL;
         if (o) { ok = fwrite(out, 1, outn, o) == outn; if (fclose(o) != 0) ok = 0; if (ok && file_replace(tmp, dst) != 0) ok = 0; if (!ok) remove(tmp); }
@@ -1932,14 +2103,32 @@ static int save_impl(const char *src, const char *dst, McamFile *F, CamOp **ops,
     char dimnote[96] = "";
     if (newdim) snprintf(dimnote, sizeof dimnote, "%d new dimension(s), ", newdim);
     if (newnote) snprintf(dimnote + strlen(dimnote), sizeof dimnote - strlen(dimnote), "%d new note(s), ", newnote);
+    char rednote[160] = "";   /* the ops written with their toolpath (NCI) open as they are; the others with the red X */
+    if (nnciw) snprintf(rednote, sizeof rednote, " (%d with their toolpath%s)", nnciw, added > nnciw ? ", the others open with the red X - regenerate them" : "");
+    else if (added) snprintf(rednote, sizeof rednote, " (they open with the red X - regenerate them)");
     if (!ok) snprintf(msg, msgn, "%s", err);
     else snprintf(msg, msgn, "wrote %s: %d new entities, %s%d deleted, %d operation(s) added (%d replacing stored ones), %d operation(s) deleted, %d new tool(s), %d tool(s) rewritten, %d reversed%s%s%s%s%s", dst, newgeo, dimnote, ndel, added, ndropped - nopgone, nopgone, ntlw, ntoolw, nrevw, F->stock_dirty ? ", stock setup" : "", F->grp_dirty ? ", group settings" : "",
-                  added ? " (they open with the red X - regenerate them)" : "", skipped || notes[0] ? ". " : "", notes);
+                  rednote, skipped || notes[0] ? ". " : "", notes);
     if (ok && (nsldw || nsldref)) { size_t k = strlen(msg);
         snprintf(msg + k, msgn - k, "; %d solid(s) made here written%s%d not written%s%s", nsldw, nsldw ? " (Parasolid XT + history) - " : ", ", nsldref, sldwhy[0] ? ": " : "", sldwhy); }
+    if (ok && !cap && major >= 0x13 && mcam_ext_mismatch(dst, major)) { size_t k = strlen(msg);   /* user decision 2026-11-19 (formats/user_decisions.md) */
+        snprintf(msg + k, msgn - k, "\n\n%s", mcam_ext_warning()); }
     mcw_close(&m); free(geob.b); free(opb.b); free(tpb.b); free(refs); free(tlm_new); free(lvl_new);
     return ok;
 #undef NOTE
+}
+
+/* a Mastercam 2017 part (major >= 0x13: a new part, whose base is the 2017 operation defaults library, or a 2017 source) saved under a
+   .mcx-9 name: Mastercam's own Save As offers only *.mcam for a 2017 part (33207 "Mastercam 2017 Files (*.mcam)", mainwindow.cpp file
+   types), so the name says X9 while the content is 2017. User decision 2026-11-19 (formats/user_decisions.md): warn, suggest .mcam, still
+   save. The check and the text are ours (no Mastercam source). */
+int mcam_ext_mismatch(const char *dst, int major) {
+    size_t n = dst ? strlen(dst) : 0;
+    return major >= 0x13 && n >= 6 && !strcasecmp(dst + n - 6, ".mcx-9");
+}
+const char *mcam_ext_warning(void) {        /* ours (no Mastercam source): user decision 2026-11-19 */
+    return "Warning: this is a Mastercam 2017 part (.mcam content) saved under a .mcx-9 (Mastercam X9) name. "
+           "Mastercam X9 cannot open it as an X9 part; save it with the .mcam extension instead.";
 }
 
 int mcam_save_with_ops(const char *src, const char *dst, const McamFile *F, CamOp **ops, int nops, char *msg, size_t msgn) {

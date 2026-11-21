@@ -73,6 +73,8 @@ typedef struct {
     int p180;                             /* P+0x180 = op +0x141 (record +0x1a9): link style, see eg_lg1_to_moves */
     double feed, plunge, retract;         /* T+0x78 / +0x80 / +0x88 */
     double f;                             /* engine scale: 25.4 for inch parts, 1 for mm */
+    int dwarn_need; double dwarn_max;
+    int remach;                           /* P+0x98 remachining: the "BIGTOOL" tool block is skipped (FUN_180041910) */     /* engrave_setup refused: the depth warning 1808 is due (in->dwarn 0), its maximum depth */
 } EgLink;
 
 /* the op's inputs (engrave.dll) */
@@ -82,7 +84,9 @@ typedef struct {
     int tool_type;          /* Mastercam tool type (12 chamfer mill, 21 engrave tool, ...) */
     double tool_dia, tool_angle, tool_tip_dia;   /* TL tool +8, +0x20 (deg per side), +0x3f8 */
     double feed, plunge, retract, rpm;           /* op record +0x378 / +0x380 / +0x388, tool rpm */
-    int op141;              /* record +0x1a9 */
+    int op141;              /* record +0x1a9 = op +0x141 "Rapid Retract" (Toolpath parameters page 3305; formats/mcamui_dialogs.md l.91) */
+    int dwarn;              /* the answer to the depth warning dialog 1808: 0 none (refused with its text), 1 use the maximum depth,
+                               2 return (error 14), 3 ignore (heights.c l.163-201; CamParams.eg_dwarn) */
     double plane_z, chain_z;   /* active plane origin z, chain height (FUN_180019800) */
 } EngraveIn;
 
@@ -90,7 +94,11 @@ typedef struct {
 typedef struct { const double *xy; int n; } EgChain;
 
 int engrave_setup(const EngraveIn *in, EgEstDat *e, EgLink *lk, char *err, size_t errn);
+/* 1 when this regeneration shows the depth warning dialog 1808 (FUN_18001bb30: angle != 0 and the cone shorter than the depth);
+   *dmax = "The maximum depth of cut for this tool is %s" (printf "%.4f", FUN_1802647a0) */
+int engrave_depth_warning(const EngraveIn *in, double *dmax);
 int eg_engine(const EgEstDat *e, const EgRecs *contours_mm, EgResult *out, char *err, size_t errn);   /* 1 = ok */
+int eg_engine_lg1(const EgEstDat *e, const EgRecs *contours_mm, EgRecs *lg1, int *code, char *err, size_t errn); /* test oracle */
 int eg_lg1_to_moves(const EgResult *r, const EgLink *lk, Move **m, int *nm);
 int engrave_generate(const EngraveIn *in, const EgChain *ch, int nch, Move **m, int *nm, char *err, size_t errn);
 void eg_result_free(EgResult *r);

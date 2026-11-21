@@ -112,11 +112,36 @@ names:;
     return 1;
 }
 
-/* the solids to write (F.sldnew); returns the count. Every body is listed: a refused one has why set. */
+/* an imported solid (STEP, cad_import.c: F.solids[i].brep) as Mastercam keeps it: a "brick" = one SldBodyOp (formats/solid_import_save.md):
+   sld_import_solid -> sld_import_add_mc (mcgeomsld 0x1800bd390) -> sld_solid_from_tag -> dbput_solid, then mc_create_body_op (0x18002b610):
+   the SldBodyOp (ctor FUN_18026e130 over McOperation FUN_180261b90: name "", +0x3c 0x1c, +0x40 / +0x41 = 0 / 0x0c), +0x18 = the solid,
+   the records from ps_import_solid (FUN_1802656b0) and the body copy (FUN_18026fa70). The records and the XT copy depend on the XT the save
+   writes (its edges / faces), so mcam_saveops.c fills them; the op version is the file's (as for every op written here, mcam_saveops.c) */
+static int add_imported(SldNew *n, const Solid *S) {
+    n->imported = 1; n->level = S->level; n->color = S->color; n->expanded = S->expanded;
+    snprintf(n->desc, sizeof n->desc, "%s", S->desc);
+    n->body = ocs_from_brep(S->brep, S->brep_n);
+    if (!n->body) { snprintf(n->why, sizeof n->why, "the imported solid's BRep cannot be read"); return 0; }
+    n->ops = calloc(1, sizeof(SldOp)); n->nops = 1;
+    SldOp *o = &n->ops[0];
+    o->type = SLD_OP_BODY; o->cls = SLD_CLS_BODY; o->name[0] = 0; o->id = 0; o->x40 = 0; o->x41 = 0x0c;
+    return 1;
+}
+
+void sld_new_drop(SldNew *s, int n) {
+    for (int i = 0; s && i < n; i++) if (s[i].imported && s[i].body) { ocs_unref(s[i].body); s[i].body = NULL; }
+    sld_new_free(s, n);
+}
+
+/* the solids to write (F.sldnew); returns the count. Every body is listed: a refused one has why set. The imported solids follow the bodies
+   made here. */
 int sld_new_build(SldNew **out) {
     *out = NULL;
-    if (nsbodies <= 0) return 0;
-    SldNew *s = calloc(nsbodies, sizeof(SldNew));
+    int nimp = 0; for (int i = 0; loaded && i < F.nsolids; i++) if (F.solids[i].brep) nimp++;
+    if (nsbodies <= 0 && !nimp) return 0;
+    SldNew *s = calloc((size_t)(nsbodies > 0 ? nsbodies : 0) + (size_t)nimp, sizeof(SldNew));
+    int nb = nsbodies > 0 ? nsbodies : 0;
+    for (int i = 0, k = nb; loaded && i < F.nsolids; i++) if (F.solids[i].brep) add_imported(&s[k++], &F.solids[i]);
     for (int b = 0; b < nsbodies; b++) {
         const Body *bd = &sbodies[b]; SldNew *n = &s[b];
         /* SOL-5d: the level / colour the body got at creation (its first op's feature, ExFeat.level / color = dbput_solid's main_level /
@@ -139,5 +164,5 @@ int sld_new_build(SldNew **out) {
         }
     }
     *out = s;
-    return nsbodies;
+    return nb + nimp;
 }

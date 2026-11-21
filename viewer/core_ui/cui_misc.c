@@ -46,6 +46,7 @@ const GsCtl GS_1589[] = {
    the old name stays; "Undefined" refused (4159), a name the other group has refused (4161). (mcamui showed a modal box
    "Rename" / "Name:" - its texts were not Mastercam's; both front ends now edit the tree item, phase 8.) */
 AskBox ask;
+static int ask_op = -1;                                  /* CM_OP_RENAME: the op (F.ops index) being renamed (below) */
 void ask_open(int act, const char *title, const char *l1, const char *v1, const char *l2, const char *v2) {
     memset(&ask, 0, sizeof ask); ask.act = act; snprintf(ask.title, sizeof ask.title, "%s", title);
     snprintf(ask.l[0], sizeof ask.l[0], "%s", l1); snprintf(ask.v[0], sizeof ask.v[0], "%s", v1); ask.nf = 1;
@@ -62,11 +63,52 @@ void ask_ok(void) {
         else snprintf(tp_grp_name, sizeof tp_grp_name, "%s", t);
         doc_dirty = 1;
     }
+    else if (ask.act == CM_OP_RENAME) op_set_comment(ask_op, ask.v[0]);   /* OnEndlabeledit, op item (below) */
 }
 /* the edit ends: Enter / focus lost = OnEndlabeledit with the text, Esc = no text (the label stays) */
 void ask_end(int commit) { if (commit) { int a = ask.act; ask_ok(); if (ask.act == a) ask.act = 0; } else ask.act = 0; }
 void grp_rename_begin(void) { ask_open(CM_GRP_RENAME, "Rename", "", cm_group == 2 ? mach_grp_name : tp_grp_name, NULL, NULL); }
 int grp_renaming(int group) { return ask.act == CM_GRP_RENAME && cm_group == group; }   /* group 2 = the machine group, 1 = the toolpath group */
+
+/* ------------------------------------------------------------------------------------------------ operation rename */
+/* An operation's label edit in the Toolpaths manager (formats/opmanager_menu.md 3585 "Ops and groups are renamable").
+   Started by the tree control itself: the Toolpaths dialog's tree (opmanres dialog 145 "Toolpaths", control 197, style
+   0x5091082f) has TVS_EDITLABELS (8), so a click on the label of the item that is already selected starts the edit (the
+   Windows tree control's own rule). Mastercam sends TVM_EDITLABEL itself only for groups (menu 3585 0xe01 is greyed unless a
+   group item was right-clicked, opman_tree_all.c l.21183-21187 / l.22180-22188; CreateGroup l.37114).
+   COpMgrTree::OnBeginlabeledit @1803609f0 (decomp/opman_handlers_d1.c l.326-466): refused for a disabled item, in the
+   list-only manager, with Ctrl or Shift held (then a selection change), for lParam < -1; an op item (lParam = op id > 0):
+   the edit control's text = the op's comment (GetOperationPtr(id) + 6), not the row text.
+   COpMgrTree::OnEndlabeledit @180361440 (l.696-860), op item: nothing when the edit was cancelled (TVIF_TEXT clear / pszText
+   NULL - Esc); else the op's record is read (DatabaseRetrieve), strcpy0(record + 0x6e, text, 0x78) - the whole field
+   cleared, then at most 0x77 bytes copied (_mbsnbcpy_s _TRUNCATE, decomp/align/core_oplist.c strcpy0 @1806f44c0): no
+   trimming, no refused text, an empty text clears the comment - then UpdateListAndDB(record, false, true) (mccore
+   DatabaseUpdate @180907520: no time stamp, rewrite_ent -> db_has_changed = the part is modified; the op is NOT marked dirty -
+   its toolpath stays, the dirty-dependent marks run only for an op already dirty), RefreshOperation(id) (InitTvItem: the row
+   text rebuilt by InitTvOpText, " - " + comment only when not empty) and ReallySelectItem; *result = 0, so the tree does
+   not keep the typed text itself. No message, no undo snapshot. */
+static int camop_index(int i) { for (int j = 0; j < ncamops; j++) if (camops[j]->op_index == i) return j; return -1; }
+int op_rename_begin(int i) {
+    if (!loaded || i < 0 || i >= F.nops) return 0;
+    ask_open(CM_OP_RENAME, "Rename", "", F.ops[i].comment, NULL, NULL); ask_op = i;   /* GetOperationPtr(id) + 6 */
+    return 1;
+}
+int op_renaming(void) { return ask.act == CM_OP_RENAME ? ask_op : -1; }
+void op_set_comment(int i, const char *s) {
+    if (!loaded || i < 0 || i >= F.nops) return;
+    char t[0x78]; memset(t, 0, sizeof t);                /* strcpy0(record + 0x6e, text, 0x78) */
+    size_t n = strlen(s); if (n > sizeof t - 1) n = sizeof t - 1;   /* the text is ANSI (Windows-1252, single-byte: the front end
+                                                                     converts, viewer-qt cp1252.h), so the byte cut is _mbsnbcpy_s's */
+    memcpy(t, s, n);
+    Op *o = &F.ops[i];
+    int k = camop_index(i);
+    if (k >= 0) snprintf(camops[k]->name, sizeof camops[k]->name, "%s", t);   /* an op of ours: the save writes CamOp.name to 0x6e */
+    else if (o->raw && o->raw_n >= 0x6e + 0x78) { memcpy(o->raw + 0x6e, t, 0x78); o->cmt_edited = 1; }   /* a stored op: its record */
+    CamOp *e = op_dirty_edit(i);                         /* a dirty op's waiting parameters are the op's own (its record's +6) */
+    if (e) snprintf(e->name, sizeof e->name, "%s", t);
+    snprintf(o->comment, sizeof o->comment, "%s", t);
+    doc_dirty = 1;                                       /* rewrite_ent -> db_has_changed */
+}
 
 /* ------------------------------------------------------------------------------------------------ clipboard */
 /* clipboard (Ctrl+X / Ctrl+C / Ctrl+V): entity definitions; Paste puts copies in the same place, selected */
@@ -292,7 +334,8 @@ int bs_info_values(BsInfoVal *v, int cap) {
 void misc_dump(void) {
     if (show_gridset) printf("    grid %.5f %.5f %.5f %.5f %.5f snap %d mode %d '%s' '%s' '%s' '%s' '%s'\n", grid.dx, grid.dy, grid.ox, grid.oy, grid.size, grid.snap, grid.snap_mode,
                              gs_txt[0], gs_txt[1], gs_txt[2], gs_txt[3], gs_txt[4]);
-    if (ask.act) printf("    (rename %s: '%s')\n", cm_group == 2 ? "machine group" : "toolpath group", ask.v[0]);
+    if (ask.act == CM_OP_RENAME) printf("    (rename op %d: '%s')\n", ask_op + 1, ask.v[0]);
+    else if (ask.act) printf("    (rename %s: '%s')\n", cm_group == 2 ? "machine group" : "toolpath group", ask.v[0]);
     if (nclip || paste_pending) printf("    clip %d%s\n", nclip, paste_pending ? " (paste prompt)" : "");
     if (zoom_window || zw_active) printf("    (zoom window %d)\n", zw_active);
     if (show_help || show_about || show_info) printf("    help %d about %d info %d\n", show_help, show_about, show_info);
@@ -315,6 +358,12 @@ int cui_misc_script(const char *st, const char *arg, int vw, int vh) {
     }
     if (IS("askcancel")) { ask_end(0); return 1; }
     if (IS("rename")) { grp_rename_begin(); return 1; }
+    if (IS("oprename") && arg) {                  /* ours: oprename:N - the label edit of the tree's op N starts (a click on its row, then a
+                                                     click on its selected label: OnBeginlabeledit); ask:TEXT ends it (Enter), askcancel = Esc */
+        int i = atoi(arg) - 1;
+        if (i >= 0 && i < F.nops) { op_click(i, 0, 0); op_rename_begin(i); } else printf("    (no op %s)\n", arg);
+        return 1;
+    }
     if (IS("gridset") && arg && show_gridset) { int k = atoi(arg); const char *eq = strchr(arg, '='); if (eq && k >= 0 && k < 5) { if (!gs_inited) gs_fill(); snprintf(gs_txt[k], sizeof gs_txt[k], "%s", eq + 1); gs_edit(k); } return 1; }
     if (IS("gridsnap") && arg && show_gridset) { grid.snap_mode = atoi(arg); return 1; }
     if (IS("gridclose")) { gs_close(); return 1; }

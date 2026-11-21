@@ -10,6 +10,8 @@
 #include <QHeaderView>
 #include <algorithm>
 #include <QTimer>
+#include <QStyle>
+#include <QCursor>
 #include <QTableWidget>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -57,11 +59,19 @@ ToolpathsManager::ToolpathsManager(const UiLayout &ui, CommandSink sink, QWidget
     connect(tree_, &QTreeWidget::itemClicked, this, [this](QTreeWidgetItem *it, int) {
         if (filling_) return;
         int op = it->data(0, ROLE_OP).toInt();
+        /* the Toolpaths tree has TVS_EDITLABELS (opmanres dialog 145, control 197, style 0x5091082f): a click on the LABEL of the item
+           that is already the selected one (the tree's caret) starts its label edit after the double-click time, unless a double click
+           comes first (the Windows tree control's rule, TVHT_ONITEMLABEL); OnBeginlabeledit @1803609f0 refuses it with Ctrl / Shift
+           held, takes ops (lParam = op id > 0: the comment) and groups (lParam -1: the group's name, then OnEndlabeledit's group rules) */
+        Qt::KeyboardModifiers km = QApplication::keyboardModifiers();
+        bool ctrl = (km & Qt::ControlModifier) != 0, shift = (km & Qt::ShiftModifier) != 0;
+        int key = op >= 0 ? op : op == -1 ? -1 : !it->parent() ? -100 : -999;   /* -100: the machine group row */
+        bool slow = !ctrl && !shift && key != -999 && (op >= 0 ? sel == op : key == prevClick_) && onLabel(it);
+        prevClick_ = key;
+        if (slow) { editOp_ = key; editTimer_->start(QApplication::doubleClickInterval()); }
+        if (key == -100) return;
         if (op == -1) { sel = -1; msel_owner = -9; }    /* the toolpath group row: every operation (sel < 0) */
-        else if (op >= 0) {                             /* COpMgrTree::Selchanged: Ctrl toggles, Shift a range (core_ui op_click) */
-            Qt::KeyboardModifiers km = QApplication::keyboardModifiers();
-            op_click(op, (km & Qt::ControlModifier) != 0, (km & Qt::ShiftModifier) != 0);
-        }
+        else if (op >= 0) op_click(op, ctrl, shift);    /* COpMgrTree::Selchanged: Ctrl toggles, Shift a range (core_ui op_click) */
         else if (op == -3) { int o = it->parent() ? it->parent()->data(0, ROLE_OP).toInt() : -1;   /* the Parameters row: sel, then the op dialog (mcamui) */
             if (o >= 0) { sel = o; msel_owner = -9; sim = -1; refresh(); emit selectionChanged(); emit paramsRow(o); } return; }
         else if (op == -4) { int o = it->parent() ? it->parent()->data(0, ROLE_OP).toInt() : -1; if (o >= 0) emit toolRow(o); return; }   /* the tool row (mcamui: show_tm, tm_part_sel) */
@@ -70,7 +80,12 @@ ToolpathsManager::ToolpathsManager(const UiLayout &ui, CommandSink sink, QWidget
         sim = -1;
         refresh(); emit selectionChanged();
     });
+    editTimer_ = new QTimer(this); editTimer_->setSingleShot(true);
+    connect(editTimer_, &QTimer::timeout, this, [this] {
+        if (!ask.act) { if (editOp_ >= 0 && sel == editOp_) slowClick(editOp_); else if (editOp_ == -1 || editOp_ == -100) slowClickGroup(editOp_ == -100 ? 2 : 1); }
+        editOp_ = -999; });
     connect(tree_, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem *it, int) {   /* a double click on an op row: its parameters (mcamui) */
+        editTimer_->stop(); editOp_ = -999;             /* no label edit (the Windows tree control: a double click is not a slow click) */
         if (filling_) return;
         int op = it->data(0, ROLE_OP).toInt(); if (op >= 0) emit paramsRow(op);
     });
@@ -91,7 +106,7 @@ ToolpathsManager::ToolpathsManager(const UiLayout &ui, CommandSink sink, QWidget
         if (!ask.act) return;
         auto *le = qobject_cast<QLineEdit *>(ed);
         if (hint == QAbstractItemDelegate::RevertModelCache || !le) ask_end(0);
-        else { snprintf(ask.v[0], sizeof ask.v[0], "%s", (cm_group == 2 ? Cp1252::fromQ(le->text()) : le->text().toUtf8()).constData()); ask_end(1); }   /* the machine group: ANSI */
+        else { snprintf(ask.v[0], sizeof ask.v[0], "%s", ((ask.act == CM_GRP_RENAME && cm_group == 2) || ask.act == CM_OP_RENAME ? Cp1252::fromQ(le->text()) : le->text().toUtf8()).constData()); ask_end(1); }   /* the machine group and an op comment: ANSI */
         emit renamed();
     });
     updateEnabled();
@@ -105,6 +120,33 @@ void ToolpathsManager::beginRename(int group) {
     filling_ = true; it->setFlags(it->flags() | Qt::ItemIsEditable); it->setText(0, cm_group == 2 ? Cp1252::toQ(ask.v[0]) : QString::fromUtf8(ask.v[0])); filling_ = false;
     tree_->setFocus(); tree_->editItem(it, 0);
 }
+/* an op's label edit (core_ui op_rename_begin = OnBeginlabeledit: the edit holds the op's comment, not the row text); its end is
+   the closeEditor handler above (OnEndlabeledit: core_ui ask_end -> op_set_comment), then the row is rebuilt (renamed -> refresh) */
+void ToolpathsManager::beginOpRename(int op) {
+    if (!tree_->topLevelItemCount() || op < 0) return;
+    QTreeWidgetItem *m = tree_->topLevelItem(0), *it = nullptr;
+    for (int c = 0; !it && c < m->childCount(); c++) if (m->child(c)->data(0, ROLE_OP).toInt() == -1)
+        for (int o = 0; !it && o < m->child(c)->childCount(); o++) if (m->child(c)->child(o)->data(0, ROLE_OP).toInt() == op) it = m->child(c)->child(o);
+    if (!it) return;
+    filling_ = true; it->setFlags(it->flags() | Qt::ItemIsEditable); it->setText(0, Cp1252::toQ(ask.v[0])); filling_ = false;
+    tree_->setFocus(); tree_->editItem(it, 0);
+}
+QLineEdit *ToolpathsManager::labelEditor() const {
+    for (QLineEdit *le : tree_->findChildren<QLineEdit *>()) if (le->isVisible()) return le;
+    return nullptr;
+}
+/* the slow click on a group row: OnBeginlabeledit lParam -1 (the item's text, this +0x3e88), the rename of 3585 from there on
+   (core_ui grp_rename_begin / ask_ok: OnEndlabeledit's group rules); GROUP = 2 the machine group, 1 the toolpath group */
+void ToolpathsManager::slowClickGroup(int group) { cm_group = group; grp_rename_begin(); emit renameBegun(); }
+/* TVHT_ONITEMLABEL: the point on the item's text, not its icon or the space after it. The text's rectangle as the item view lays
+   it out (ours: QCommonStyle's item layout - icon, then the text with the focus-frame margins) */
+bool ToolpathsManager::onLabel(QTreeWidgetItem *it) const {
+    QPoint pt = tree_->viewport()->mapFromGlobal(QCursor::pos());
+    QRect r = tree_->visualItemRect(it); int m = tree_->style()->pixelMetric(QStyle::PM_FocusFrameHMargin, nullptr, tree_) + 1;
+    int x0 = r.left() + (it->icon(0).isNull() ? 0 : tree_->iconSize().width() + 2 * m), x1 = x0 + tree_->fontMetrics().horizontalAdvance(it->text(0)) + 2 * m;
+    return pt.x() >= x0 && pt.x() <= x1 && pt.y() >= r.top() && pt.y() <= r.bottom();
+}
+void ToolpathsManager::slowClick(int op) { if (op_rename_begin(op)) emit renameBegun(); }
 void ToolpathsManager::expandAll(bool on) {
     if (!tree_->topLevelItemCount()) return;
     QTreeWidgetItem *m = tree_->topLevelItem(0);
@@ -187,7 +229,7 @@ void ToolpathsManager::refresh() {
     for (int i = 0; i < qc_nops(); i++) {
         char t[256]; qc_op_row(i, t, sizeof t);        /* optree_text.inc (InitTvOpText) */
         bool s = op_selected(i) != 0;                   /* the multi-selection (core_ui op_selected) */
-        auto *it = new QTreeWidgetItem(grp, QStringList(QString::fromUtf8(t)));
+        auto *it = new QTreeWidgetItem(grp, QStringList(Cp1252::toQ(t)));   /* the row's comment is ANSI (op +6, cp1252.h); the rest ASCII */
         it->setIcon(0, tvIcon(qc_op_stale(i) ? (s ? 24 : 19) : s ? 5 : 4));   /* -2 op: 4, selected 5; dirty (op+0x94) 0x13 / selected 0x18 */
         it->setData(0, ROLE_OP, i);
         fillOp(it, i);

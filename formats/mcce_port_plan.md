@@ -1312,3 +1312,96 @@ worktree-agent-a8fe68dcaeede06c4, on top of int-m2)
 - Left at the bit level: v12 10 commit 6538 (MCCE_ORD1=1) starts 1.8e-15 off (the boundary target's re-entry point after the link,
   targets_boundary); not chased. mcce_ctour.c's sh_orient_t area is not FUN_1801270e0's piecewise sum (direction / thresholds only;
   the off / sobool / coffct oracles pass).
+
+### 9.x 2026-11-19 (branch hs-dynamic): the DLL oracle's configuration; true-arc engine input
+- The engine input is now true lines / arcs (formats/nci_save.md 7.3). With it, tools/tests/mcce_dll_oracle.sh showed the port and
+  mcce.dll differing on 18 / 37 Dynamic ops, mostly at a stay-down link (the port: connector 4 with link_smooth / link_lin_arcs; the
+  DLL: the routed connector FUN_180044340). Cause: the oracle's configuration, not the port. FUN_180042890 l.40016 takes the routed
+  connector when CDynPockParmDer +0x261 bUseCtourGuide == 0; that value is a registry read (mcce::GetRegInt @1800058f3 from
+  FUN_180069840 l.60375-60377, "bUseCtourGuide", default 0). Under peloader every registry read fails, so the DLL ran with 0, while
+  the port runs with 1 (user decisions D-3 / N11-2: the stored X9 NCIs follow the 1 branch).
+- peloader (tools/peloader/mcce.c): MCCE_DLL_CTOURGUIDE=1 patches GetRegInt's entry to answer bUseCtourGuide = 1 (every other value its
+  default, as before); mcce_dll_oracle.sh sets it from the port's MCCE_CTOURGUIDE (default 1).
+- Result (37 Dynamic ops of the user parts, both engines at bUseCtourGuide = 1): port = DLL record for record on every engine call in
+  32 / 37 (was 19 / 37 with the DLL at 0). The 5 others differ late: BRACKET4 / bracket4-dashed op 14 (record 9217 of 11171, 0.06 mm),
+  buckle-v10 op 10 (8676 of 8934, an L where the DLL has an A, 0.12 mm), buckle-v6 / v7 op 36 (9711 of 9940, 0.04 mm) - open.
+  The same configuration check on buckle-v10 op 3: 4142 / 4142 records; with both at 0 and MCCE_GUIDED=1: 1749 / 1749.
+- Correction to an earlier note in this file: the per-step material subtraction FUN_180037790 is ported (commit_exact, the default
+  since user decision D-2) and the material matched mcce.dll at the links examined (buckle-v10 op 3: FUN_180066ff0's S1 input 42 arcs /
+  247 lines on both sides) - no new port of it was needed for these differences.
+- Where this stopped: the 5 late differences above; then (per the user's order) buckle-v9 op 46, solid-chain regions (op 31), region /
+  entry selection (buckle-v10 / v11 / v12 op 2, NAKTO op 2), Dynamic Contour input (NS-6).
+- The 5 late port / DLL differences (2026-11-19, both at bUseCtourGuide = 1): all at the end of a state-0/1 march (FUN_18006db90 trial
+  steps, records ce 40 / mf 02c2 before the turn onto an r = 0.3 arc). The engines' commits part there (BRACKET4 op 14 commit 9707, buckle-v10
+  op 10 commit 6901, buckle-v6 op 36 commit 5276): Mastercam shortens the last line step (buckle-v6 op 36: 0.043 mm, w 0.450473 - as a cut
+  to a width limit lim - 1e-6 would) and turns; the port takes the full step (0.094 mm, w 0.464017, then 0.4998). Not state 2 (FUN_18006d330:
+  no state2 step at these points). Next: the shortening inside the state-0/1 trial step (FUN_18006db90 / FUN_18006d170, l.61874-62200)
+  against the DLL. Blocked on tooling: the trace level 4 hooks of tools/peloader/mcce.c fail on this mcce.dll ("no thunk for 0x3a140",
+  hook_loops; likewise the others of that level), so the step-by-step lockstep trace is not available; hook_thunk needs a variant that
+  patches a function's entry and keeps a trampoline to the original (the entries are called directly, without jmp thunks).
+- 2026-11-19 later (user: park the 5, then (4), (2), (3), (5)), commits 460c73e..7dcd307 on hs-dynamic:
+  - (4) buckle-v9 op 46: not a port error - first 88 records = the X9 NCI to 1e-6, then a state-0/1 step before a turn where the 2017
+    DLL on our input = the port; NOT DECODED (input we do not see, or X9 vs 2017). Details formats/nci_save.md 7.3.
+  - (2) solid-chain regions: XT edges as entities (dyn_ents_add_xt) -> op 31 x3 p95 0.000. Plus the op end (one G0 from the last cut
+    to the clearance, measured 40 / 40): 19 / 40 2D HS sections now regenerate move for move, block placement 36 / 40.
+  - (3) NAKTO op 2: port = DLL; ours plunged to the level at the engine's region change (vertical-up record after a rapid) - fixed;
+    Mastercam's clearance retract + second block there and its region-2 ramp start are NOT DECODED. buckle-v10/11/12 op 2 are
+    Area Mill (McHmm general linker, area_mill.md 11.7) - not the Dynamic engine.
+  - (5) Dynamic Contour: entity input + prep_ctour offsets via sl_offset_dllf (ct_off) + full-circle halves: port = DLL on 5 / 7 test
+    calls, the other 2 = the parked state-0/1 last-step rule. Gate closed.
+  - Next (handoff): the parked state-0/1 last-step rule (needs the trampoline hook harness, TODO.md) now covers 7 cases (5 Dynamic
+    Mill + 2 Dynamic Contour); the 2D HS markers -4..-7 / 20020 / 20021 (nci_save.md 5); NAKTO op 2's region-change retract / block.
+
+### 9.y 2026-11-19 (branch hs-steprule, NS-7): the state-0/1 last-step rule - probe polarity + U-turn / offset arithmetic, 37 / 37 ops = mcce.dll
+- Harness: the level-4 hooks failed ("no thunk for 0x3a140") only because MCCE_DLL_CTOURGUIDE's GetRegInt patch wrote a 12-byte
+  mov/jmp over 0x58f3, which is itself a jmp-rel32 thunk in the incremental-link table at .text+5: every later hook_thunk scan stopped
+  there. Fixed (tools/peloader/mcce.c: the thunk's rel32 is redirected by hook_thunk). No trampoline variant needed. Level 4 with
+  MCCE_TRACE_SW=1 now runs with bUseCtourGuide = 1; records unchanged (Dynamic Contour buckle-v6 chain 13: 397 / 397 same as untraced).
+- Reproduce (Dynamic Contour case, the smallest of the 7):
+    cam_cli buckle-v6.mcx-9 dyncontour 13 --dia 6 --depth -3 --stock 0 with MCCE_TRACE_SW=1 MCCE_DUMPIN=D/in MCCE_TRACE=D/port.tr
+    MCCE_TRACE_LEVEL=4; then MCCE_DLL_CTOURGUIDE=1 MCCE_TRACE_SW=1 peloader mcce.dll --dyn D/in.0 --out D/dll.0.rec --trace D/dll.0.tr
+    --trace-level 4. (Scratch copy: scratchpad nci/sr1.)
+- What differs (commits 0..384 equal bit for bit): after commit 384 (a ce 40 line ending at (81.369993, -0.676591)) the zero-length
+  attached step FUN_18001c510 (port zero_len_step, mcce_dyn.c) walks its candidate path (G->lead + the material section, FUN_18006caa0):
+    DLL  path = L, L                          -> trial line 0.3 (w 0), then a shortened line 0.00427 (w 0.001652) -> commit 385 = that line
+    port path = A (r 0.6, sweep 1.86e-7), L   -> trial = the zero-sweep arc (w 0.001687) -> commit 385 = A sweep 0, then the march ends
+  i.e. the port's lead still starts with a degenerate corner arc (centre (80.9457, -1.1009), length 1.1e-7 mm) that the DLL's lead does
+  not have at this step. The "shortened last step" is a consequence: the DLL, with no arc in front, tries the line and halves it.
+- Next: find where the DLL drops / never builds that arc: (a) the lead trim after the previous zero-length step (FUN_18001c510
+  l.20787-20800: FUN_18013d200 nearest + FUN_180146e20(lead, ent, t, n-1, 1.0, out, 0), kept only when its length > 1e-8 - port
+  sh_nearest / sh_section, check how FUN_180146e20 treats a start at t = 1 or a piece shorter than its tolerance), (b) the lead
+  built by the attach (FUN_180024720 -> FUN_180021e40; offset_attach / uturn_attach) - dump G->lead at commit 384 on both sides (add a
+  level-4 "LD" line to mcce_trace.c and a hook of FUN_18006caa0 in peloader). Then port, re-run the 7 cases (5 Dynamic Mill:
+  BRACKET4 / bracket4-dashed 14, buckle-v10 10, buckle-v6 / v7 36; 2 Dynamic Contour: buckle-v6 chain 6 stock 0.5, chain 13 stock 0)
+  and the full measure set of NS-7.
+- 2026-11-19 later (hs-steprule, commits 74d7343, then the docs): RESOLVED 6 / 7, root causes found with new level-5 trace lines
+  (MCCE_TRACE_SW=1, --trace-level 5, both sides: "TG" G after each trial line FUN_180017a10 - valid, sh, ent, t, lead; "AP" the
+  attach probe FUN_180023460's answer; "AU" / "AUI" the U-turn FUN_1800216c0's result and its crossings FUN_180134690; port
+  MCCE_DEBUG=4 prints each record's bits as peloader's "R" lines). The "lead" the handoff above suspected was not a trim problem: at
+  commit 384 the DLL's trial B (heading 0) had no attach at all (TG 0), ours had a U-turn lead whose arc only grazes the boundary.
+  1. Probe polarity (the 5 Dynamic Mill cases): FUN_180024d50 (l.24809-24867) returns true when its conditions hold and
+     FUN_1800236f0 (the circles along the half annulus all meet the material) returns 0 - l.24863 `return (char)uVar7 == '\0'`,
+     disasm 0x180024efe `test al,al` / 0x180024f00 `sete al`; FUN_180023460 answers 1 when it is false (l.24191). The port (and
+     mcce_engines.md "contact") had the circles test the other way round: buckle-v6 op 36 commit 5276, trial B: DLL probe 1 ->
+     offset attach + lead-in (step cut 0.031 mm, w 0.4505 = the "shortened last step"), port probe 0 -> no attach, full step.
+     Fixed (mcce_dyn.c probe, mcce_engines.md).
+  2. The U-turn arc (FUN_1800216c0 l.23196-23262) and the offset step (FUN_180025700 / 025040 / 026170 / 025f80, l.24910-25457)
+     now in the DLL's arithmetic (unnormalised tangent, centre = pointAt(step, 1) - (X, Y) x (m / |(X, Y)|), the line offset
+     (dx / L) x rho, the offset arc kept on the source arc's |r sw| >= 1e-12). Buckle-v6 Dynamic Contour chain 13 commit 385: the
+     U-turn arc grazes the boundary line (tangent to it at the step end, the segment starting 1.1e-7 mm on); the crossing moved
+     from t ~ 0 (DLL) to 5.9e-8 (ours) with a centre differing in the last bits; with the DLL's arithmetic the records are equal.
+  Result (port vs mcce.dll, tools/tests/mcce_dll_oracle.sh -n, bUseCtourGuide = 1 both): **37 / 37 Dynamic ops, all 56 engine calls
+  record for record and commit for commit** (was 32 / 37); p95 vs the stored NCI port = DLL on all 37, median 0.038 / worst 0.205
+  (buckle-v9 op 46, NOT DECODED, 9.x) - unchanged. Dynamic Contour: chain 13 stock 0 now 397 / 397; chains 0 / 1 / 17 (stock -0.4 ..
+  0.3, D 2 / 6) equal; chain 6 stock 0.5 D 6 still parts (below). Pass oracle (opcode 134): block placement 36 / 40 (unchanged),
+  same-moves sections 19 -> 21 (BRACKET4 / bracket4-dashed op 14), placement 21 / 21. Save oracle on the 21: same moves 21 / 21,
+  77179 / 77333 records within 2e-5 (the rest: the stored-only markers -4..-7 and ours-only 20020 / 20021, NOT DECODED, nci_save.md
+  5). fileop of the 205 user-part ops vs the master build: 39 / 205 differ = the 37 Dynamic ops + buckle-v6 / v7 op 29 (nci_save.md
+  7.1) - the same set as hs-dynamic; Contour / Pocket / Drill unchanged (NAKTO op 3 fails on both builds).
+- Left: buckle-v6 Dynamic Contour chain 6 stock 0.5 (D 6, depth -3): the same graze as chain 13 but decided the other way at commit
+  401 (DLL: U-turn crossing at t 7e-8, a lead; ours at t ~ 1e-14, none). Not a rule difference: the inputs of that step already differ
+  in the last bits. First bit difference: the entry ramp's last arc (record 5) sa 0x1.4079785edd011p-2 (ours) vs ...013p-2 (DLL) -
+  zprofile splits the ramp path with its own (s - acc) / l + e_sub, while FUN_18003e2f0 (l.37755-37790) walks it with FUN_18006f1c0
+  and copies sections with FUN_180147a60. Other last-bit sources remain after that (chain 13: commit 6 onward, records still equal).
+  Next if wanted: port FUN_18003e2f0's split in the DLL's arithmetic, then chase the next bit difference (MCCE_TRACE_PREC=17 commit
+  lines); a graze is decided by the last bit, so only a bit-exact march settles it.

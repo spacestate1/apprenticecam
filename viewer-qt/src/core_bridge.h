@@ -37,6 +37,8 @@ const char *qc_newer_dialog_msg(void);                 /* the Open dialog's mess
 void qc_new(void);                                     /* File > New (init_db) */
 void qc_close(void);
 int qc_save_part(const char *dst, char *msg, size_t n);   /* Mastercam part via mcam_saveops.c */
+int qc_ext_mismatch(const char *dst);   /* the part saves as 2017 content (qc_save_ext .mcam) but dst ends .mcx-9: user decision 2026-11-19 */
+const char *qc_ext_warning(void);       /* its warning text (ours, no Mastercam source) */
 const char *qc_save_ext(void);                         /* ".mcam" / ".mcx-9": the open part's version */
 int qc_loaded(void);
 const char *qc_part_path(void);

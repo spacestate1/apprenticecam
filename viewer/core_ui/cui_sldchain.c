@@ -562,8 +562,9 @@ static void ov_loop(float **pv, int *pn, int *pcap, int b, const SItem *s, const
     }
 }
 /* the selected solid topology (ps_hilight_edges -> ps_redraw_hilights -> FUN_180036fc0 with colour -1): edges in
-   sldEdge_select_color (config 5034); a face: shaded (render_cfg 3 / 4) filled in the select colour (FUN_1800bc970 -
-   NOT PORTED: the overlay draws lines), not shaded its topology as wire in sldFace_select_color (config 5035); the
+   sldEdge_select_color (config 5034); a face: shaded (render_cfg 3 / 4) its GAF Selected flag (FUN_1800bc970 -> FUN_18025b140(face,
+   2, 1): stipple list 1, scene.c draw_solid_mesh via sld_face_picked - a part solid's face; a face of a solid made here: NOT PORTED,
+   no display ranges), not shaded its topology as wire in sldFace_select_color (config 5035); the
    edge under the cursor in the select colour (5033); the pending reference face's loop and the partial loop's first
    loop as loops (sld_hilight_loop -> ps_hilight_edges: 5034) */
 int cfg_sld_edge_color = 9, cfg_sld_face_color = 12;    /* config 5034 / 5035 (mccore FUN_1801d3400: 0x13aa / 0x13ab) */
@@ -642,6 +643,30 @@ int sld_part_face_pt(int si, int f, float c[3]) {
         double nx = e1[1] * e2[2] - e1[2] * e2[1], ny = e1[2] * e2[0] - e1[0] * e2[2], nz = e1[0] * e2[1] - e1[1] * e2[0], a = nx * nx + ny * ny + nz * nz;
         if (a > best) { best = a; for (int q = 0; q < 3; q++) c[q] = (A[q] + B[q] + C[q]) / 3.f; } }
     return best >= 0;
+}
+/* the front face of a part solid under the cursor with the From back button off - sld_get_highlight_face_on_body_from_cursor
+   (mcgeomsld 0x1800bacb0: sld_select(cursor, 4 = faces) between SetSolidSelectionBackButtonChecked(0) and its old state, the first
+   hit on the body) and the solid hover of the GAF face highlight (cui_sel.c). si_only >= 0: that part solid's faces only (the body
+   asked for); -1: any solid along the ray - 1 = a part solid's face (solid, face, hp the hit point), 2 = a solid made in this
+   session in front (its faces have no display ranges here), 0 none. The hit test is this program's (N13-3, as sld_pick_part_face). */
+int sld_pick_part_face_front(float mx, float my, int si_only, int *solid, int *face, double hp[3]) {
+    int b, ix, back = sld_b_back, nb = ac_solid_nbodies(); double p[3];
+    sld_b_back = 0;
+    int k = pick(mx, my, 4, si_only >= 0 ? nb + si_only : -1, &b, &ix, p);
+    sld_b_back = back;
+    if (k != 4) return 0;
+    if (b < nb || b - nb >= F.nsolids) return b < nb ? 2 : 0;
+    *solid = b - nb; *face = ix; memcpy(hp, p, sizeof p);
+    return 1;
+}
+/* a face item of the solid chaining (kind 4) on part solid si, face f: ps_hilight_edges keeps it in the highlight list, and
+   ps_redraw_hilights -> FUN_180036fc0 -> FUN_1800bc970(face, select_color, 0, 0) -> FUN_18025b140(face, 2, 1) sets the face's GAF
+   Selected flag (shaded render_cfg 3 / 4; scene.c draw_solid_mesh: stipple list 1) */
+int sld_face_picked(int si, int f) {
+    if (!sld_mode) return 0;
+    int b = ac_solid_nbodies() + si;
+    for (int i = 0; i < nit; i++) if (it[i].kind == 4 && it[i].b == b && it[i].f == f) return 1;
+    return 0;
 }
 int sld_pick_part_solid(float mx, float my) {
     int b, ix; double p[3];

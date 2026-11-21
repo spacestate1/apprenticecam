@@ -908,6 +908,9 @@ dispatch, file drop, the risk agreement, the unsaved prompt, every phase 2-7 win
   gridclose / zoomwin / paste); Qt-only widget steps bpdlg[set] / bpodlg[set] / vcrclick / azdlg[set] / cdlgset / ldlgset /
   ecpdlg[set] / griddlgset / renameedit / keyswin (`KEY=V&KEY=V` sets several controls in one step); MCAMUI_MISCDUMP=1 (both).
   MCAMUI_CLICKTEST / MCAMUI_TEST start-up modes in viewer-qt main.cpp.
+  2026-11-19 (branch op-rename): core step oprename:N (an op's label edit, cui_misc.c op_rename_begin; ask:TEXT / askcancel end
+  it); Qt steps tpslowclick:N (the click on the selected op's label, ToolpathsManager::slowClick), renameesc (Esc in the label
+  edit), galitem:Tab@Context|Gallery|Item[#n] (a ribbon gallery item as its click runs it, MainWindow::invokeGalleryItem).
 
 ### Changed in both apps (Mastercam over mcamui, phase 8)
 1. Groups > Rename = TVM_EDITLABEL: the group's tree item becomes an edit (formats/opmanager_menu.md 3585, OnEndlabeledit

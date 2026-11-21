@@ -863,10 +863,14 @@ static void ps_arc_rec(const MB *b, int k0, int k1, double cx, double cy, int cw
     if (g_ps_narc == g_ps_carc) { g_ps_carc = g_ps_carc ? g_ps_carc * 2 : 64; g_ps_arcs = realloc(g_ps_arcs, g_ps_carc * sizeof *g_ps_arcs); }
     g_ps_arcs[g_ps_narc++] = (PsArc){ k0, k1, cx, cy, cw };
 }
+static _Thread_local MB *g_sof_mb; static _Thread_local int g_sof_v;   /* a section-start block pending for the next move of g_sof_mb (Move.sof = g_sof_v) */
 static void mv(MB *b, int rapid, double x, double y, double z, double feed) {
     if (b->n == b->cap) { b->cap = b->cap ? b->cap * 2 : 1024; b->m = realloc(b->m, b->cap * sizeof(Move)); }
-    Move *m = &b->m[b->n++]; m->rapid = rapid; m->p.x = x; m->p.y = y; m->p.z = z; m->feed = feed; m->arc = 0; m->cw = 0; m->cx = m->cy = 0; m->cc = 0; m->apl = 0; m->cz = 0; m->ctf = 0;
+    Move *m = &b->m[b->n++]; m->rapid = rapid; m->p.x = x; m->p.y = y; m->p.z = z; m->feed = feed; m->arc = 0; m->cw = 0; m->cx = m->cy = 0; m->cc = 0; m->apl = 0; m->cz = 0; m->ctf = 0; m->sof = 0;
     if (g_ps_pend && b == g_ps_mb) { g_ps_pend = 0; ps_mark_at(b->n - 1); }   /* Smoothing: the pending contour marker */
+    /* (a rapid straight up at the last point still belongs to the retract: clear_move / retract_move write only at the current XY,
+       decomp/mccore_moves.c l.8 / l.206 - the block follows them, before plunge_move's records) */
+    if (g_sof_mb == b && !(rapid && b->n >= 2 && fabs(x - b->m[b->n - 2].p.x) < 1e-9 && fabs(y - b->m[b->n - 2].p.y) < 1e-9 && z > b->m[b->n - 2].p.z)) { m->sof = g_sof_v; g_sof_mb = NULL; }
 }
 static V3 lastp(const MB *b) { return b->m[b->n - 1].p; }
 /* tag the moves [from, b->n) as one true arc of the engine (centre, direction) so the post writes it as a G2 / G3 */
@@ -1010,6 +1014,13 @@ void cam_defaults_base(CamParams *p, int type, const McamFile *f) {
     if (type == CAM_HELIX || type == CAM_CIRCLE || type == CAM_THREAD) { p->finish_n = type == CAM_THREAD ? 0 : 1; p->finish_step = 0.1; }
     if (f->ntools) cam_params_from_tool(p, &f->tools[0]);
 }
+/* contour_type 2 "Engrave" (ours, not a Mastercam Contour type: record 0x1308 holds 0 2D / 1 3D / 2 2D chamfer / 3 3D chamfer / 4 Ramp /
+   5 Remachining / 6 Oscillate; formats/audit_2026-10-26_coreui.md 1.7) was a 2D contour on the chain without leads. regen-consistency
+   2026-11-19: it is that contour in the record's own terms - Compensation Off (0x5d0 = 4 -> SIDE_ON) and Lead In/Out off (0x8f0 = 0) -
+   which the save writes and a regeneration reads; cam_cli --engrave and older projects (the sidecar's P contour_type 2) come here */
+void cam_contour_engrave_compat(CamParams *p) {
+    p->contour_type = 0; p->side = SIDE_ON; p->side_rel = 0; p->lead_on = 0;
+}
 /* a new operation: the built-in base, then Mastercam's default operation of this type (cam_fileop.c) */
 void cam_defaults(CamParams *p, int type, const McamFile *f) {
     cam_defaults_base(p, type, f);
@@ -1052,6 +1063,11 @@ int cam_type_from_label(const char *s) {
    that name in the gallery (the 3D "Project" repeats: rough 1, finish 2). */
 int cam_type_from_gallery(const char *gallery, const char *item, int occurrence) {
     (void)occurrence;
+    /* the Multiaxis galleries' items are the multiaxis toolpaths (viewer/ui/cmd_labels.tsv: Drill5axEntry "Drill", Circle5axEntry
+       "Circle Mill" ...; formats/ui_commands.tsv "Multi-Axis Toolpaths", MCUI5AX.DLL; opcodes 28 Drill 5 Axis / 113 Circle 5 Axis),
+       not the 2D types of the same name: none is ported (before 2026-11-19 Drill and Circle Mill started the 2D ops - a bug,
+       formats/new_toolpath_audit.md S1) */
+    if (gallery && strstr(gallery, "Multiaxis")) return 0;
     if (gallery && !strncmp(gallery, "3D ", 3)) {
         if (!strcasecmp(item, "OptiRough")) return CAM_OPTIROUGH;
         int mr = strstr(gallery, "3D Mill Toolpaths") || strstr(gallery, "3D Router Toolpaths");   /* the Mill and Router galleries only
@@ -1409,6 +1425,46 @@ static void ctoff_dump(const CamParams *p, const Chain *ch, const double *xy, in
 /* Infinite look ahead off (user decision D-5, 2026-11-08): only through the port; set by chain_offset when a pass needs anything else (a chain the port refuses, or
    MCCE_CTOFF=0), checked after gen_contour: the op is refused rather than cut with an offset that ignores the flag */
 static _Thread_local int g_nolook_refused;
+/* NS-3: the true arcs of the op's offset rings (ctoff_port; every result shape). Mastercam's contour pass writer emits one NCI record per
+   ctour entity of the offset - an arc entity through gr_arc_mill / ct_arc_mill (formats/nci_writer.md 1, 3; decomp/nciw/core_grmill.c,
+   core_ctarc.c) - so the moves this program cuts along a ring arc's tessellation are tagged as that arc (Move.arc: the post's G2 / G3
+   and nci_write.c's bnci_wr_arc). Reset per op (gen_contour). */
+typedef struct { double cx, cy, r, a0, sw; } CtArc;
+static _Thread_local CtArc *g_ct_arcs; static _Thread_local int g_ct_narcs, g_ct_carcs;
+static void ct_arcs_reset(void) { g_ct_narcs = 0; }
+static void ct_arcs_add(const McceEnt *x) {
+    if (g_ct_narcs == g_ct_carcs) { g_ct_carcs = g_ct_carcs ? 2 * g_ct_carcs : 64; g_ct_arcs = realloc(g_ct_arcs, (size_t)g_ct_carcs * sizeof *g_ct_arcs); }
+    g_ct_arcs[g_ct_narcs++] = (CtArc){ x->a[0], x->a[1], x->a[2], x->a[3], x->a[4] };
+}
+static int ct_on_arc(const CtArc *a, double x, double y) {           /* on the circle and inside the arc's sweep */
+    double d = hypot(x - a->cx, y - a->cy); if (fabs(d - a->r) > 1e-7 * fmax(1, a->r)) return 0;
+    if (fabs(a->sw) >= 2 * M_PI - 1e-9) return 1;
+    double t = atan2(y - a->cy, x - a->cx) - a->a0;
+    if (a->sw > 0) { while (t < -1e-9) t += 2 * M_PI; while (t > 2 * M_PI - 1e-9) t -= 2 * M_PI; return t <= a->sw + 1e-9 || t >= 2 * M_PI - 1e-9; }
+    while (t > 1e-9) t -= 2 * M_PI; while (t < -2 * M_PI + 1e-9) t += 2 * M_PI; return t >= a->sw - 1e-9 || t <= -2 * M_PI + 1e-9;
+}
+static int ct_seg_arc(const Move *u, const Move *v) {                /* the ring arc a feed move lies on, -1 = none */
+    if (v->rapid || v->arc || fabs(u->p.z - v->p.z) > 1e-9 || hypot(v->p.x - u->p.x, v->p.y - u->p.y) < 1e-12) return -1;
+    for (int i = 0; i < g_ct_narcs; i++) {
+        const CtArc *a = &g_ct_arcs[i];
+        if (!ct_on_arc(a, u->p.x, u->p.y) || !ct_on_arc(a, v->p.x, v->p.y)) continue;
+        double ta = atan2(u->p.y - a->cy, u->p.x - a->cx), tb = atan2(v->p.y - a->cy, v->p.x - a->cx), dt = tb - ta;
+        while (dt > M_PI) dt -= 2 * M_PI; while (dt < -M_PI) dt += 2 * M_PI;
+        if ((dt > 0) != (a->sw > 0)) continue;                         /* the move runs along the arc's sweep direction */
+        return i;
+    }
+    return -1;
+}
+static void ct_tag_arcs(MB *b, int from) {                           /* moves [from, b->n): runs on one ring arc tagged as that arc */
+    for (int k = from > 0 ? from : 1; k < b->n; ) {
+        int a = ct_seg_arc(&b->m[k - 1], &b->m[k]);
+        if (a < 0) { k++; continue; }
+        int j = k + 1; while (j < b->n && ct_seg_arc(&b->m[j - 1], &b->m[j]) == a) j++;
+        int id = ++g_arc_seq; if (g_arc_seq > 1000000000) g_arc_seq = 0;
+        for (int i = k; i < j; i++) { b->m[i].arc = id; b->m[i].cx = g_ct_arcs[a].cx; b->m[i].cy = g_ct_arcs[a].cy; b->m[i].cw = g_ct_arcs[a].sw < 0; }
+        k = j;
+    }
+}
 /* The contour offset through the port of MCCECalcContourOffset (mcce_ctour.c): the exact entities of the chain, the parameters of ccomp_pock
    (decomp/mccore_ccomp_pock2.c l.150-175; d > 0 = left of travel), true arcs tessellated as cam_chain_polyline does. 0 = not used (refused or switched off): the caller
    keeps the Clipper offset; 1 = *out is the offset (possibly empty). On by default (user decision D-4, 2026-11-08), MCCE_CTOFF=0 switches it off: formats/mcce_ctour_offset.md. */
@@ -1434,6 +1490,7 @@ static int ctoff_port(const CamParams *p, const Chain *ch, const double *xy, int
     if (res.refused) { if (getenv("MCCE_DEBUG")) fprintf(stderr, "ctoff: refused: %s\n", res.refused); return 0; }
     if (ch->closed && res.n && res.s[0].dir == 0) { if (getenv("MCCE_DEBUG")) fprintf(stderr, "ctoff: refused: a chain this program calls closed that MCCE treats as open (gap over chain_tol)\n"); mcce_shapes_free(&res); return 0; }   /* ours: a refusal only, the Clipper path as before */
     if (getenv("MCCE_DEBUG")) fprintf(stderr, "ctoff: ported\n");
+    for (int i = 0; i < res.n; i++) for (int k = 0; k < res.s[i].n; k++) if (res.s[i].e[k].id == 'A') ct_arcs_add(&res.s[i].e[k]);   /* NS-3 */
     if (res.n >= 1 && res.s[0].n > 0) { *nring = res.s[0].n; *ring = malloc((size_t)res.s[0].n * sizeof(McceEnt)); memcpy(*ring, res.s[0].e, (size_t)res.s[0].n * sizeof(McceEnt)); }   /* the true entities, for ctoff_set_dirs */
     /* ccomp_pock_from_ctour (decomp/mccore_ccomp_pock.c l.58-63, the caller for the Contour pass): only the first result bound (the head of ccomp_pock's list) becomes the pass (pock_bound_to_ctour); an open chain's first bound is the piece with the lowest source entity (FUN_1800cead0) */
     int npath = res.n > 1 ? 1 : res.n;
@@ -1623,7 +1680,9 @@ static CPaths chain_offset(const CamParams *p, const Chain *ch, const double *xy
     } else {
         loops.n = 1; loops.p = malloc(sizeof(CPath)); loops.p[0].n = n; loops.p[0].xy = malloc(n * 2 * sizeof(double));
         memcpy(loops.p[0].xy, xy, n * 2 * sizeof(double));
-        if (ch->closed && !p->side_rel && cl_area(&loops.p[0]) > 0) reverse_path(&loops.p[0]);   /* on the line: CW */
+        /* compensation Off: along the chain as chained, from its start - Mastercam's contour runs along the stored chain (TP_BND +0xa8
+           direction, formats/mcam.md "TP_BND", checked against Mastercam's NCI with tools/oracle.py; the side_rel path here). Was ours
+           (regen-consistency 2026-11-19, user decision 4): a closed chain without a stored direction was cut CW */
     }
     return loops;
 }
@@ -2685,6 +2744,7 @@ static void pass_cc_tag(MB *b, const CamParams *p, int first, int last) {
    from its ends; bnci_wr_ctour_marker then carries "no retract". The motion (BLOCK op 1 / 2, X9 handbook): a G1 at the depth just
    cut to the next start, then down - no retract. */
 static _Thread_local int g_pass_end = -1;                 /* b->n before the last pass's retract */
+static _Thread_local double g_pass_z = NAN;               /* the last pass's depth (Move.sof placement) */
 static _Thread_local const double *g_kd_xy; static _Thread_local int g_kd_n, g_kd_closed;   /* the chain (polyline) of the current passes */
 static int kd_seg_x(double ax, double ay, double bx, double by, double cx, double cy, double dx, double dy, double *t) {
     double rx = bx - ax, ry = by - ay, sx = dx - cx, sy = dy - cy, den = rx * sy - ry * sx; if (fabs(den) < 1e-15) return 0;
@@ -2733,6 +2793,7 @@ static void pass_retract(MB *b, const CamParams *p, double z, double zr) {
 /* one pass; returns 0 (-2: out of memory) */
 static int pass(MB *b, const CamParams *p, const CPath *c, int closed, double z, int first, int with_tabs) {
     if (c->n < 2) return 0;
+    int depth_chg = !first && !isnan(g_pass_z) && z < g_pass_z - CAM_SYS_TOL; g_pass_z = z;   /* the next, deeper cut (not a new chain's first) */
     double t0x, t0y, t1x, t1y; path_dirs(c, closed, &t0x, &t0y, &t1x, &t1y);
     if (!closed) exact_end_dirs(c, &t0x, &t0y, &t1x, &t1y);
     else ctoff_exact_dirs(c, &t0x, &t0y, &t1x, &t1y);
@@ -2759,11 +2820,17 @@ static int pass(MB *b, const CamParams *p, const CPath *c, int closed, double z,
        retract when the next start is within nc_tol of the last point) */
     if (!first && !lead_has(&qi) && b->n >= 2) {
         Move *up = &b->m[b->n - 1], *bot = &b->m[b->n - 2];
-        if (up->rapid && hypot(up->p.x - sx, up->p.y - sy) < 1e-6 && hypot(bot->p.x - sx, bot->p.y - sy) < 1e-6 && bot->p.z > z - 1e-9) {
-            b->n--; if (bot->p.z > z + 1e-9) mv(b, 0, sx, sy, z, p->plunge_feed);
+        if (up->rapid && hypot(up->p.x - sx, up->p.y - sy) < 1e-6 && hypot(bot->p.x - sx, bot->p.y - sy) < 1e-6) {   /* up or down: FUN_180045770 retracts only beyond nc_tol (decomp/mcmill_ctour.c l.6650-6667), plunge_move with the tool down feeds to the new depth either way (decomp/mccore_moves.c l.188) */
+            b->n--;
+            /* the next depth while the tool stays down: its own section-start block all the same (FUN_180045770: markers -7 -5 -4 -6 for
+               a new depth index at the same point, l.6170-6182, then wr_sof, l.6595-6634), the 1002 at the plunge's end (measured:
+               BRACKET4 op 15 "-7 -5 -4 -6 S 1002(start, next depth) 1"); a continuation at the same depth gets none (l.6162-6166:
+               -7 -6 only; BRACKET4 op 20) */
+            if (fabs(bot->p.z - z) > 1e-9) { mv(b, 0, sx, sy, z, p->plunge_feed); b->m[b->n - 1].sof = 1; }   /* (buckle-v6 op 29: up to the next chain's depth, F = plunge) */
             int c0 = b->n;
             if (adj) for (int i = 1; i < w.n; i++) mv(b, 0, w.xy[2 * i], w.xy[2 * i + 1], z, p->feed);
             else if (cut_path(b, p, c, closed, z, with_tabs) < 0) { free(w.xy); return -5; }
+            ct_tag_arcs(b, c0);   /* NS-3: the offset's true arcs (one record per ring arc) */
             { V3 e = lastp(b); if (lead_has(&qo)) lead_out(b, p, &qo, e.x, e.y, t1x, t1y, z); }
             pass_cc_tag(b, p, c0, b->n - 1);
             g_pass_end = b->n; pass_retract(b, p, z, zr);
@@ -2796,12 +2863,25 @@ static int pass(MB *b, const CamParams *p, const CPath *c, int closed, double z,
         lx = p->pt_x; ly = p->pt_y; lz = ((p->lead_xflags & 64) ? p->pt_z : ez0) - z;
     }
     if (!kd) {
+        /* the pass's section-start block (Move.sof): FUN_180045770 calls wr_sof at every pass start (decomp/mcmill_ctour.c l.6634 /
+           l.6732) after the previous pass's retract and before its approach, and cancels the queued block (cancel_q_1000, l.6774) when
+           the tool is still down at the start - the stay-down / keep-down links above, which return or set kd. The block's 1002 holds
+           the approach point (measured: A001 op 1, BRACKET4 op 12 - "-7 -6 0 0 [S 1002 (next start, approach z)] 0 0 1") */
+        int s0 = b->n;
         if (first) mv(b, 1, lx, ly, p->clearance, 0);
         else if (zr > zf) {                                    /* NCI (buckle-v12 op 13): up to the approach height first, then across */
             if (p->hz_on && b->n) { V3 e = lastp(b); if (e.z < zr - CAM_SYS_TOL) mv(b, 1, e.x, e.y, zr, 0); }
+            s0 = b->n;
             mv(b, 1, lx, ly, zr, 0);
         }
+        /* the next, deeper depth cut that starts elsewhere: the block after the traverse, before the rapid down to the feed plane (its 1002
+           = that point) - measured: BRACKET4 op 2 "-7 -5 -4 -6 0(old, 25) 0(new, 25) [S 1002 (new, 10)] 0(new, 10) 1"; a new chain (its
+           first, higher depth: BRACKET4 op 7 "-7 -5 -4 -6 0(old, 11.5) 0(old, 25) [S 1002 (new, 25)] 0(new, 25) 0(new, 10)") or the same
+           depth (A001 op 1, BRACKET4 op 12): before the traverse. Which FUN_180045770 branch orders the records so is NOT DECODED
+           (formats/nci_save.md 7) */
+        if (depth_chg && zr > zf) s0 = b->n;
         mv(b, 1, lx, ly, zf, 0);
+        if (!first && s0 < b->n) b->m[s0].sof = 1;
         if (!pa) mv(b, 0, lx, ly, z + lz, p->plunge_feed);
     }
     int c0 = b->n;
@@ -2821,6 +2901,7 @@ static int pass(MB *b, const CamParams *p, const CPath *c, int closed, double z,
     }
     if (adj) for (int i = 1; i < w.n; i++) mv(b, 0, w.xy[2 * i], w.xy[2 * i + 1], z, p->feed);   /* no tabs (gen_contour refuses them with an adjusted path) */
     else if (cut_path(b, p, c, closed, z, with_tabs) < 0) { free(w.xy); return -5; }
+    ct_tag_arcs(b, c0);   /* NS-3: the offset's true arcs (one record per ring arc) */
     V3 e = lastp(b);
     if (p->pt_out && lead_has(&qo) && (p->lead_xflags & 32) && p->lead_on && p->lead_out_on) { free(w.xy); return -6; }   /* ours: not read */
     if (lead_has(&qo) && (p->lead_xflags & 32) && p->lead_on && p->lead_out_on) {
@@ -2870,7 +2951,7 @@ int chamfer_preview(const CamParams *p, double *r_eff, double *z_tip, char *err,
    Z (local_1228) and the current depth (local_1278) */
 /* FUN_180056a70 gates on the opcode (1) alone, not the contour type (ctour_prm +0xe0): 2D and 2D chamfer alike (user decision
    2026-10-23: as Mastercam; was 2D only); Engrave is this program's type (ours, no taper) */
-static int ct_tapered(const CamParams *p) { return p->contour_type != 2 && (p->mc_depth_on || p->stepdown > 1e-6) && p->dc_taper && p->dc_taper_a > CAM_SYS_TOL; }
+static int ct_tapered(const CamParams *p) { return (p->mc_depth_on || p->stepdown > 1e-6) && p->dc_taper && p->dc_taper_a > CAM_SYS_TOL; }
 static double ct_taper_stock(const CamParams *p, double zc, double z) {
     double a = p->dc_taper_a, c = cos(a), rc = p->corner_r > 0 ? p->corner_r : 0;
     if (p->ct_tipcomp) z += rc;
@@ -3384,6 +3465,14 @@ static int ps_contour_arcs(const McamFile *f, const CamOp *op, const CamParams *
 }
 #include "cam2d_remach_gen.c"   /* Contour type 5 Remachining (formats/contour_remachining.md) */
 static int gen_contour(const McamFile *f, CamOp *op, MB *b) {
+    ct_arcs_reset();                                           /* NS-3: this op's offset arcs */
+    if (op->p.side == SIDE_ON)                                 /* on the chain: the pass is the chain itself (no offset), its arcs the chain's own */
+        for (int ci = 0; ci < op->nchains; ci++) for (int k = 0; k < op->chains[ci].n; k++) {
+            const Ent *E = &f->ents[op->chains[ci].ent[k]]; if (E->type != E_ARC) continue;
+            int r = op->chains[ci].rev[k]; McceEnt x; memset(&x, 0, sizeof x); x.id = 'A';
+            x.a[0] = E->c.x; x.a[1] = E->c.y; x.a[2] = E->r; x.a[3] = r ? E->a0 + E->sw : E->a0; x.a[4] = r ? -E->sw : E->sw;
+            ct_arcs_add(&x);
+        }
     CamParams *p = &op->p;
     g_tab_why = 0; g_tch_xy = NULL; g_tch_n = 0;
     double R = p->tool_dia / 2, zl[200];
@@ -3397,7 +3486,7 @@ static int gen_contour(const McamFile *f, CamOp *op, MB *b) {
         if (!chamfer_geometry(p, &R, &ztip, op->error, sizeof op->error)) return 0;
         if (p->side == SIDE_ON) R = 0;                         /* compensation off: the tool centre follows the chain */
         nz = 1; zl[0] = ztip;
-    } else if (p->contour_type == 2) R = 0;                     /* engrave: on the line */
+    }
     /* compensation type (record 0x5d0): the offset includes D/2 only when cc_in_computer (0 Computer, 2 Wear, 3 Reverse wear;
        FUN_18005b340 decomp/mcmill_ctour.c l.1643-1648); Control (1) cuts along the chain (+ stock / multipass spacings) */
     if (p->side != SIDE_ON && p->contour_type == 0 && p->ct_comp == 1) R = 0;
@@ -3421,7 +3510,7 @@ static int gen_contour(const McamFile *f, CamOp *op, MB *b) {
        spacing (0x8b0) + R (computer compensation) + wall stock (0x2e0; the tapered stock above with tapered walls).
        Warning 0x93b rule: depth cuts on (0x868), finish not at every depth, multipasses on, rough 0, finish > 0 -> rough 1
        at spacing 0, finish - 1. Ops made here (no record): rough 1, finish = finish_n (mcam_saveops.c writes them that way). */
-    CamParams q = *p; if (p->contour_type == 2) { q.side = SIDE_ON; q.lead_on = 0; q.lead_r = q.lead_len = q.lead_xr = q.lead_xlen = 0; }
+    CamParams q = *p;
     CamParams pr = q;                                          /* per pass: which side the leads go (chain_offset) */
     p = &pr;
     /* 3D chains (check_chains_3d sets ctour_3d for the whole op when one chain is not flat): Remachining first (bnci_ctour l.400), then
@@ -3442,7 +3531,7 @@ static int gen_contour(const McamFile *f, CamOp *op, MB *b) {
     if ((pr.ct_rtype == 1 || pr.ct_rtype == 3) && (pr.tabs > 0 || (pr.lead_on && (pr.mc_lead_dz[0] > 0 || pr.mc_lead_dz[1] > 0 || pr.mc_lead_dz[2] > 0 || pr.mc_lead_dz[3] > 0)))) {
         snprintf(op->error, sizeof op->error, "contour type 3D / 3D chamfer on flat chains with tabs or lead heights: the link height test of 3D types (FUN_180045770 l.6672) is not ported"); return 0; }
     if (pr.ct_rtype == 5 && pr.contour_type == 0) return gen_remach(f, op, b, &pr, zl, nz);   /* bnci_ctour -> FUN_1800550c0 */
-    if (pr.ct_rtype != 0 && pr.ct_rtype != 1 && pr.ct_rtype != 2 && pr.ct_rtype != 3 && pr.ct_rtype != 4 && pr.ct_rtype != 6 && pr.contour_type != 2) {   /* Remachining */
+    if (pr.ct_rtype != 0 && pr.ct_rtype != 1 && pr.ct_rtype != 2 && pr.ct_rtype != 3 && pr.ct_rtype != 4 && pr.ct_rtype != 6) {   /* Remachining */
         static const char *tn[7] = { "2D", "3D", "2D chamfer", "3D chamfer", "Ramp", "Remachining", "Oscillate" };
         snprintf(op->error, sizeof op->error, "contour type %s: its engine is NOT DECODED here (not generated)", pr.ct_rtype >= 0 && pr.ct_rtype < 7 ? tn[pr.ct_rtype] : "?");
         return 0; }
@@ -3717,6 +3806,9 @@ static int gen_contour(const McamFile *f, CamOp *op, MB *b) {
     if (!any) { snprintf(op->error, sizeof op->error, "no usable chains"); return 0; }
     if (!b->n) { snprintf(op->error, sizeof op->error, "Tab Cutoff: no tab to cut off"); return 0; }   /* the 0x82 op without a span (ours: an empty NCI) */
     V3 e = lastp(b); mv(b, 1, e.x, e.y, p->clearance, 0);
+    /* user decision NS-4: the standard 2D contour (type 2D, not chamfer / engrave / ramp / oscillate / 3D / remachining, no Tab Cutoff
+       passes) went through pass(), whose Move.sof follows FUN_180045770's blocks (formats/nci_save.md 7): its NCI may be saved */
+    op->nci_blocks = pr.ct_rtype == 0 && pr.contour_type == 0 && !p->ct_cutoff_op && tcut == 0;
     return 1;
 }
 
@@ -4043,7 +4135,7 @@ static int cam_generate_op(const McamFile *f, CamOp *op) {
     op->error[0] = 0; op->filtered = 0; op->warning[0] = 0;
     g_ps_mb = NULL; g_ps_nmk = g_ps_narc = 0; g_ps_map = g_ps_arc = g_ps_pend = 0;   /* Smoothing: set by gen_contour */
     { const McSysTol *st = mc_systol_units(mcam_is_metric(f)); g_nc_tol = st->nc_tol; g_min_arc = st->min_arc_length; }
-    free(op->m); op->m = NULL; op->nm = 0; op->gen_units = mcam_is_metric(f) + 1;
+    free(op->m); op->m = NULL; op->nm = 0; op->gen_units = mcam_is_metric(f) + 1; op->nci_blocks = 0;
     if (!(op->p.tool_dia > 0)) { snprintf(op->error, sizeof op->error, "tool diameter must be > 0"); return 0; }
     {   /* depths: finite, and within the 200 levels the engines hold (more would silently enlarge the step) */
         const CamParams *q = &op->p;
@@ -4214,7 +4306,7 @@ static void cam_v3(int id, const double org[3], V3 *q) { double w[3] = { q->x, q
 static double (*lf_made_out)[3]; static int *lf_nmade_out;   /* cam_lface_points: where the face points GetFaceBoundaryFromStock made go */
 static int gen_lathe_face(const McamFile *f, CamOp *op) {
     const CamParams *p = &op->p; const Op *fo = NULL;
-    free(op->m); op->m = NULL; op->nm = 0; op->error[0] = 0; op->warning[0] = 0; op->filtered = 0; op->gen_units = mcam_is_metric(f) + 1;
+    free(op->m); op->m = NULL; op->nm = 0; op->error[0] = 0; op->warning[0] = 0; op->filtered = 0; op->gen_units = mcam_is_metric(f) + 1; op->nci_blocks = 0;
     if (p->file_op_id > 0) for (int i = 0; i < f->nops; i++) if (f->ops[i].id == p->file_op_id && f->ops[i].raw) { fo = &f->ops[i]; break; }
     /* a new op (formats/lathe.md 7.1): lathe_face (mclathe 0x1801a3290) -> init_operation(op, 0x42) = InitOperation's default_ops_get:
        the lathe defaults file's Face record (cam_lathe_default_record); with an earlier Face in the group and config 17028 "Get defaults
@@ -4855,8 +4947,13 @@ int cam_load_ops_ord(const char *path, McamFile *mf, CamOp ***ops_out, int **ord
             cur->p.lead_sw_rec = 0;                            /* the sweeps are the sidecar's keys (0 = a quarter); record patches
                                                                   set the bits again (cam_params_from_patches; cam2d.h) */
             cam_lead_sidecar_compat(&cur->p);                  /* files with one lead for both sides (cam_fileop.c) */
+            if (cur->p.type == CAM_CONTOUR && cur->p.contour_type == 2) cam_contour_engrave_compat(&cur->p);   /* older projects' "Engrave" contours */
             cam_params_from_patches(&cur->p);                  /* the op dialog's record edits (cam_fileop.c; none in older files) */
-            if (!bad && cam_generate(mf, cur)) {
+            /* S3 (formats/new_toolpath_audit.md, user answer Q5): an op whose generation fails is kept, dirty, with its error and no
+               moves - Mastercam keeps every operation of a part as its record (with its dirty flag op +0x94 = record +0xfc: InitTvItem's
+               red X, DirtyOperationWarning; mcam_load.c) and never computes one on open. Missing references (bad) still drop it (ours) */
+            if (!bad) {
+                if (!cam_generate(mf, cur)) { free(cur->m); cur->m = NULL; cur->nm = 0; cur->dirty |= CAM_DIRTY_PARAMS; }
                 ops = xrealloc(ops, (n + 1) * sizeof(CamOp *));
                 if (ord) { *ord = xrealloc(*ord, (n + 1) * sizeof(int)); (*ord)[n] = nth; }
                 ops[n++] = cur;

@@ -16,6 +16,7 @@ int cam_solid_face_loops(const McamFile *f, int idn, XtEdge **out, int *loop_n, 
 int cam_defaults_from_file(CamParams *p, int type, int metric, const Tool *tool);
 /* the raw OP_ID record of that default operation (NULL if the defaults file is not readable); *n = its length */
 const uint8_t *cam_default_op_record(int type, int metric, uint32_t *n);
+int cam_fileop_type3d(const Op *o);   /* a stored op of a 3D port's code -> its port type (op 132 by style 0x16bc), 0 = none */
 /* a new lathe op (formats/lathe.md 7.1): InitOperation's default_ops_get - the first op of OPCODE in the shared LATHE_INCH / LATHE_MM
    .mcam-defaults (lathe/Ops; the lathe group's control names it, OpDfltsFile) or in the file cam_lathe_defaults_set gave (cam_cli
    --lathe-defaults); NULL when none. *n = its length (the 2017 OP_ID record, 0x2938) */

@@ -15,6 +15,18 @@
 static double s_f64(const uint8_t *S, int o) { double v; memcpy(&v, S + o, 8); return v; }
 #define S_F64(o) s_f64(in->S, (o))
 
+/* x87 transcendentals as EStamp7.exe's Delphi RTL computes them: Cos = 0x403350 (fldt; fcos), Sin = 0x403360 (fldt; fsin),
+ * ArcTan = 0x403370 (fldt; fld1; fpatan), Sqrt = 0x403380 (fldt; fsqrt), argument and result extended. glibc's sinl / cosl
+ * on x86-64 are not fsin / fcos (they differ in the last bit for ~12 % of f32 arguments), atanl is fpatan and sqrtl is
+ * correctly rounded like fsqrt. Other targets fall back to libm (last-bit differences possible). */
+#if (defined(__GNUC__) || defined(__clang__)) && (defined(__x86_64__) || defined(__i386__))
+static long double x87_cos(long double x) { long double r; __asm__("fcos" : "=t"(r) : "0"(x)); return r; }
+static long double x87_sin(long double x) { long double r; __asm__("fsin" : "=t"(r) : "0"(x)); return r; }
+#else
+static long double x87_cos(long double x) { return cosl(x); }
+static long double x87_sin(long double x) { return sinl(x); }
+#endif
+
 static void seterr(char *err, size_t errn, const char *msg) { if (err && errn) snprintf(err, errn, "%s", msg); }
 
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -58,21 +70,64 @@ int engrave_setup(const EngraveIn *in, EgEstDat *e, EgLink *lk, char *err, size_
     double zclr = S_I32(0x3c) == 0 ? z0 + S_F64(0x48) : ztop + S_F64(0x48);            /* +0x33d8 */
     double zret = S_I32(0x40) == 0 ? z0 + S_F64(0x50) : ztop + S_F64(0x50);            /* +0x33e0 */
     double depth = ztop - zdep, fly = zfeed - ztop;                                     /* row +0x10 / +0x18 */
-    /* tool geometry (heights.c l.40-77): types 12 / 21 tip radius = tip dia / 2, angle = tool angle, major r = dia / 2 */
+    /* tool rows, heights FUN_18001bb30 (heights.c l.40-77): types 12 / 21 (Chamfer Mill / Engrave Tool) tip radius = tip dia / 2,
+       angle = tool angle, major r = dia / 2; type 13: tip r = dia / 2, angle = tool angle, major r = tool +0x3058 / 2 (the tip diameter
+       field); type 17: major r from tool +0x2ef0 (a tool field not read here: refused); every other type tip r = dia / 2 and, with
+       "Angle for flat cutter offset" S+0xd8 != 0, angle = S+0xd8 and major r = 100 x dia / 2. These rows feed the depth warning only;
+       the engine gets a mwEngraveChamferMill (12 / 21: the row) or a mwEngraveEndMill (every other type: diameter = 2 x row tip r,
+       regen dll l.17079-17090) whose core tool FUN_18004ee60 takes the angle from S+0xd8 (T+0x68), not from the tool */
     double tip_r, ang, major_r;
-    if (in->tool_type == 12 || in->tool_type == 21) { tip_r = in->tool_tip_dia * 0.5; ang = in->tool_angle; major_r = in->tool_dia * 0.5; }
-    else if (in->tool_type == 13 || in->tool_type == 17) {
-        seterr(err, errn, "engrave: tool types 13 / 17 (their major radius uses tool fields not read here) are not ported"); return 0;
-    } else if (fabs(S_F64(0xd8)) >= 1e-12) { tip_r = in->tool_dia * 0.5; ang = S_F64(0xd8); major_r = in->tool_dia * 0.5 * 100.0; }
+    int chamfer = in->tool_type == 12 || in->tool_type == 21;
+    if (chamfer) { tip_r = in->tool_tip_dia * 0.5; ang = in->tool_angle; major_r = in->tool_dia * 0.5; }
+    else if (in->tool_type == 17) {
+        seterr(err, errn, "engrave: tool type 17 (its depth check uses tool +0x2ef0, a field not read here) is not ported"); return 0;
+    } else if (in->tool_type == 13) { tip_r = in->tool_dia * 0.5; ang = in->tool_angle; major_r = in->tool_tip_dia * 0.5; }
+    else if (fabs(S_F64(0xd8)) >= 1e-12) { tip_r = in->tool_dia * 0.5; ang = S_F64(0xd8); major_r = in->tool_dia * 0.5 * 100.0; }
     else { tip_r = in->tool_dia * 0.5; ang = 0; major_r = in->tool_dia * 0.5; }
-    if (depth <= 0) { seterr(err, errn, "engrave: the current top of stock or depth values are invalid (engraveres 15)"); return 0; }
-    if (tip_r * (in->metric ? 1 : 25.4) <= 1e-4) { seterr(err, errn, "engrave: the tip diameter can not be zero (engraveres 16)"); return 0; }
-    if (ang != 0 && (major_r - tip_r) / tan(ang * M_PI / 180) < depth) {
-        seterr(err, errn, "engrave: conical part of tool is too short for the given cutting depth (dialog 1808 not ported)"); return 0;
+    /* the depth warning (dialog 1808), heights.c l.163-201: angle != 0 and the cone shorter than the depth. The radii are the tool's,
+       the depth the part's (both x25.4 there for inch: the comparison is unit-free for a tool in part units) */
+    if (ang != 0 && (major_r - tip_r) / tan(ang * 0.01745329251994329) < depth) {
+        double dmax = (major_r - tip_r) / tan(ang * 0.01745329251994329);
+        if (in->dwarn == 1) {                           /* "Use the maximum depth": +0x10 = max, DAT_1806da110 = -max (regen l.17262-17275):
+                                                           the engine depth and the toolpath depth both = max. Mastercam keeps the globals for
+                                                           later regenerations: ours, user decision E-DW2 - this regeneration only */
+            depth = dmax; zdep = ztop - dmax;
+        } else if (in->dwarn == 3) {
+            /* "Ignore warning": DAT_1806da108 = 1 -> P+0x6f, FUN_18004abf0 skips error 14 */
+        } else if (in->dwarn == 2) {
+            seterr(err, errn, "Conical part of tool is too short for the given cutting depth");   /* "Return ...": exception 14 -> engraveres 182 (MWMSGMAP) */
+            return 0;
+        } else {
+            snprintf(err, errn, "The maximum depth of cut for this tool is %.4f (engraveres dialog 1808: the depth warning was not answered)", dmax);
+            lk->dwarn_need = 1; lk->dwarn_max = dmax;
+            return 0;
+        }
     }
-    if (S_I32(0x90)) { seterr(err, errn, "engrave: remachining is not ported"); return 0; }
-    if (S_I32(0xe4) == 1) { seterr(err, errn, "engrave: wrapping is not ported"); return 0; }
-    if (fabs(S_F64(0xc8)) > 1e-12) { seterr(err, errn, "engrave: XY stock to leave (its tool-radius adjustment) is not ported"); return 0; }
+    /* heights.c l.203-216: messages 0x2a3c / 0x2a3d = MODULEWORKS 10812 / 10813 -> engraveres 14 / 15 (MWMSGMAP); the tip radius in mm */
+    if (depth <= 0) { seterr(err, errn, "The current top of stock or depth values are invalid"); return 0; }
+    if (tip_r * (in->metric ? 1 : 25.4) <= 1e-4) { seterr(err, errn, "The tip diameter can not be zero"); return 0; }
+    if (S_I32(0x90) && S_I32(0xbc) == 0) {   /* "Previous operation": FUN_18001abd0 takes the tool of FUN_180219960's operation - which one is NOT DECODED */
+        seterr(err, errn, "engrave: remachining from the previous operation is not ported (FUN_180219960's choice of the operation is NOT DECODED; formats/engrave.md 3.4)"); return 0; }
+    /* remachining with the roughing tool: verified bit for bit against estamp7.exe under Wine (tools/tests/engrave_remach.sh, 36 / 36,
+       formats/engrave.md 3.4; user decision EG-2) - no gate */
+    if (S_I32(0xe4) == 1) { seterr(err, errn, "engrave: wrapping is not ported (formats/engrave.md 5a: 4 / 5 axis output)"); return 0; }
+    /* the engine tool = mwEngraveCoreTool (FUN_18002ddd0): end mill FUN_18004ee60 / chamfer mill FUN_18004ed10 (the visitor
+       mwEngraveCoreToolCreator, vtable 0x1804e0020) over the defaults of FUN_18002dcb0; then FUN_18004abf0 (via FUN_18004ab60, the
+       CoreParams ctor FUN_18002d970) adds the XY stock to leave T+0x60 = S+0xc8 (part units) to the tip and the major radius */
+    if (!chamfer) {                                     /* the end mill's core tool (FUN_18004ee60) */
+        if (fabs(S_F64(0xd8)) >= 1e-12) { ang = S_F64(0xd8); major_r = tip_r * 100.0; } else { ang = 0; major_r = tip_r; }
+    }
+    double stock = S_F64(0xc8), r_ov = tip_r;          /* r_ov: mwEngraveTool +0x10 / 2 (end mill: dia, chamfer: tip dia; regen l.16994-17090) */
+    if (stock < -10000000000.0) stock = 0;             /* T ctor FUN_18002eb10 */
+    if (fabs(stock) > 1e-12) {
+        tip_r += stock; major_r += stock;
+        if (tip_r <= 1e-12 || major_r <= 1e-12) { seterr(err, errn, "This negative stock to leave value is not allowed, it invalidates one of the input tools"); return 0; }   /* error 13 -> engraveres 181 */
+    }
+    if (ang != 0 && in->dwarn != 3 && (major_r - tip_r) / tan(ang * 0.01745329251994329) < depth - 1e-12) {
+        seterr(err, errn, "Conical part of tool is too short for the given cutting depth"); return 0;   /* FUN_18004abf0 error 14 -> 182 */
+    }
+    if (depth <= 1e-12) { seterr(err, errn, "The current top of stock or depth values are invalid"); return 0; }   /* error 15 -> 183 */
+    if (tip_r <= 0.000100000001) { seterr(err, errn, "The tip diameter can not be zero"); return 0; }               /* error 16 -> 184 (part units) */
 
     /* EST_DAT [Parameter] (FUN_18004f870, decomp/engrave/strrefs1.c l.19-648; constants FUN_18002d970 core4.c l.1023-1046) */
     e->bahnopt = S_U8(0x13) != 0;
@@ -81,6 +136,8 @@ int engrave_setup(const EngraveIn *in, EgEstDat *e, EgLink *lk, char *err, size_
     e->round_angle = S_I32(0xd0) == 1 ? 20.0 : 150.0;   /* P+0xe8 = (S+0xd0 == 1): Sharp 20, None 150 */
     e->conventional = S_U8(0x00) != 0;
     e->overlap = S_F64(0x08);
+    if (fabs(stock) > 1e-12)                            /* P ctor -> FUN_18004aea0 (core6.c l.307-330): the overlap for the stock-enlarged tool */
+        e->overlap = 100.0 - ((100.0 - e->overlap) / 100.0 * r_ov * 100.0) / (r_ov + stock);
     e->datacheck = 1; e->start_inside = 1; e->connect_lines = 1; e->abr_merge = 0; e->abr_round = 0;
     e->blockwise = S_I32(0x9c) + 1;     /* P+0x68: 0 -> 1, 1 -> 2, 2 -> 3 */
     e->abr_first = S_U8(0x10) != 0;
@@ -90,18 +147,39 @@ int engrave_setup(const EngraveIn *in, EgEstDat *e, EgLink *lk, char *err, size_
     /* [Werkzeuge]: one tool (FUN_180050fd0, strrefs1.c l.652-1040) */
     e->ntools = 1;
     EgEstTool *t = &e->tool[0];
-    snprintf(t->name, sizeof t->name, "%s", "ENGRAVE");
+    snprintf(t->name, sizeof t->name, "%s", "ausspitzen");   /* LName: the CoreTool default name (FUN_18002dcb0), kept by FUN_18004ed10 / ee60 */
     t->depth = f * depth; t->fly = f * fly; t->tip_r = f * tip_r; t->angle = ang; t->shank_r = f * major_r;
-    t->feed = in->feed; t->plunge = in->plunge; t->rpm = in->rpm; t->change = 1;
-    /* KorrekturVerf = W.surface (S+0x20) ? core tool +0x94 : 0 "2D". The value of +0x94 is NOT DECODED (FUN_18004ed10 ->
-       FUN_18002ddd0); "2D3D" for a V tool is what the shipped EST_DAT.TXT sample and the coaster op 2 NCI (3D corner moves) show. */
-    if (S_U8(0x20)) {
-        if (ang == 0) { seterr(err, errn, "engrave: KorrekturVerf for 'on top' with a 0 deg tool is not decoded"); return 0; }
-        t->korr = '3';
-    } else t->korr = '2';
+    t->feed = 1.0; t->plunge = 0.8; t->rpm = 30000.0; t->change = 1;   /* LVorschub / LEintVorschZ / LSpindelDreh / LWechselStat: the
+                                       CoreTool defaults FUN_18002dcb0 (+0x78 / +0x80 / +0x88 / +0x90), kept by FUN_18004ed10 / ee60 (the shipped
+                                       EST_DAT.TXT: 1 / 0.8 / 30000 / 1); the op's feeds reach the moves only (eg_lg1_to_moves) */
+    /* KorrekturVerf = W.surface (S+0x20 "on top") ? core tool +0x94 : 0 (FUN_180050fd0 dll l.57005-57040: 0 2D, 1 2D3D, 2 3D, 3 Ecke).
+       +0x94: chamfer mill FUN_18004ed10 = the default 1; end mill FUN_18004ee60 = 1 when the flat-cutter angle |S+0xd8| < 1e-12, else 0
+       (disassembly 0x18004eecb-0x18004ef1d, decomp/engrave/full/dis_tools.txt) */
+    if (S_U8(0x20)) t->korr = (chamfer || fabs(S_F64(0xd8)) < 1e-12) ? '3' : '2';
+    else t->korr = '2';
     t->layers = S_I32(0xa0) ? S_I32(0xa8) : 1;
     t->split = S_I32(0xac) == 1 ? 'V' : 'L';
     t->ramp = S_I32(0xa4) ? S_F64(0xb0) : 90.0;
+    if (S_I32(0x90)) {
+        /* remachining, roughing tool S+0xbc = 1 (formats/engrave.md 3.4): the tool list of FUN_1800525b0 (dll l.57598-57725). The
+           remachining tool = mwEngraveChamferMill of the heights BIGTOOL row (regen dll l.17195-17210): tip r = S+0x88 / 2, angle S+0x80,
+           major r = S+0x78 / 2 (CoreParams +0x148; no XY stock). The op tool T (CoreParams +0xa8, with the stock) three times; tip r of T
+           == 0 or BIGTOOL tip r / T tip r >= 2.499999999999: entry 1 = T with calc type 3 (Ecke), 3 tools; else 2 tools. The last entry =
+           "BIGTOOL" (T's depth / fly, BIGTOOL radii and angle, +0x78 1, +0x80 0.8, +0x88 30000, +0x90 2, +0x94 1). Without "Finish after
+           remachining" (S+0xe0) a 3-tool list drops entry 0 */
+        double btip = S_F64(0x88) * 0.5, bang = S_F64(0x80), bmaj = S_F64(0x78) * 0.5;
+        int three = fabs(tip_r) <= 1e-12 || btip / tip_r >= 2.499999999999;
+        EgEstTool T = *t, E = *t, B = *t;
+        E.korr = S_U8(0x20) ? 'E' : '2';               /* calc 3 -> "Ecke" on top, 2D at depth (FUN_180050fd0) */
+        snprintf(B.name, sizeof B.name, "%s", "BIGTOOL");
+        B.tip_r = f * btip; B.angle = bang; B.shank_r = f * bmaj; B.change = 2;
+        B.korr = S_U8(0x20) ? '3' : '2';
+        int n = 0;
+        if (!three) { e->tool[n++] = T; e->tool[n++] = B; }
+        else { if (S_U8(0xe0)) e->tool[n++] = T; e->tool[n++] = E; e->tool[n++] = B; }
+        e->ntools = n; t = &e->tool[0];
+        lk->remach = 1;
+    }
     /* [Berechnung] */
     if (!S_U8(0x11)) e->abr = 'K';
     else { int rt = S_I32(0x14); if (rt == 4) rt = 1; e->abr = rt == 0 ? 'Z' : rt == 1 ? 'Y' : rt == 2 ? 'C' : 'D'; }
@@ -123,6 +201,13 @@ int engrave_setup(const EngraveIn *in, EgEstDat *e, EgLink *lk, char *err, size_
     lk->p180 = in->op141 != 0;
     lk->feed = in->feed; lk->plunge = in->plunge; lk->retract = in->retract;
     return 1;
+}
+
+int engrave_depth_warning(const EngraveIn *in, double *dmax) {
+    EngraveIn q = *in; q.dwarn = 0; EgEstDat e; EgLink lk; char err[200];
+    engrave_setup(&q, &e, &lk, err, sizeof err);
+    if (dmax) *dmax = lk.dwarn_max;
+    return lk.dwarn_need;
 }
 
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -150,6 +235,7 @@ int eg_lg1_to_moves(const EgResult *r, const EgLink *lk, Move **m, int *nm) {
     double cur[3] = { 0, 0, 0 }, prev[3] = { 0, 0, 0 }, pxy[2] = { 0, 0 };
     double fsel = lk->feed;
     for (int t = 0; t < r->n; t++) {
+        if (lk->remach && !strncmp(r->tp[t].name, "BIGTOOL", 7)) continue;   /* FUN_180041910: P+0x98 and the LG1 header name "BIGTOOL" (FUN_180055180) */
         const EgRecs *R = &r->tp[t].rec;
         for (int i = 0; i < R->n; i++) {
             const EgRec *q = &R->r[i];
@@ -281,6 +367,8 @@ typedef struct {
 /* port-only codes (no engine equivalent) */
 #define EG_OFF_ERR_INPUT (-1001) /* inconsistent precomputed input */
 #define EG_OFF_ERR_NOMEM (-1002)
+#define EG_OFF_ERR_UNDEF (-1003) /* variable mode reads undefined heap (B beyond what was written) or overruns
+                                    one of its medium blocks: NOT DECODED, refused */
 
 void eg_recs_free(EgRecs *a);
 
@@ -352,18 +440,18 @@ static void line_axis(Line *l)
 {
     if (fabs(l->dx) <= fabs(l->dy)) {
         l->flag = 1;
-        l->slope = (l->dy == 0.0) ? 0.0f : (float)(l->dx / l->dy);
+        l->slope = (l->dy == 0.0) ? 0.0f : (float)((long double)l->dx / l->dy);   /* x87 fdiv, fstps (dis 4fbe49-4fbe54) */
     } else {
         l->flag = 0;
-        l->slope = (l->dx == 0.0) ? 0.0f : (float)(l->dy / l->dx);
+        l->slope = (l->dx == 0.0) ? 0.0f : (float)((long double)l->dy / l->dx);   /* (dis 4fbe1e-4fbe29) */
     }
 }
 
 /* FUN_004fbe68 @ 52929: direction := (x,y) - start */
 static void line_to(Line *l, double x, double y)
 {
-    l->dx = x - l->x0;
-    l->dy = y - l->y0;
+    l->dx = (double)((long double)x - l->x0);   /* fldl; fsubl; fstpl (dis 4fbe68-4fbe78) */
+    l->dy = (double)((long double)y - l->y0);
     line_axis(l);
 }
 
@@ -371,11 +459,13 @@ static void line_to(Line *l, double x, double y)
  * on a.  Returns 0 (and leaves *px,*py untouched) when parallel. */
 static int line_isect(const Line *a, const Line *b, double *px, double *py)
 {
-    double den = a->dx * b->dy - a->dy * b->dx;               /* @53020 */
+    /* x87 extended (dis 4fbf6b-4fbfc1): den and t are stored as doubles ([ebp-0x10], [ebp-8]), the products and the
+       point are formed in extended and stored as doubles */
+    double den = (double)((long double)a->dx * b->dy - (long double)a->dy * b->dx);   /* @53020 */
     if (den == 0.0) return 0;
-    double t = ((b->x0 - a->x0) * b->dy - (b->y0 - a->y0) * b->dx) / den;
-    *px = t * a->dx + a->x0;                                  /* @53026 */
-    *py = t * a->dy + a->y0;
+    double t = (double)((((long double)b->x0 - a->x0) * b->dy - ((long double)b->y0 - a->y0) * b->dx) / den);
+    *px = (double)((long double)t * a->dx + a->x0);           /* @53026 */
+    *py = (double)((long double)t * a->dy + a->y0);
     return 1;
 }
 
@@ -383,44 +473,55 @@ static int line_isect(const Line *a, const Line *b, double *px, double *py)
  * side 0 -> (dy,-dx) (right of travel), side != 0 -> (-dy,dx). */
 static void normal_off(const Line *l, int side, double dist, double *ox, double *oy)
 {
-    double k = dist / sqrt(l->dx * l->dx + l->dy * l->dy);
-    if (side == 0) { *ox = l->dy * k;  *oy = -l->dx * k; }
-    else           { *ox = -l->dy * k; *oy = l->dx * k; }
+    /* dis 4fbff9-4fc050: dx^2 + dy^2 in extended, Sqrt (0x403380) on the extended, dist / it stored as a double k,
+       the components (extended products) stored as doubles */
+    double k = (double)((long double)dist / sqrtl((long double)l->dx * l->dx + (long double)l->dy * l->dy));
+    if (side == 0) { *ox = (double)((long double)l->dy * k);  *oy = (double)(-(long double)l->dx * k); }
+    else           { *ox = (double)(-(long double)l->dy * k); *oy = (double)((long double)l->dx * k); }
 }
 
 /* FUN_005017c0 @ 57481: P inside the extent of m along its dominant axis,
  * slack DAT_005018dc = 1e-6 (TBYTE). */
 static int in_extent(double px, double py, const Line *m)
 {
+    /* dis 5017c0-5018d7, all in x87 extended, e = TBYTE@5018dc (= 1e-6L, bytes b6696caf05bd3786eb3f):
+       d < 0:  (e + o) > p  and  ((o + d) - e) < p      (5017f6-50181d / 50186e-501895)
+       d >= 0: (o - e) < p  and  ((o + d) + e) > p      (50182c-501853 / 5018a1-5018c8) */
     const long double e = 1e-6L;
     long double p = m->flag ? py : px;
     long double o = m->flag ? m->y0 : m->x0;
     long double d = m->flag ? m->dy : m->dx;
-    if (d >= 0.0L)
-        return !((p <= o - e) || (e + o + d < p));
+    if (!(d >= 0.0L))
+        return (e + o > p) && ((o + d) - e < p);
     else
-        return !((e + o <= p) || (p <= (o + d) - e));
+        return (o - e < p) && ((o + d) + e > p);
 }
 
 /* FUN_00501d80 @ 57754: clamp P to the segment s along its dominant axis */
 static void clamp_to_seg(double *px, double *py, const Line *s)
 {
-    double p = s->flag ? *py : *px;
-    double o = s->flag ? s->y0 : s->x0;
-    double d = s->flag ? s->dy : s->dx;
+    /* dis 501d80-501ebc: o + d is formed in x87 extended (fldl; faddl) and compared with p; the end point is stored as
+       (double)(x0 + dx), (double)(y0 + dy) (fstpl) */
+    long double p = s->flag ? *py : *px;
+    long double o = s->flag ? s->y0 : s->x0;
+    long double d = s->flag ? s->dy : s->dx;
     int to_end = 0, to_start = 0;
-    if (d >= 0.0) {
+    if (d >= 0.0L) {
         if (o <= p) { if (o + d < p) to_end = 1; }
         else to_start = 1;
     } else {
         if (p <= o) { if (p < o + d) to_end = 1; }
         else to_start = 1;
     }
-    if (to_end)   { *px = s->x0 + s->dx; *py = s->y0 + s->dy; }
+    if (to_end)   { *px = (double)((long double)s->x0 + s->dx); *py = (double)((long double)s->y0 + s->dy); }
     if (to_start) { *px = s->x0;         *py = s->y0; }
 }
 
 /* ------------------------------------------------------------------ */
+/* variable mode buffers (dis 501f9a-501ff4): B = GetMem(0x1a000) of 25-byte records, the four crossing arrays GetMem(0x20000)
+   of 16-byte points each - all FastMM medium blocks; beyond them the original writes into foreign heap: refused */
+#define VAR_BCAP (0x1a000 / 25)
+#define VAR_XCAP (0x20000 / 16)
 /* FUN_00501ec4 state (frame locals of the original) */
 typedef struct { double x, y, dx, dy; float d; } Elem;   /* 0x2e stride, buf local_6e8 */
 typedef struct { double x, y; } Pt;
@@ -454,10 +555,12 @@ static void w_main(Core *c, int tag, double x, double y, double z)
 /* FUN_00501c18 @ 57697: second writer (param_1 file), float tolerance */
 static void w_var(Core *c, int tag, double x, double y, double z)
 {
+    /* dis 501c18-501d7d: buffer empty (count -0x6b2 == 0, only before the first record: a full buffer of 0x400 is flushed
+       keeping its last record) -> write; else |last f32 - new double| in x87 extended compared with the f32 tolerance */
     float fx = (float)x, fy = (float)y;
     if (c->out_var->n == 0 ||
-        c->var_tol < fabsf(c->var_lx - fx) ||
-        c->var_tol < fabsf(c->var_ly - fy)) {
+        (long double)c->var_tol < fabsl((long double)c->var_lx - x) ||
+        (long double)c->var_tol < fabsl((long double)c->var_ly - y)) {
         if (!recs_push(c->out_var, tag, fx, fy, (float)z)) { c->nomem = 1; return; }
         c->var_lx = fx; c->var_ly = fy;
     }
@@ -502,6 +605,7 @@ int eg_offset_core(const EgOffsetPre *pre, EgRecs *out_main, EgRecs *out_var,
     Pt *Ad8 = NULL, *Adc = NULL, *Ae0 = NULL, *Ae4 = NULL;
     int cd8 = 0, cdc = 0, ce0 = 0, ce4 = 0;
     int n708 = 0, n70c = 0;                    /* down / up crossing counts */
+    int Bhw = 0;                               /* records of B written so far in this call */
     double Px = 0.0, Py = 0.0;                 /* local_ad4 / local_acc */
     double z933 = 0.0;                         /* local_933 */
     double offx = 0.0, offy = 0.0;             /* local_ae4 / local_adc */
@@ -543,9 +647,9 @@ int eg_offset_core(const EgOffsetPre *pre, EgRecs *out_main, EgRecs *out_var,
         }
         if (n > 0) n--;                        /* @58180: number of intervals */
         if (n == 0) {                          /* @58183-58194, dis 50235f-5023bd */
-            float f = (float)((S.flag ? S.dy : S.dx) * 1000.0);
-            E[1].x = S.dx / f + E[0].x;
-            E[1].y = S.dy / f + E[0].y;
+            float f = (float)((long double)(S.flag ? S.dy : S.dx) * 1000.0f);   /* fldl; fmuls 0x503774 (1000.0f); fstps */
+            E[1].x = (double)((long double)S.dx / f + E[0].x);   /* x87, fstpl (502386-5023b3) */
+            E[1].y = (double)((long double)S.dy / f + E[0].y);
             E[1].d = E[0].d;
             n = 1;
         }
@@ -585,9 +689,9 @@ int eg_offset_core(const EgOffsetPre *pre, EgRecs *out_main, EgRecs *out_var,
                         w_main(&c, 0x0a, E[i9].x, E[i9].y, z933);
                     }
                     if (E[i9].d <= r && r < E[i9 + 1].d) {          /* @58280 */
-                        float t = (float)(((double)E[i9].d - r) / ((double)E[i9].d - E[i9 + 1].d));
-                        Px = E[i9].dx * (double)t + E[i9].x;
-                        Py = E[i9].dy * (double)t + E[i9].y;
+                        float t = (float)(((long double)E[i9].d - r) / ((long double)E[i9].d - E[i9 + 1].d));   /* x87, fstps (e.g. 502c5d-502c77) */
+                        Px = (double)((long double)E[i9].dx * t + E[i9].x);
+                        Py = (double)((long double)E[i9].dy * t + E[i9].y);
                         f = 1;
                     }
                     i9++;
@@ -599,8 +703,9 @@ int eg_offset_core(const EgOffsetPre *pre, EgRecs *out_main, EgRecs *out_var,
                     if (c.var) {                                    /* @58311 */
                         if (!grow((void **)&Ae0, &ce0, n70c + 1, sizeof *Ae0) ||
                             !grow((void **)&Ae4, &ce4, n70c + 1, sizeof *Ae4)) { rc = EG_OFF_ERR_NOMEM; goto done; }
+                        if (n70c >= VAR_XCAP) { rc = EG_OFF_ERR_UNDEF; goto done; }
                         Ae0[n70c].x = Px; Ae0[n70c].y = Py;
-                        Px -= offx; Py -= offy;
+                        Px = (double)((long double)Px - offx); Py = (double)((long double)Py - offy);   /* fldl; fsubl; fstpl */
                         clamp_to_seg(&Px, &Py, &S);
                         Ae4[n70c].x = Px; Ae4[n70c].y = Py;
                         n70c++; n6f8++;
@@ -610,9 +715,9 @@ int eg_offset_core(const EgOffsetPre *pre, EgRecs *out_main, EgRecs *out_var,
             } else {
                 do {
                     if (r < E[i9].d && E[i9 + 1].d <= r) {          /* @58349 */
-                        float t = (float)(((double)E[i9].d - r) / ((double)E[i9].d - E[i9 + 1].d));
-                        Px = E[i9].dx * (double)t + E[i9].x;
-                        Py = E[i9].dy * (double)t + E[i9].y;
+                        float t = (float)(((long double)E[i9].d - r) / ((long double)E[i9].d - E[i9 + 1].d));   /* x87, fstps (e.g. 502c5d-502c77) */
+                        Px = (double)((long double)E[i9].dx * t + E[i9].x);
+                        Py = (double)((long double)E[i9].dy * t + E[i9].y);
                         f = 1;
                     }
                     i9++;
@@ -624,8 +729,9 @@ int eg_offset_core(const EgOffsetPre *pre, EgRecs *out_main, EgRecs *out_var,
                     if (c.var) {                                    /* @58374 */
                         if (!grow((void **)&Ad8, &cd8, n708 + 1, sizeof *Ad8) ||
                             !grow((void **)&Adc, &cdc, n708 + 1, sizeof *Adc)) { rc = EG_OFF_ERR_NOMEM; goto done; }
+                        if (n708 >= VAR_XCAP) { rc = EG_OFF_ERR_UNDEF; goto done; }
                         Ad8[n708].x = Px; Ad8[n708].y = Py;
-                        Px -= offx; Py -= offy;
+                        Px = (double)((long double)Px - offx); Py = (double)((long double)Py - offy);   /* dis 5026d5-5026f4 */
                         clamp_to_seg(&Px, &Py, &S);
                         Adc[n708].x = Px; Adc[n708].y = Py;
                         n708++; n6f8++;
@@ -652,12 +758,17 @@ int eg_offset_core(const EgOffsetPre *pre, EgRecs *out_main, EgRecs *out_var,
 
         if (c.var) {                           /* second level r2 @58440-58813 */
             int n704 = 0;
-#define BPUSH(T) do { if (!grow((void **)&B, &Bcap, n704 + 2, sizeof *B)) { rc = EG_OFF_ERR_NOMEM; goto done; } \
-                      z933 = 1.0; B[n704].tag = (T); B[n704].x = Px; B[n704].y = Py; B[n704].z = z933; n704++; } while (0)
+#define BPUSH(T) do { if (n704 >= VAR_BCAP) { rc = EG_OFF_ERR_UNDEF; goto done; } \
+                      if (!grow((void **)&B, &Bcap, n704 + 2, sizeof *B)) { rc = EG_OFF_ERR_NOMEM; goto done; } \
+                      z933 = 1.0; B[n704].tag = (T); B[n704].x = Px; B[n704].y = Py; B[n704].z = z933; n704++; \
+                      if (Bhw < n704) Bhw = n704; } while (0)
+            /* B = local_6d4 = [ebp-0x6d0] = GetMem(0x1a000) (dis 501f9a): a FastMM medium block, i.e. reused heap. Its records
+               beyond the highest index written in this call are undefined (NOT DECODED): refused. */
+#define BREAD(i) do { if ((i) < 0 || (i) >= Bhw) { rc = EG_OFF_ERR_UNDEF; goto done; } } while (0)
             if (!grow((void **)&B, &Bcap, 2, sizeof *B)) { rc = EG_OFF_ERR_NOMEM; goto done; }
             O = S;
             normal_off(&S, side, (double)p7, &offx, &offy);  /* @58450 */
-            O.x0 += offx; O.y0 += offy;
+            O.x0 = (double)((long double)O.x0 + offx); O.y0 = (double)((long double)O.y0 + offy);   /* dis 502b22-502b41 */
             if (E[0].d <= r2) st = 0;
             else {
                 L.x0 = S.x0; L.y0 = S.y0;
@@ -672,9 +783,9 @@ int eg_offset_core(const EgOffsetPre *pre, EgRecs *out_main, EgRecs *out_var,
                 if (st == 0) {
                     do {
                         if (E[i9].d <= r2 && r2 < E[i9 + 1].d) {
-                            float t = (float)(((double)E[i9].d - r2) / ((double)E[i9].d - E[i9 + 1].d));
-                            Px = E[i9].dx * (double)t + E[i9].x;
-                            Py = E[i9].dy * (double)t + E[i9].y;
+                            float t = (float)(((long double)E[i9].d - r2) / ((long double)E[i9].d - E[i9 + 1].d));   /* x87, fstps (e.g. 502c5d-502c77) */
+                            Px = (double)((long double)E[i9].dx * t + E[i9].x);
+                            Py = (double)((long double)E[i9].dy * t + E[i9].y);
                             f = 1;
                         }
                         i9++;
@@ -683,9 +794,9 @@ int eg_offset_core(const EgOffsetPre *pre, EgRecs *out_main, EgRecs *out_var,
                 } else {
                     do {
                         if (r2 < E[i9].d && E[i9 + 1].d <= r2) {
-                            float t = (float)(((double)E[i9].d - r2) / ((double)E[i9].d - E[i9 + 1].d));
-                            Px = E[i9].dx * (double)t + E[i9].x;
-                            Py = E[i9].dy * (double)t + E[i9].y;
+                            float t = (float)(((long double)E[i9].d - r2) / ((long double)E[i9].d - E[i9 + 1].d));   /* x87, fstps (e.g. 502c5d-502c77) */
+                            Px = (double)((long double)E[i9].dx * t + E[i9].x);
+                            Py = (double)((long double)E[i9].dy * t + E[i9].y);
                             f = 1;
                         }
                         i9++;
@@ -694,9 +805,9 @@ int eg_offset_core(const EgOffsetPre *pre, EgRecs *out_main, EgRecs *out_var,
                 }
             } while (i9 != n);
             if (st != 0) {                     /* @58565-58594 */
-                L.x0 = S.x0 + S.dx; L.y0 = S.y0 + S.dy;
-                L.dx = (E[n - 1].x + E[n - 1].dx) - L.x0;
-                L.dy = (E[n - 1].y + E[n - 1].dy) - L.y0;
+                L.x0 = (double)((long double)S.x0 + S.dx); L.y0 = (double)((long double)S.y0 + S.dy);   /* dis 502e7c-502e9b */
+                L.dx = (double)(((long double)E[n - 1].x + E[n - 1].dx) - L.x0);                          /* dis 502ea2-502ed1 */
+                L.dy = (double)(((long double)E[n - 1].y + E[n - 1].dy) - L.y0);
                 if (0.0008L < fabsl((long double)L.dx) || 0.0008L < fabsl((long double)L.dy)) {
                     line_axis(&L);
                     line_isect(&L, &O, &Px, &Py);
@@ -707,6 +818,7 @@ int eg_offset_core(const EgOffsetPre *pre, EgRecs *out_main, EgRecs *out_var,
             if (a721 == 0) {                   /* @58595-58609 */
                 for (int q = 0; q < n704; q++) w_var(&c, B[q].tag, B[q].x, B[q].y, B[q].z);
             } else {                           /* @58610-58812 */
+                BREAD(0);
                 N.x0 = B[0].x; N.y0 = B[0].y;
                 if (n6f8 > 0) i9 = 1;
                 int t723 = 0;
@@ -718,10 +830,13 @@ int eg_offset_core(const EgOffsetPre *pre, EgRecs *out_main, EgRecs *out_var,
                         line_to(&L, Ae4[i718].x, Ae4[i718].y);
                         do {
                             M = N;
+                            BREAD(i9);
                             N.x0 = B[i9].x; N.y0 = B[i9].y;
                             line_to(&M, N.x0, N.y0);
-                            if (t723 == 0)
+                            if (t723 == 0) {
+                                BREAD(i9 - 1);
                                 w_var(&c, B[i9 - 1].tag, B[i9 - 1].x, B[i9 - 1].y, B[i9 - 1].z);
+                            }
                             ok = line_isect(&M, &L, &Px, &Py);
                             if (ok) ok = in_extent(Px, Py, &M);
                             if (!ok) {
@@ -741,6 +856,7 @@ int eg_offset_core(const EgOffsetPre *pre, EgRecs *out_main, EgRecs *out_var,
                         line_to(&L, Adc[i714].x, Adc[i714].y);
                         do {
                             M = N;
+                            BREAD(i9);
                             N.x0 = B[i9].x; N.y0 = B[i9].y;
                             line_to(&M, N.x0, N.y0);
                             ok = line_isect(&M, &L, &Px, &Py);
@@ -763,6 +879,7 @@ int eg_offset_core(const EgOffsetPre *pre, EgRecs *out_main, EgRecs *out_var,
                     for (int q = i9; q < n704; q++) w_var(&c, B[q].tag, B[q].x, B[q].y, B[q].z);
             }
 #undef BPUSH
+#undef BREAD
         }
         if (c.nomem) { rc = EG_OFF_ERR_NOMEM; goto done; }
     }
@@ -772,9 +889,11 @@ int eg_offset_core(const EgOffsetPre *pre, EgRecs *out_main, EgRecs *out_var,
         for (int q = 0; q < n708; q++) {
             int j;
             for (j = 0; j < n710; j++) {
-                double dx = Ad8[q].x - Ae0[j].x, dy = Ad8[q].y - Ae0[j].y;
-                double d = sqrt(dx * dx + dy * dy);
-                if (d < (double)c.var_tol || d == (double)c.var_tol) break;
+                /* dis 503538-50359f: (fldl; fsubl; fmul st0) both in extended, Sqrt (0x403380) on the extended sum,
+                   fcomps against the f32 tolerance, the search goes on while d > tol */
+                long double dx = (long double)Ad8[q].x - Ae0[j].x, dy = (long double)Ad8[q].y - Ae0[j].y;
+                long double d = sqrtl(dx * dx + dy * dy);
+                if (!(d > (long double)c.var_tol)) break;
             }
             if (j < n710) {
                 w_var(&c, 0x0b, Ae4[j].x, Ae4[j].y, z933);
@@ -977,6 +1096,8 @@ int eg_offset_retry(const EgOffsetPre *pre, EgRecs *out, int side_flag,
 
 #undef Core
 #undef Elem
+#undef VAR_BCAP
+#undef VAR_XCAP
 #undef Join
 #undef Line
 #undef Piece
@@ -1253,9 +1374,10 @@ static float fc190(float a, float b)
 /* FUN_004fbfdc @53039: normal of length len; side 0 = (dy,-dx), 1 = (-dy,dx) */
 static void fbfdc(const PRec *r, int side, double len, double *nx, double *ny)
 {
-    long double s = len / sqrtl((long double)r->dx * r->dx + (long double)r->dy * r->dy);
-    if (side == 0) { *nx = (double)(r->dy * s); *ny = (double)(-r->dx * s); }
-    else { *nx = (double)(-r->dy * s); *ny = (double)(r->dx * s); }
+    /* the factor is stored as a double ([ebp-8], fstpl at 4fc020) before the products */
+    double s = (double)((long double)len / sqrtl((long double)r->dx * r->dx + (long double)r->dy * r->dy));
+    if (side == 0) { *nx = (double)((long double)r->dy * s); *ny = (double)(-(long double)r->dx * s); }
+    else { *nx = (double)(-(long double)r->dy * s); *ny = (double)((long double)r->dx * s); }
 }
 /* FUN_004fc060 @53071: shift the start point by the normal */
 static void fc060(PRec *r, int side, double len)
@@ -1267,8 +1389,10 @@ static void fc060(PRec *r, int side, double len)
 /* FUN_004fbe84 @52945: line-line intersection, |det| < 1e-19 -> det = 1e-19 */
 static Pt fbe84(const PRec *a, const PRec *b)
 {
-    long double det = (long double)a->dx * b->dy - (long double)a->dy * b->dx;
-    if (fabsl(det) < 1e-19L) det = 1e-19L;
+    /* det is stored as a double (fstpl at 4fbec0), compared |det| < TBYTE 1e-19 and replaced by the double 1e-19
+       (0x3bfd83c94fb6d2ac, 4fbed9) */
+    double det = (double)((long double)a->dx * b->dy - (long double)a->dy * b->dx);
+    if (fabsl((long double)det) < 1e-19L) det = 1e-19;
     double t = (double)((((long double)b->x - a->x) * b->dy - ((long double)b->y - a->y) * b->dx) / det);
     Pt p; p.x = (double)((long double)t * a->dx + a->x); p.y = (double)((long double)t * a->dy + a->y);
     return p;
@@ -1276,8 +1400,8 @@ static Pt fbe84(const PRec *a, const PRec *b)
 /* FUN_004fbf40 @52989: same, det == 0 -> not ok (output untouched) */
 static int fbf40(const PRec *a, const PRec *b, Pt *out)
 {
-    long double det = (long double)a->dx * b->dy - (long double)a->dy * b->dx;
-    if ((double)det == 0.0) return 0;
+    double det = (double)((long double)a->dx * b->dy - (long double)a->dy * b->dx);   /* fstpl [ebp-0x10] (4fbf79) */
+    if (det == 0.0) return 0;
     double t = (double)((((long double)b->x - a->x) * b->dy - ((long double)b->y - a->y) * b->dx) / det);
     out->x = (double)((long double)t * a->dx + a->x);
     out->y = (double)((long double)t * a->dy + a->y);
@@ -1296,7 +1420,20 @@ static int fe214(Pt p, const PRec *r)
 }
 
 /* ---------------------------------------------- contour preparation */
-static int wk_reserve(G *g, int n) { return grow((void **)&g->wk, &g->wcap, n + 1, sizeof(PRec)); }
+/* grow() that zero-fills the new part: the work buffer DAT_00535970 (= PTR_DAT_0052f354, the edge list L too) is
+ * GetMem(0x16ffa6) at FUN_00501550 @57426, a FastMM large block (> 0x40a2c: 0x401a5c -> 0x401778 = VirtualAlloc
+ * MEM_COMMIT), fresh and zero-filled for every precompute call (freed @57469). */
+static int grow0(void **p, int *cap, int need, size_t sz)
+{
+    int old = *cap;
+    if (grow(p, cap, need, sz)) return -1;
+    if (*cap > old) memset((char *)*p + (size_t)old * sz, 0, (size_t)(*cap - old) * sz);
+    return 0;
+}
+static int wk_reserve(G *g, int n) { return grow0((void **)&g->wk, &g->wcap, n + 1, sizeof(PRec)); }
+/* a slot of the shared work buffer read through a stale L index (below): its last content - an earlier segment's L
+ * record, a work record of the contour preparation, or zero */
+static int L_slot(G *g, int idx) { return grow0((void **)&g->L, &g->Lcap, idx + 1, sizeof(PRec)); }
 
 /* FUN_004fd07c dis 4fd07c (all args float32) */
 static int fd07c(float a0x, float a0y, float a1x, float a1y, float b0x, float b0y,
@@ -1421,15 +1558,19 @@ static int fc2a4(G *g, double a)
             L94 = w[i]; fc060(&L94, g->sd ^ 1, 0.001);
             had = 1;
             Pt Cp = fbe84(&L64, &L94);
-            float fx = (float)(Cp.x - w[i].x), fy = (float)(Cp.y - w[i].y);
+            float fx = (float)((long double)Cp.x - w[i].x), fy = (float)((long double)Cp.y - w[i].y);   /* 4fc420-4fc43e */
             float fl = (float)sqrtl((long double)fx * fx + (long double)fy * fy);
             if (0.0017L < fl) {                                /* 4fc46a */
                 float s = (float)(0.0017L / fl);
-                Cp.x = (double)((long double)(fx * s) + w[i].x);
-                Cp.y = (double)((long double)(fy * s) + w[i].y);
+                Cp.x = (double)((long double)fx * s + w[i].x);       /* flds; fmuls; faddl; fstpl (4fc48b-4fc4ad) */
+                Cp.y = (double)((long double)fy * s + w[i].y);
             }
             int m = (int)truncl((long double)fabsf(t) / a) + 1;   /* 4fc4b3-4fc4c9 */
-            if (n + m >= 0x7ffe) return EG_PRE_TOOMANYPTS;        /* 4fc4d4 */
+            /* 4fc4d1..4fc4ed: count += m as an i16 and `cmpw $0x7ffe; jl`: error 2 and count -= m when the i16 sum is
+             * >= 0x7ffe. A sum above 0x7fff wraps negative and passes: the original then shifts with a negative count
+             * (memory corruption) - undefined, refused. */
+            if (n + m > 0x7fff) return EG_PRE_ERR_STALE;
+            if (n + m >= 0x7ffe) return EG_PRE_TOOMANYPTS;
             if (wk_reserve(g, n + m)) return EG_PRE_ERR_NOMEM;
             w = g->wk;
             memmove(&w[i + 1 + m], &w[i + 1], (size_t)(n - i - 1) * sizeof *w);
@@ -1437,8 +1578,8 @@ static int fc2a4(G *g, double a)
             float step = (float)((long double)t / m);
             float th = g->sd ? (float)(PIH_L + prev) : (float)(prev - PIH_L);
             for (int k = i; k <= i + m; k++) {
-                w[k].x = (double)(cosl(th) * 0.001L + Cp.x);
-                w[k].y = (double)(sinl(th) * 0.001L + Cp.y);
+                w[k].x = (double)(x87_cos(th) * 0.001L + Cp.x);   /* 0x4fc573 Cos; * TBYTE 0x4fc6a8; faddl; fstpl */
+                w[k].y = (double)(x87_sin(th) * 0.001L + Cp.y);   /* 0x4fc597 Sin */
                 w[k].tag = 0;
                 th = (float)((long double)th + step);
             }
@@ -1460,8 +1601,8 @@ static int fc2a4(G *g, double a)
 /* FUN_004fc7a0 dis 4fc7a0: intersection of two offset lines, t > 0.1, u < 0.9 */
 static int fc7a0(const PRec *a, const PRec *b, Pt *P)
 {
-    long double det = (long double)a->dx * b->dy - (long double)a->dy * b->dx;
-    if ((double)det == 0.0) return 0;
+    double det = (double)((long double)a->dx * b->dy - (long double)a->dy * b->dx);   /* fstpl [ebp-8] (4fc7d9) */
+    if (det == 0.0) return 0;
     long double ex = (long double)b->x - a->x, ey = (long double)b->y - a->y;
     double t = (double)((ex * b->dy - ey * b->dx) / det);
     if (!(t > 0.1L)) return 0;
@@ -1524,13 +1665,55 @@ static int ccap_reserve(G *g, int need)
     return 0;
 }
 
+/* FUN_004fcb6c @53655 (dis 4fcb6c): point reduction of the work polygon after an overflow of the corner arcs.
+ * The polygon wk[0..n-1] (closing duplicate already dropped by fcca0) becomes 13-byte records in a GetMem(0x9bfe6) block
+ * - 0x0b for wk[0], 0x0a for the rest, x / y as f32, z = 0 - and goes through FUN_004fab4c(src, work, n, &cnt, scale 1.0,
+ * tol = eps) (the pipe's reduction, pip_reduce_contour). n is passed as the index of the LAST point, so FUN_004fab4c reads
+ * record n, one past the polygon: the block is a FastMM large block (0x9bfe6 > 0x40a2c: 0x401a5c -> 0x401778 =
+ * VirtualAlloc(MEM_COMMIT | MEM_TOP_DOWN)), fresh and zero-filled, so that record is {tag 0, (0, 0), 0} - the origin acts
+ * as the closing point (it decides whether wk[n-1] survives pass 1 and is emitted in pass 2). The cnt records come back as
+ * doubles into wk[0..cnt-1] (x / y only; the other fields are recomputed by fc2a4) and count := cnt - 1. */
+static int pip_reduce_contour(EgRec *p, int n, float scale, float tol, int *out_n);
+static void pip_fab08(float *x, float f);
+static int fcb6c(G *g, float eps)
+{
+    int n = g->wn;
+    if (0x7ffd < n) n = 0x7ffd;                        /* @53672 */
+    EgRec *p = calloc((size_t)n + 2, sizeof *p);       /* zero = the fresh VirtualAlloc block */
+    if (!p) return EG_PRE_ERR_NOMEM;
+    for (int i = 0; i < n; i++) {
+        p[i].tag = i ? 0x0a : 0x0b;
+        p[i].x = (float)g->wk[i].x; p[i].y = (float)g->wk[i].y; p[i].z = 0.0;
+    }
+    int cnt = 0;
+    int rc = pip_reduce_contour(p, n, 1.0f, eps, &cnt);   /* @53689 */
+    if (rc || wk_reserve(g, cnt)) { free(p); return EG_PRE_ERR_NOMEM; }
+    for (int i = 0; i < cnt; i++) { g->wk[i].x = (double)(float)p[i].x; g->wk[i].y = (double)(float)p[i].y; }
+    g->wn = cnt - 1;                                   /* @53704 (i16) */
+    free(p);
+    return 0;
+}
+
 /* FUN_004fcca0 dis 4fcca0 + fc6c0 + fcb24 */
 static int fcca0(G *g)
 {
     g->wn--;                                           /* drop the closing duplicate */
-    double a = (double)g->abr;                         /* [ebp-8] */
-    int rc = fc2a4(g, a);
-    if (rc == EG_PRE_TOOMANYPTS) return EG_PRE_ERR_NOTDECODED; /* -> FUN_004fab4c loop */
+    double a = (double)g->abr;                         /* [ebp-8] = (double) of the float arg (4fccb8) */
+    float eps = 0.0005f;                               /* parent [-0x15c] := 0x3a03126f (4fccc2) */
+    int rc;
+    /* 4fcccc..4fcd1c: error := the error at FUN_004fd7dc entry ([-0x15e], 4fd803; 0 in the port), fc2a4; on error 2
+     * (overflow) eps grows (FUN_004fab08 with 1.5: x 3.333 below 0.0045), the arc step a += 5 deg while a < 40 deg
+     * (TBYTE 4fcd70 = 0.6981317, 4fcd7c = 0.0872665), the polygon is reduced (FUN_004fcb6c) and fc2a4 runs again on it -
+     * including the arcs it had already inserted before the overflow (4fc4db..4fc4ed restores only the count of the
+     * arc that did not fit). */
+    for (;;) {
+        rc = fc2a4(g, a);
+        if (rc != EG_PRE_TOOMANYPTS) break;
+        pip_fab08(&eps, 1.5f);                         /* 4fcce4..4fccf1 */
+        if (0.6981317007977318L > (long double)a) a = (double)(0.08726646259971647L + (long double)a);
+        rc = fcb6c(g, eps);                            /* 4fcd13 */
+        if (rc) return rc;
+    }
     if (rc) return rc;
     int n = g->wn;
     if (ccap_reserve(g, g->nc + 2)) return EG_PRE_ERR_NOMEM;
@@ -1891,13 +2074,16 @@ static int ff874(G *g)
         if (!ff658(g, ic, jc, &out)) continue;
         fbdec(&out); fc098(&out);
         out.id = id;
-        if (grow((void **)&g->L, &g->Lcap, g->Ln + 2, sizeof(PRec))) return EG_PRE_ERR_NOMEM;
+        if (grow0((void **)&g->L, &g->Lcap, g->Ln + 2, sizeof(PRec))) return EG_PRE_ERR_NOMEM;
         g->L[g->Ln++] = out;
         if (0x7ffc < g->Ln) return EG_PRE_LLIST;
     }
-    if (grow((void **)&g->L, &g->Lcap, g->Ln + 2, sizeof(PRec))) return EG_PRE_ERR_NOMEM;
+    if (grow0((void **)&g->L, &g->Lcap, g->Ln + 2, sizeof(PRec))) return EG_PRE_ERR_NOMEM;
+    /* @55901-55911: the whole 0x2e-byte O record, its id bytes +2..+5 included. Nothing writes the id of a work /
+     * C / O record (only the L append @55888 does): the O table copies the work buffer (FUN_004fcb24), which is fresh
+     * zero memory at every precompute (grow0 above) and gets only x / y / dx / dy / flag / slope / angle / tag during
+     * the preparation - so the id is 0. find_se can therefore match the own O when it looks for segment 0. */
     g->L[g->Ln] = g->O[g->ci][g->cj];
-    g->L[g->Ln].id = -1;      /* original: bytes +2..+5 of the O record, never written (NOT DECODED) */
     g->Ln++;
     return 0;
 }
@@ -1951,7 +2137,8 @@ static int trace_step(G *g, int k, int fwd)
     Pt *pts = fwd ? g->S : g->E;
     ids[k] = -1;
     int cur = ids[k - 1], prev = k > 1 ? ids[k - 2] : cur;
-    if (cur < 0 || cur >= g->Ln) return EG_PRE_ERR_STALE;
+    if (cur < 0) return EG_PRE_ERR_STALE;     /* 0xffff = no step (the combination stops before; defensive) */
+    if (L_slot(g, cur)) return EG_PRE_ERR_NOMEM;
     Pt P = pts[k - 1];
     const PRec *R = &g->L[cur];
     float lim = fabsf(fc190(g->N, R->ang));
@@ -2048,8 +2235,9 @@ static int find_se(G *g, int mode, int *idout)
     int want = g->start[g->ci] + (mode == 0 ? j : (g->cj + n - 1) % n);
     int k = 0;
     while (k < g->Ln && want != g->L[k].id) k++;
+    /* not found: index = Ln (500a64 / 500b7c; error 0xd only for index > Ln, which cannot happen); the caller reads
+     * slot Ln of the shared work buffer (L_slot) */
     *idout = k;
-    if (k >= g->Ln) return EG_PRE_ERR_STALE;   /* original reads L[Ln] (stale record) */
     return 0;
 }
 
@@ -2100,11 +2288,15 @@ static int segment(G *g)
     if (g->sd) { g->N = (float)((long double)a - PIH_L); if (g->N < 0.0f) g->N = (float)(PI2_L + g->N); }
     else { g->N = (float)(PIH_L + a); if (!(PI2_L > g->N)) g->N = (float)(g->N - PI2_L); }
     if ((rc = find_se(g, 0, &g->Eid[0]))) return rc;
-    if (g->Eid[0] < 0 || g->Eid[0] >= g->Ln) return EG_PRE_ERR_STALE;
+    /* < 0: the start id was never set (below); >= Ln: a stale index from the previous segment or the not-found
+     * index Ln -> the record in that slot of the shared buffer */
+    if (g->Eid[0] < 0) return EG_PRE_ERR_STALE;
+    if (L_slot(g, g->Eid[0])) return EG_PRE_ERR_NOMEM;
     { const PRec *e = &g->L[g->Eid[0]]; g->E[0].x = e->x + e->dx; g->E[0].y = e->y + e->dy; }
     if ((rc = trace_step(g, 1, 0))) return rc;
     if ((rc = find_se(g, 1, &g->Sid[0]))) return rc;
-    if (g->Sid[0] < 0 || g->Sid[0] >= g->Ln) return EG_PRE_ERR_STALE;
+    if (g->Sid[0] < 0) return EG_PRE_ERR_STALE;
+    if (L_slot(g, g->Sid[0])) return EG_PRE_ERR_NOMEM;
     g->S[0].x = g->L[g->Sid[0]].x; g->S[0].y = g->L[g->Sid[0]].y;
 
     if (g->Sid[0] == g->Eid[0] && g->Eid[0] != g->Ln - 1) {      /* @57054 */
@@ -2199,7 +2391,11 @@ static int envelope(G *g)
     int rc;
     g->samples = 0;
     g->ci = 0; g->cj = 0;
-    memset(g->Sid, 0, sizeof g->Sid); memset(g->Eid, 0, sizeof g->Eid);
+    /* The start / end ids (5013cc frame, ushort) keep their value from the previous segment when FUN_00500770 finds
+     * no edge on the vertex line; before the first segment they hold whatever the earlier calls left in that stack
+     * slot (the preparation's frames and the Windows calls of the progress display FUN_004bc3b0 / 3c0 / 3d0) -
+     * undefined: -1 here, refused (EG_PRE_ERR_STALE) if a segment needs it. */
+    for (int k = 0; k < 2001; k++) { g->Sid[k] = -1; g->Eid[k] = -1; }
     do {
         if ((rc = push5(g, g->samples))) return rc;             /* FUN_004fe1e4 @57357 */
         if (g->cj == 0) g->first = 1;
@@ -2233,6 +2429,8 @@ int eg_offset_precompute(const EgRecs *in, int side, float W, float abr_rad, flo
     g->ar7 = &out->ar7; g->ar6 = &out->ar6;
     int rc = prepare(g, in);
     if (!rc && g->nc == 0) rc = EG_PRE_NODATA;   /* (no contour > 2 points: no envelope possible) */
+    /* the edge list L lives in the same buffer as the preparation's work records (PTR_DAT_0052f354 -> 0x535970) */
+    g->L = g->wk; g->Lcap = g->wcap; g->wk = NULL; g->wcap = 0;
     if (!rc) rc = build_grid(g);
     if (!rc) rc = envelope(g);
     out->ar5 = g->ar5; out->n5 = g->n5;
@@ -3045,11 +3243,13 @@ static int x_4f27b0(HCore *h, unsigned char *dir, unsigned char *first_shift)
                     const R9 *rc = &h->buf[i];
                     if ((double)rc->y == h->Y) { hit = 1; break; }        /* @4f282e */
                     if (rc->tag == 0x0a || rc->tag == 0x0c) {             /* @4f284a, 0x0b skipped */
-                        double d = (double)rc->y - (double)py;
+                        double d = (double)rc->y - (double)py;                /* fstpl [ebp-8] */
                         if (d != 0.0) {
-                            double t = (h->Y - (double)py) / d;
+                            /* x87 extended (Delphi's control word $1332): fldl Y; fsubs py; fdiv d; fstpl t
+                             * (@4f2878-4f2889); x = (x1 - x0) * t + x0 in extended, fstps (@4f28c3-4f28cf) */
+                            double t = (double)(((long double)h->Y - (long double)py) / (long double)d);
                             if (t > 0.0 && t < 1.0) {                     /* @4f289a / @4f28a9 */
-                                h->xs[h->nx].x = F(((double)rc->x - (double)px) * t + (double)px);
+                                h->xs[h->nx].x = (float)(((long double)rc->x - (long double)px) * (long double)t + (long double)px);
                                 h->xs[h->nx].valid = 1;
                                 h->nx++;
                             }
@@ -3308,8 +3508,9 @@ static int link_4f3334(HCore *h, const R9s *help, R9s *out)
                         const R9 *c = &L.seg_s[j];
                         if (!c->tag) continue;
                         if (!(c->y < hi) || !(c->y > lo)) continue;   /* @4f35b7 / @4f35c3 */
-                        double dx = (double)c->x - L.ce.x, dy = (double)c->y - L.ce.y;
-                        float d2 = F(dx * dx + dy * dy);
+                        /* @4f35cf-4f35e8: dx^2 and dy^2 in extended (dx^2 spilled as TBYTE), summed, fstps */
+                        long double dx = (long double)c->x - L.ce.x, dy = (long double)c->y - L.ce.y;
+                        float d2 = (float)(dx * dx + dy * dy);
                         if (d2 < best) { best = d2; jb = j; }
                     }
                     if (jb > 0) {
@@ -4097,10 +4298,16 @@ double eg_width_W(const EgBox *box, double maxR);
  * FUN_00529e94 @0x529eea). Returns EG_ERR_NOT_DECODED for arc/spline/text tags. */
 int eg_load_layer(const EgRecs *in, EgRecs *out, double tol);
 
+/* FUN_00529700 -> FUN_0050fa18: input path optimisation ("Bahnoptimierung", block 0x17), run on the working layer right
+ * after FUN_004dd3e4 when EST_DAT Bahnoptimierung = JA (FUN_00529e94 0x529f19). vec_res / min_pts / min_dist = BOVektorAufl /
+ * BOMindStuetzp / BOMindestausd (f32), close = BOBahnenSchl. formats/engrave_engine.md 7.1a. */
+int eg_bahnopt(EgRecs *layer, float vec_res, float min_pts, float min_dist, int close);
+
 /* FUN_004fb97c (via FUN_00504154): contour preparation / point reduction ("VekARH0 -> VekAR1").
  * KParamNormGr = block 7 +0x15, W from eg_width_W; tolerance 1e-4 and the unused 0.01 are the
  * constants pushed by FUN_00528784. */
 int eg_contour_prep(const EgRecs *in, EgRecs *out, int KParamNormGr, double W);
+int eg_contour_prep_tol(const EgRecs *in, EgRecs *out, int KParamNormGr, double W, float tol);
 
 /* FUN_004f194c(VekAR1 -> VekAR10, mark=1, draw=1, 0): orientation normalisation and the
  * -4/-5 marker in the z of each contour's start record. */
@@ -4335,14 +4542,21 @@ static float dist2d(const EgRec *a, const EgRec *b)
     return F(sqrt(dx * dx + dy * dy));
 }
 
-/* FUN_004a1f04: tan of an f32 argument (0 for 0), f32 result. */
+/* FUN_004a1f04 (0x4a1f04-0x4a1f54): tan of an f32 argument (0 for 0.0f @0x4a1f58), f32 result: Sin (0x403360) kept as
+   TBYTE (fstpt -0x10), Cos (0x403350), extended division (0x4a1f3e, DE F1 = sin / cos), fstps. */
 static float tan_f(float a)
 {
     if (a == 0.0f) return 0.0f;
-    return F(sin((double)a) / cos((double)a));
+    return (float)(x87_sin(a) / x87_cos(a));
 }
 
+/* TBYTE pi/180 at 0x4a223c (bytes ae c8 e9 94 12 35 fa 8e f9 3f) */
+#define DEG2RAD_T 0.0174532925199432957692369L
+
 /* ------------------------------------------------------------------ FUN_004a2054 */
+/* 0x4a2054-0x4a2233. ebx = tool record (+0x2a D, +0x32 rt, +0x36 angle, +0x3a r3a, +0x3e Rs, +0x8b capped); f32 locals on the
+   stack, every formula extended on the x87 stack (control word $1332) and stored f32 where the code does fstps. Constants:
+   0.0f @0x4a2234, 90.0f @0x4a2238, TBYTE pi/180 @0x4a223c, 1.0f @0x4a2248. */
 double eg_tool_eff_radius(EgTool *t)
 {
     t->capped = 0;                                /* 0x4a205a */
@@ -4350,32 +4564,33 @@ double eg_tool_eff_radius(EgTool *t)
     float r = t->rt;                              /* [esp+4] */
     float hD;                                     /* [esp+8] */
     if (t->r3a > 0.0f) {                          /* 0x4a207c */
-        float s = F(((double)t->Rs - t->rt) / t->r3a);      /* [esp+0xc] */
-        float g = F((90.0 - t->angle) * DEG2RAD);           /* [esp+0x10] */
+        float s = (float)(((long double)t->Rs - t->rt) / t->r3a);          /* 0x4a208f-0x4a209d [esp+0xc] */
+        float g = (float)((90.0f - (long double)t->angle) * DEG2RAD_T);    /* 0x4a20a1-0x4a20b3 [esp+0x10] */
         float sa;
-        if (s >= 1.0f) sa = g;                               /* 0x4a20bc..0x4a20cc */
+        if (s >= 1.0f) sa = g;                                              /* 0x4a20bc..0x4a20cc */
         else {
-            if (s < 0.0f) s = 0.0f;                          /* 0x4a20d2 */
-            sa = F(atan((double)s / sqrt(1.0 - (double)s * s))); /* 0x4a20e8..0x4a2115 */
-            if (g < sa) sa = g;                              /* 0x4a2119 */
+            if (s < 0.0f) s = 0.0f;                                         /* 0x4a20d2 */
+            long double q = sqrtl(1.0L - (long double)s * s);               /* 0x4a20e8-0x4a20fb: fsubrs 1.0f; Sqrt */
+            sa = (float)atanl((long double)s / q);                          /* 0x4a2100-0x4a2115: DE F1 = st0 / st1 = s / q; ArcTan */
+            if (g < sa) sa = g;                                             /* 0x4a2119 */
         }
-        float h = F((1.0 - cos((double)sa)) * t->r3a);      /* [esp+0x14] */
-        if (h > t->D) {                                      /* 0x4a214d */
-            double a2 = (double)t->r3a * t->r3a;
-            double b = (double)t->r3a - t->D;
-            r = F(sqrt(a2 - b * b) + r);                     /* 0x4a215b..0x4a2183 */
-            if (r > t->Rs) r = t->Rs;                        /* 0x4a2187 */
-            return r;                                        /* 0x4a219c -> 0x4a222c */
+        float h = (float)((1.0L - x87_cos(sa)) * t->r3a);                  /* 0x4a2130-0x4a2149 [esp+0x14] */
+        if (h > t->D) {                                                     /* 0x4a214d */
+            long double a2 = (long double)t->r3a * t->r3a;                  /* fstpt [esp+0x18] */
+            long double b = (long double)t->r3a - t->D;
+            r = (float)(sqrtl(a2 - b * b) + r);                             /* 0x4a215b..0x4a2183 */
+            if (r > t->Rs) r = t->Rs;                                       /* 0x4a2187 */
+            return r;                                                       /* 0x4a219c -> 0x4a222c */
         }
-        r = F(sin((double)sa) * t->r3a + r);                 /* 0x4a21a8 */
+        r = (float)(x87_sin(sa) * t->r3a + r);                              /* 0x4a21a8-0x4a21bf */
         hD = h;
     } else {
-        hD = 0.0f;                                           /* 0x4a21ce */
+        hD = 0.0f;                                                          /* 0x4a21ce */
     }
-    if (t->angle > 0.0f) {                                   /* 0x4a21d4 */
-        float ta = tan_f(F(DEG2RAD * t->angle));
-        r = F((double)ta * ((double)t->D - hD) + r);         /* 0x4a21f8..0x4a2205 */
-        if (r > t->Rs) { r = t->Rs; t->capped = 1; }         /* 0x4a2209..0x4a221e */
+    if (t->angle > 0.0f) {                                                  /* 0x4a21d4 */
+        float ta = tan_f((float)(DEG2RAD_T * t->angle));                    /* 0x4a21e3-0x4a21f3 */
+        r = (float)((long double)ta * ((long double)t->D - hD) + r);        /* 0x4a21f8..0x4a2205 */
+        if (r > t->Rs) { r = t->Rs; t->capped = 1; }                        /* 0x4a2209..0x4a221e */
     }
     return r;
 }
@@ -4426,7 +4641,8 @@ int eg_tool_rows(EgTool *lib, int nlib, const short slot_idx[10], const char slo
         int di = 1;
         for (;;) {
             if (di >= 9 || rows[di].lib < 0) break;
-            if (rows[di - 1].corr == 'E' && F(rows[di - 1].rt * 2.5) > rows[di].rt) { dx = -4; break; }
+            if (rows[di - 1].corr == 'E' && rows[di - 1].rt * 2.5 > rows[di].rt) { dx = -4; break; }   /* x87: FLD f32 rt, FMUL f32 2.5, FCOMP f32 next rt
+                                                                       (0x529d03-0x529d1e) - the product is not rounded to f32 (exact in double) */
             di++;
         }
         if (rows[di - 1].corr == 'E') dx = -4;                /* 0x529d41 */
@@ -4464,13 +4680,16 @@ EgSlotInfo eg_slot_info(const EgToolRow rows[10], double extra)
 /* ------------------------------------------------------------------ FUN_00504268 */
 double eg_width_W(const EgBox *box, double maxR)
 {
-    float W = F(1.05 * maxR);                                 /* 0x50427b */
-    if (0.03 > W) W = 0.03f;                                  /* 0x504287 */
-    float t = F(((double)F(box->xmax) - F(box->xmin)) * 0.0005); /* 0x50429e */
+    /* 0x504268-0x504313: maxR is the f32 argument [ebp+8]; TBYTE 1.05 @0x504318, 0.03 @0x504324, 0.0005 @0x504330,
+       0.01 @0x50433c (each the extended nearest, checked against the bytes); extended products / sums stored f32. */
+    float mr = (float)maxR;
+    float W = (float)(1.05L * mr);                            /* 0x50427b-0x504284 */
+    if (0.03L > W) W = 0.03f;                                 /* 0x504287-0x504297 (0x3cf5c28f) */
+    float t = (float)(((long double)F(box->xmax) - F(box->xmin)) * 0.0005L); /* 0x50429e-0x5042ac */
     if (W < t) W = t;
-    t = F(((double)F(box->ymax) - F(box->ymin)) * 0.0005);    /* 0x5042c2 */
+    t = (float)(((long double)F(box->ymax) - F(box->ymin)) * 0.0005L);       /* 0x5042c2-0x5042d0 */
     if (W < t) W = t;
-    if (0.01 + maxR > W) W = F(0.01 + maxR);                  /* 0x5042e6 */
+    if (0.01L + mr > W) W = (float)(0.01L + mr);              /* 0x5042e6-0x504301 */
     return W;
 }
 
@@ -4547,22 +4766,347 @@ int eg_load_layer(const EgRecs *in, EgRecs *out, double tol)
     return EG_OK;
 }
 
+/* ------------------------------------------------------------------ FUN_00529700 / FUN_0050fa18 (Bahnoptimierung) */
+/* formats/engrave_engine.md 7.1a. The optimiser rewrites the working layer file in place: it reads 300-record blocks at the
+ * read position and writes 300-record blocks at the write position of the same file, then truncates. The file is simulated
+ * as an array with both positions, so an output that overtakes the input behaves as in the original. All values are the
+ * file's f32; x87 intermediates are long double (control word $1332: 64-bit mantissa). Frame names: P = FUN_0050fa18's
+ * ebp, nested procedures reach it through their hidden parent-frame argument. */
+typedef struct { unsigned char tag; float x, y, z; } BoRec;
+typedef struct {
+    BoRec *f; int fn, fcap;         /* the layer file (13-byte records) */
+    int rp, wp;                     /* P-0xf50 read position, P-0x1ea0 write position (records) */
+    BoRec rb[300]; int rb_n, rb_i;  /* P-0xf40 read buffer, P-0xf48 count, P-0xf46 index */
+    BoRec wb[300]; int wb_n;        /* P-0x1e9c write buffer, P-0x1ea2 count */
+    BoRec w[300]; unsigned char w_set[300]; int wn;   /* P-0x2df8 window, P-0x1eba count (stack: unset slots unknown) */
+    BoRec cur;                      /* P-0xf60 */
+    BoRec cur_save;                 /* P-0x2e1c (FUN_0050f7c0 0x50f7cf) */
+    BoRec smove;                    /* P-0x2e0c the last move record */
+    BoRec last; int last_set;       /* P-0x1eb0 the last written / last window record (uninitialised stack before) */
+    int eof;                        /* P-0xf51 */
+    int ctr;                        /* P-0xf44 records read */
+    int lastmove;                   /* P-0x2e20 */
+    unsigned ms;                    /* P-0x2dfe BOMindStuetzp (word) */
+    int close;                      /* P-0x2e21 BOBahnenSchl */
+    float A, B, C2, mind, grid;     /* P+0x14, P+0x10, P-0x2dfc = P+0xc squared, P+0x18, P+0x1c */
+    int fail;
+} BoSt;
+
+static void bo_snap(float *v, float g)                           /* 0x50eef5..0x50ef17: Round(v / g) * g */
+{
+    long long k = llrintl((long double)*v / (long double)g);    /* fdivrp, FUN_00403390 = fistp (round to nearest even) */
+    *v = (float)((long double)k * (long double)g);               /* fildll; fmuls; fstps */
+}
+static void bo_read(BoSt *s)                                     /* FUN_0050edf4 (0x50edf4..0x50ef5c) */
+{
+    for (;;) {
+        s->ctr++;                                                /* 0x50ee12 */
+        if (s->rb_i >= s->rb_n) {                                /* 0x50ee1e: buffer used up -> Seek(rp); BlockRead(300) */
+            int k = s->fn - s->rp; if (k > 300) k = 300; if (k < 0) k = 0;
+            if (k <= 0) { s->eof = 1; return; }                  /* 0x50eea7 */
+            memcpy(s->rb, s->f + s->rp, (size_t)k * sizeof(BoRec));
+            s->rb_n = k; s->rp += k; s->rb_i = 0;
+        }
+        s->cur = s->rb[s->rb_i++];
+        int t = s->cur.tag;
+        if (s->grid > 0.0f && ((t >= 0x0a && t <= 0x0c) || t == 0x1b)) {   /* 0x50eed6..0x50eef3 */
+            bo_snap(&s->cur.x, s->grid);
+            bo_snap(&s->cur.y, s->grid);
+            return;
+        }
+        if (t != 0x01 && t != 0x05) return;                      /* 0x50ef43..0x50ef50: tags 1 / 5 are skipped */
+    }
+}
+static int bo_file_put(BoSt *s, const BoRec *r, int at)
+{
+    if (at >= s->fcap) {
+        int c = s->fcap ? s->fcap * 2 : 1024; while (c <= at) c *= 2;
+        BoRec *p = realloc(s->f, (size_t)c * sizeof *p);
+        if (!p) return EG_ERR_MEM;
+        s->f = p; s->fcap = c;
+    }
+    s->f[at] = *r;
+    if (at >= s->fn) s->fn = at + 1;
+    return EG_OK;
+}
+static void bo_flush(BoSt *s)                                    /* FUN_0050ef64: Seek(wp); BlockWrite(wb_n) (display only else) */
+{
+    for (int i = 0; i < s->wb_n; i++) if (bo_file_put(s, &s->wb[i], s->wp + i)) { s->fail = EG_ERR_MEM; return; }
+    s->last = s->wb[s->wb_n - 1]; s->last_set = 1;               /* 0x50efc9..0x50efec: P-0x1eb0 := wb[n-1] */
+    s->wp += s->wb_n;                                            /* 0x50f060 */
+    s->wb_n = 0;
+}
+static void bo_put(BoSt *s)                                      /* FUN_0050f080 */
+{
+    if (s->wb_n >= 300) bo_flush(s);
+    s->wb[s->wb_n++] = s->cur;
+}
+static void bo_compact(BoSt *s)                                  /* FUN_0050f0d8: drop the window records with tag 0 */
+{
+    int i = 0;
+    while (i < s->wn && s->w[i].tag) i++;
+    for (int j = i + 1; j < s->wn; j++) if (s->w[j].tag) s->w[i++] = s->w[j];
+    s->wn = i;
+}
+static float bo_cross(const BoRec *a, const BoRec *b, const BoRec *c)   /* FUN_0050f160 (0x50f183..0x50f1a4), f32 result */
+{
+    long double p1 = ((long double)a->x - b->x) * ((long double)a->y - c->y);
+    long double p2 = ((long double)a->x - c->x) * ((long double)a->y - b->y);
+    return (float)(p1 - p2);                                     /* fsubrp = st1 - st0; fstps [ebp-4] */
+}
+static void bo_collinear(BoSt *s)                                /* FUN_0050f1b0: |cross| <= A -> drop the middle point */
+{
+    if (s->wn <= 2) return;
+    int di = 0, si = 1;
+    for (int bx = 2; bx < s->wn; bx++) {
+        if (fabsl((long double)bo_cross(&s->w[di], &s->w[si], &s->w[bx])) > (long double)s->A) di = si;   /* 0x50f219..0x50f229 */
+        else {
+            s->w[si].tag = 0;                                    /* 0x50f237 */
+            if (bx - di > 2) {                                   /* 0x50f23f..0x50f24a */
+                int mid = (di + bx) >> 1;                        /* 0x50f24c..0x50f254 */
+                if (fabsl((long double)bo_cross(&s->w[di], &s->w[mid], &s->w[bx])) > (long double)s->A) {
+                    s->w[mid].tag = 0x0a;                        /* 0x50f2a8: restored as a line, whatever its tag was */
+                    di = mid;
+                }
+            }
+        }
+        si = bx;
+    }
+    bo_compact(s);
+}
+/* FUN_0050f2d8 (nested in FUN_0050f384): intersection of the line p + t (q - p) with the line c + u (c - d); den / t kept f32
+ * (fstps [ebp-0x14] / [ebp-0x18]), the rest on the FPU. Returns 0 for den == 0. */
+static int bo_isect(const BoRec *p, const BoRec *q, const BoRec *c, const BoRec *d, float *ox, float *oy)
+{
+    float d1 = (float)((long double)q->x - p->x), d2 = (float)((long double)q->y - p->y);   /* [ebp-4] / [ebp-8] */
+    float d3 = (float)((long double)c->x - d->x), d4 = (float)((long double)c->y - d->y);   /* [ebp-0xc] / [ebp-0x10] */
+    float den = (float)((long double)d2 * d3 - (long double)d1 * d4);
+    if (den == 0.0f) return 0;                                   /* 0x50f326 (f32 0 @0x50f380) */
+    long double num = ((long double)c->y - p->y) * d3 - ((long double)c->x - p->x) * d4;
+    float t = (float)(num / den);
+    *ox = (float)(t * (long double)d1 + p->x);
+    *oy = (float)(t * (long double)d2 + p->y);
+    return 1;
+}
+static int bo_near_line(const BoSt *s, const BoRec *a, const BoRec *b, const BoRec *c)   /* FUN_0050f384 */
+{
+    BoRec tmp = { 0, 0, 0, 0 };                                  /* [ebp-0x20]: b + perpendicular of (c - a) */
+    tmp.x = (float)(((long double)b->x + c->y) - a->y);          /* 0x50f393..0x50f39c */
+    tmp.y = (float)(((long double)b->y - c->x) + a->x);          /* 0x50f39f..0x50f3a9 */
+    float fx, fy;
+    if (!bo_isect(b, &tmp, a, c, &fx, &fy)) return 0;            /* call 0x50f2d8 (EAX b, EDX tmp, ECX a, [ebp+8] c) */
+    long double dx = (long double)fx - b->x, dy = (long double)fy - b->y;
+    return dx * dx + dy * dy < (long double)s->C2;               /* 0x50f3c0..0x50f3e9 */
+}
+static void bo_redundant(BoSt *s)                                /* FUN_0050f3f8 */
+{
+    if (s->wn <= 2) return;
+    int last = 0, si = 1;
+    for (int bx = 2; bx < s->wn; bx++) {
+        if (fabsl((long double)s->w[bx].x - s->w[si].x) > (long double)s->B ||
+            fabsl((long double)s->w[bx].y - s->w[si].y) > (long double)s->B) {         /* 0x50f437..0x50f482 */
+            if (bo_near_line(s, &s->w[last], &s->w[si], &s->w[bx])) s->w[si].tag = 0;
+            else last = si;
+        } else s->w[si].tag = 0;                                 /* 0x50f4cf */
+        si = bx;
+    }
+    bo_compact(s);
+}
+static void bo_write_window(BoSt *s)                             /* FUN_0050f500 */
+{
+    for (int i = 0; i < s->wn; i++) { s->cur = s->w[i]; bo_put(s); }
+    s->wn = 0;
+}
+static int bo_wget(BoSt *s, int i, BoRec *r)                     /* a window slot; never-written slots are unknown stack */
+{
+    if (i < 0 || i >= 300 || !s->w_set[i]) { s->fail = EG_ERR_NOT_DECODED; return 0; }
+    *r = s->w[i]; return 1;
+}
+static int bo_orient(BoSt *s, float yc)                          /* FUN_0050f564: direction at the leftmost crossing of y = yc */
+{
+    float best = 10000.0f;                                       /* 0x50f57b */
+    long long k = llrintl((long double)yc / (long double)s->grid);
+    yc = (float)(((long double)k + 0.5f) * (long double)s->grid);   /* 0x50f582..0x50f5b6 (f32 0.5 @0x50f684) */
+    BoRec r;
+    if (!bo_wget(s, 0, &r)) return 0;
+    float px = r.x, py = r.y;
+    int bx = 1, cx = 1;
+    do {                                                         /* 0x50f5ce..0x50f661 (cx < wn tested at the end) */
+        if (!bo_wget(s, cx, &r)) return 0;
+        float dy = (float)((long double)r.y - py);
+        if (dy != 0.0f) {
+            float t = (float)(((long double)yc - py) / dy);
+            if (t > 0.0f && t < 1.0f) {                          /* f32 0 / 1 @0x50f688 / 0x50f68c */
+                float xi = (float)(((long double)r.x - px) * t + px);
+                if (xi < best) { best = xi; bx = cx; }
+            }
+        }
+        px = r.x; py = r.y;
+        cx++;
+    } while (cx < s->wn);
+    BoRec a, b;
+    if (!bo_wget(s, bx - 1, &a) || !bo_wget(s, bx, &b)) return 0;
+    return a.y > b.y;                                            /* 0x50f667..0x50f679 */
+}
+static int bo_keep(BoSt *s, int n)                               /* FUN_0050f690 (nested in FUN_0050f7c0) */
+{
+    if (n > 300) return 1;                                       /* 0x50f699 */
+    if (s->ms <= 2) return 1;                                    /* 0x50f6ac */
+    float xmin = 10000.0f, ymin = 10000.0f, xmax = -10000.0f, ymax = -10000.0f;   /* 0x50f6bd..0x50f6d2 */
+    int i = 0;
+    do {                                                         /* 0x50f6e1..0x50f758 */
+        BoRec r;
+        if (!bo_wget(s, i, &r)) return 0;
+        if (r.x < xmin) xmin = r.x;
+        if (r.x > xmax) xmax = r.x;
+        if (r.y < ymin) ymin = r.y;
+        if (r.y > ymax) ymax = r.y;
+        i++;
+    } while (i < s->wn);
+    float yc = (float)(((long double)ymin + ymax) / 2.0f);       /* 0x50f75b..0x50f76f (f32 2 @0x50f7bc) */
+    if (bo_orient(s, yc)) return 1;
+    if (s->fail) return 0;
+    if ((long double)xmax - xmin < (long double)s->mind) return 0;   /* 0x50f77d..0x50f790 */
+    return (long double)ymax - ymin >= (long double)s->mind;     /* 0x50f792..0x50f7a5 */
+}
+static void bo_contour(BoSt *s)                                  /* FUN_0050f7c0: finish the contour in the window */
+{
+    static const long double tol01 = 0xa.3d70a3d70a3d70ap-10L;   /* TBYTE @0x50fa0c = 0.01 */
+    s->cur_save = s->cur;                                        /* 0x50f7c9 */
+    int bl = 0;
+    bo_collinear(s);
+    bo_redundant(s);
+    int n = s->ctr - s->lastmove - 1;                            /* 0x50f7f5..0x50f808 */
+    if (!((int)s->ms > n)) {
+        int keep = bo_keep(s, n);
+        if (s->fail) return;
+        if (keep) {
+            if (s->wn > 1) { s->last = s->w[s->wn - 1]; s->last_set = 1; }      /* 0x50f82d..0x50f85d */
+            if (s->close) {
+                if (!s->last_set) { s->fail = EG_ERR_NOT_DECODED; return; }    /* P-0x1eb0 never written: stack */
+                if (fabsl((long double)s->smove.x - s->last.x) > tol01 ||
+                    fabsl((long double)s->smove.y - s->last.y) > tol01) bl = 1;  /* 0x50f86e..0x50f8b2 */
+                else {
+                    if (s->wn < 1) { s->fail = EG_ERR_NOT_DECODED; return; }   /* window[-1] overlaps P-0x2e05.. */
+                    s->w[s->wn - 1].x = s->smove.x; s->w[s->wn - 1].y = s->smove.y;   /* 0x50f8b9..0x50f8f5 */
+                }
+            } else if (s->wn > 1) {
+                long double dx = (long double)s->last.x - s->smove.x, dy = (long double)s->last.y - s->smove.y;
+                float d = (float)sqrtl(dx * dx + dy * dy);       /* FUN_004a23e0 (p_460000.c), f32 result */
+                if (tol01 > (long double)d) {                    /* 0x50f91a..0x50f926 */
+                    s->w[s->wn - 1].x = s->smove.x; s->w[s->wn - 1].y = s->smove.y;
+                }
+            }
+            bo_write_window(s);                                  /* 0x50f968 */
+            if (bl) { s->cur = s->smove; s->cur.tag = 0x0a; bo_put(s); }   /* 0x50f972..0x50f996: closing line */
+        }
+    }
+    s->wn = 0;                                                   /* 0x50f9f7 */
+}
+/* FUN_00529700 (p_4b0000.c l.87525, 0x529700..0x5297a9): block 0x17 -> FUN_0050fa18(layer, Round(BOMindStuetzp),
+ * BOBahnenSchl; pushed 0.001, BOMindestausd, A, B, C, 0xc). K = 25.4 / BOVektorAufl (TBYTE @0x5297ac), 1.05 = TBYTE
+ * @0x5297bc. */
+int eg_bahnopt(EgRecs *layer, float vec_res, float min_pts, float min_dist, int close)
+{
+    static const long double c254 = 0xc.b33333333333333p+1L;    /* TBYTE @0x5297ac = 25.4 */
+    static const long double c105 = 0x8.666666666666666p-3L;    /* TBYTE @0x5297bc = 1.05 */
+    BoSt *s = calloc(1, sizeof *s);
+    if (!s) return EG_ERR_MEM;
+    int rc = EG_OK;
+    long double K = c254 / (long double)vec_res;                 /* 0x529721..0x52972a */
+    s->A = (float)(K * K * 2.0f * c105);                         /* 0x52972f..0x529742: [P+0x14] */
+    s->B = (float)(K * c105);                                    /* 0x529745..0x52975f: [P+0x10] */
+    float C = (float)(K * c105);                                 /* 0x529762..0x52977c: [P+0xc] */
+    s->mind = min_dist;                                          /* [P+0x18] = block 0x17 +0xc */
+    s->grid = 0.001f;                                            /* [P+0x1c] = 0x3a83126f */
+    s->ms = (unsigned)(uint16_t)llrintl((long double)min_pts);   /* 0x529782..0x529785 Round -> EDX, stored as word P-0x2dfe */
+    s->close = close != 0;                                       /* block 0x17 +0x10 -> ECX */
+    s->C2 = (float)((long double)C * C);                         /* 0x50fae8..0x50faed */
+    if (s->ms >= 300) s->ms = 299;                               /* 0x50fb69..0x50fb78 */
+    s->fn = s->fcap = layer->n;
+    s->f = malloc((size_t)(layer->n ? layer->n : 1) * sizeof(BoRec));
+    if (!s->f) { free(s); return EG_ERR_MEM; }
+    for (int i = 0; i < layer->n; i++) {
+        s->f[i].tag = (unsigned char)layer->r[i].tag;
+        s->f[i].x = (float)layer->r[i].x; s->f[i].y = (float)layer->r[i].y; s->f[i].z = (float)layer->r[i].z;
+    }
+    int first = 1;                                               /* P-0x2e29 */
+    do {                                                         /* 0x50fb86..0x50fc74 */
+        while (s->wn < 300 && !s->eof) {
+            bo_read(s);
+            if (s->eof) break;
+            int t = s->cur.tag;
+            if (t == 0x0b || t == 0x1b) {                        /* 0x50fb96..0x50fbf9 */
+                if (!first) {
+                    if (s->ctr - 2 == s->lastmove) {             /* two moves in a row: the earlier one is dropped */
+                        if (s->wn == 0) { rc = EG_ERR_NOT_DECODED; goto out; }   /* decw from 0 wraps */
+                        s->wn--;
+                    } else {
+                        bo_contour(s);
+                        if (s->fail) { rc = s->fail; goto out; }
+                        s->cur = s->cur_save;                    /* 0x50fbcb..0x50fbd6 */
+                    }
+                } else first = 0;
+                s->smove = s->cur;
+                s->lastmove = s->ctr - 1;
+            }
+            t = s->cur.tag;
+            if ((t >= 0x0a && t <= 0x0c) || t == 0x1b) {         /* 0x50fbff..0x50fc33; other tags are dropped */
+                if (t == 0x0a) s->cur.z = 0.0f;                  /* 0x50fc13 */
+                s->w[s->wn] = s->cur; s->w_set[s->wn] = 1; s->wn++;
+            }
+        }
+        if (s->eof) bo_contour(s);                               /* 0x50fc53 */
+        else { bo_collinear(s); bo_redundant(s); bo_write_window(s); }   /* 0x50fc5c..0x50fc6b */
+        if (s->fail) { rc = s->fail; goto out; }
+    } while (!s->eof);
+    if (s->wb_n > 0) bo_flush(s);                                /* 0x50fc7f..0x50fc8a */
+    if (s->fail) { rc = s->fail; goto out; }
+    /* Truncate (0x404038 -> SetEndOfFile) at the file position: after the final flush = wp; without one no record was ever
+       written (bo_put always leaves wb_n >= 1) and the position is the end of the file left by the EOF read -> unchanged. */
+    if (s->wp > 0) s->fn = s->wp;
+    layer->n = 0;
+    for (int i = 0; i < s->fn; i++)
+        if ((rc = eg_recs_push(layer, s->f[i].tag, s->f[i].x, s->f[i].y, s->f[i].z))) goto out;
+out:
+    free(s->f); free(s);
+    return rc;
+}
+
 /* ------------------------------------------------------------------ FUN_004fb97c / FUN_004fab4c */
-/* FUN_004fab4c: two-pass point reduction of one contour p[0..n] (n = index of last point).
- * Coordinates are already divided by scale. Returns the new count in *out_n (p rewritten). */
+/* FUN_004fab4c (0x4fab4c..0x4faf37): two-pass point reduction of one contour p[0..n] (n = index of the last point;
+ * p must have room for n + 2 records). Coordinates are already divided by scale. Returns the new count in *out_n
+ * (p rewritten in place, as the original's param_1).
+ * 16-bit counters (0x4faba7..0x4fabaf: movzwl n; dec; test si,si; jle): pass 1 runs only when (int16)(n - 1) > 0, so a
+ * contour with n >= 0x8001 keeps p0 and p[n] only and comes out with 1 record (FUN_004fb624 then drops it, count <= 3).
+ * Retry (0x4faeec..0x4faf2b): count > 0x7ffe -> tol *= 1.5 (count - 0x7ffe <= 0x1f4) or 2.0 (FUN_004fab08: x 3.333 below
+ * 0.0045), n := count and the whole function repeats from 0x4fab74 (eps [ebp-0x20] is not recomputed). That pass reads
+ * p[count] as its last point: the records p[0..count-1] are the output and p[count] was not written by that pass (pass 2
+ * and the closing write indices < count). count <= n + 1 (pass 2 emits at most w[1..m-1], m <= n, the closing appends at
+ * most one record), so p[count] is the input record p[count], or for count = n + 1 the record after the contour in the
+ * caller's buffer - FUN_004fb97c's GetMem(0x9bfe6) block (> 0x40a2c: FastMM's large-block path 0x401a5c -> 0x401778 =
+ * VirtualAlloc(MEM_COMMIT | MEM_TOP_DOWN), zero-filled), i.e. zero or a record a longer earlier contour of the same call
+ * left there. Deterministic; the in-place loop below reads the same record (the caller's buffer is calloc'ed and kept
+ * across contours like the original's). */
+static void pip_fab08(float *x, float f)                        /* FUN_004fab08: 0x4fab08..0x4fab31 */
+{
+    if (0.0045L <= (long double)*x) *x = (float)((long double)*x * f);   /* TBYTE@0x4fab34 = 0.0045 */
+    else *x = (float)(3.333L * (long double)*x);                         /* TBYTE@0x4fab40 = 3.333 */
+}
 static int reduce_contour(EgRec *p, int n, float scale, float tol, int *out_n)
 {
-    if (n > 32767) return EG_ERR_NOT_DECODED; /* 16-bit loop counters (0x4faba7) */
     EgRec *w = (EgRec *)malloc((size_t)(n + 2) * sizeof(EgRec));
     if (!w) return EG_ERR_MEM;
-    float eps = F(0.005 / scale);                             /* 0x4fab62 [ebp-0x20] */
+    float eps = (float)(0.005L / scale);                      /* 0x4fab62: TBYTE 0.005 @0x4faf3c / scale, fstps [ebp-0x20] */
+    for (;;) {
     float tol1 = F(tol * 1.0);                                /* 0x4fab74 [ebp-0x10] */
     /* pass 1 (0x4fab81..0x4facd5) */
     w[0] = p[0];
     int m = 1;
     EgRec A = p[0];
     int last = 0;
-    for (int i = 1; i <= n - 1; i++) {
+    int pass1 = (int16_t)(uint16_t)(n - 1) > 0;               /* 0x4faba7..0x4fabaf */
+    for (int i = 1; pass1 && i <= n - 1; i++) {
         double c = fabs((A.x - p[i].x) * (A.y - p[i + 1].y) - (A.x - p[i + 1].x) * (A.y - p[i].y));
         if (c > tol1) {
             w[m++] = p[i];
@@ -4579,7 +5123,7 @@ static int reduce_contour(EgRec *p, int n, float scale, float tol, int *out_n)
         }
     }
     w[m] = p[n];                                              /* 0x4facdb (m not incremented) */
-    /* pass 2 (0x4facf6..0x4fae3b) */
+    /* pass 2 (0x4facf6..0x4fae3b; loop runs while (int16)(m - 2) >= 0, 0x4fad47) */
     A = w[0];
     p[0] = w[0];
     int out = 1;
@@ -4615,17 +5159,135 @@ static int reduce_contour(EgRec *p, int n, float scale, float tol, int *out_n)
             L->tag = EG_T_LINE;
         }
     }
+    if (out <= 0x7ffe) { *out_n = out; break; }              /* 0x4faeec */
+    pip_fab08(&tol, out - 0x7ffe <= 0x1f4 ? 1.5f : 2.0f);     /* 0x4faef9..0x4faf1c */
+    n = out;                                                  /* [ebp-0xc] := count (0x4faee6) */
+    }
     free(w);
-    if (out > 0x7ffe) return EG_ERR_NOT_DECODED; /* retry with larger tolerance (0x4faeec) reads
-                                                    one record past the list - NOT DECODED */
-    *out_n = out;
     return EG_OK;
 }
 
-/* FUN_004fb724 -> FUN_004fb624 for one contour buf[0..cnt] */
+/* The split path of FUN_004fb724 (0x4fb724-0x4fb7b0) for a contour with cnt >= 0xbffd (the main loop of FUN_004fb97c stops
+ * storing 0x0a records at index 0xbffd, 0x4fbbda): the contour is read again from the layer file - records [start, end) of
+ * `in`, start = [P-0x3fc] = the index before its first 0x0a (normally the 0x0b), end = [P-0x400] = the index of the 0x0b that
+ * ends it or the record count at the end of the file - through two passes that keep every point, and the result replaces
+ * buf[0..] / cnt (FUN_004fb97c's buffer [P-0x158] / [P-0x154]; the records after it keep what the main loop stored).
+ * formats/engrave_engine.md 7.3 "FUN_004fb724". Returns EG_OK, EG_ERR_MEM or EG_ERR_NOT_DECODED. */
+#define SPLIT_EXC 1   /* x87 exception (control word $1332 unmasks invalid / zero divide): Delphi raises, not decoded */
+/* FUN_004faf4c (0x4faf4c-0x4fb32e; EAX = layer file, EDX = start, ECX = end, [ebp+8] = tol (f32), [ebp+0xc] = P): pass 1 on
+ * the records in file order, written to VekAR2.TMP (here: v). Read buffer [P-0x150]: rec(1000) / rec(1001) = the first two
+ * records (BlockRead 2, 0x4faf9e), then blocks of min(remaining, 1000) at rec(1002..) (0x4fb06c); x, y of every record read
+ * are divided by scale [P+0x10] (fdivrp = x / scale, fstps; 0x4fafd7.. / 0x4fb0a7..). Tags are not looked at. */
+static int split_pass1(const EgRec *rin, int nrec, float scale, float tol, EgRec **v, int *nv)
+{
+    EgRec rb[1002 + 1000];                                    /* rec(1000 + k) = rb[k] */
+    int cap = 1024, k = 0;
+    EgRec *o = (EgRec *)malloc((size_t)cap * sizeof(EgRec));
+    if (!o) return EG_ERR_MEM;
+#define SP_OUT(r) do { if (k == cap) { cap *= 2; EgRec *q_ = (EgRec *)realloc(o, (size_t)cap * sizeof(EgRec)); \
+                       if (!q_) { free(o); return EG_ERR_MEM; } o = q_; } o[k++] = (r); } while (0)
+    int pos = 0, remaining = nrec;                            /* [ebp-8] = end - start (0x4faf7e) */
+    int got = nrec < 2 ? nrec : 2;                            /* BlockRead(rec(1000), 2, [ebp-0x10]) */
+    for (int j = 0; j < got; j++) { rb[j] = rin[pos++]; rb[j].x = F(F(rb[j].x) / scale); rb[j].y = F(F(rb[j].y) / scale); }
+    remaining -= 2;                                           /* 0x4fafa3 */
+    if (got <= 1) { free(o); return SPLIT_EXC; }              /* 0x4fafab: VekAR2 stays empty; FUN_004fb334 would then
+                                                                 read stale buffer records - unreachable (cnt >= 0xbffd) */
+    EgRec A = rb[0];                                          /* [ebp-0x28] (0x4fafff) */
+    int last = 1000;                                          /* [ebp-0x18] */
+    SP_OUT(rb[0]);                                            /* rec(3000) := rec(1000) (0x4fb01c) */
+    do {
+        int n = remaining > 1000 ? 1000 : remaining;          /* 0x4fb042 */
+        got = 0;
+        for (int j = 0; j < n && pos < nrec; j++, got++) {
+            EgRec r = rin[pos++];
+            r.x = F(F(r.x) / scale); r.y = F(F(r.y) / scale);  /* 0x4fb098.. */
+            rb[2 + j] = r;
+        }
+        remaining -= got;                                     /* 0x4fb074 */
+        if (got > 0) {
+            for (int i = 1001; i <= 1000 + got; i++) {        /* 0x4fb0e5.. ebx = 0x3e9, got times */
+                const EgRec *pi = &rb[i - 1000], *pn = &rb[i + 1 - 1000];
+                long double ax = F(A.x), ay = F(A.y);
+                long double c = fabsl((ax - F(pi->x)) * (ay - F(pn->y)) - (ax - F(pn->x)) * (ay - F(pi->y)));  /* 0x4fb0ea-0x4fb133 */
+                if (c > tol) {                                /* 0x4fb135 fcomps [ebp+8]; jbe */
+                    SP_OUT(*pi); A = *pi; last = i;           /* 0x4fb13e-0x4fb17a */
+                } else if (i - last > 2) {                    /* 0x4fb182 */
+                    int mid = i - (i - last) / 2;             /* 0x4fb190-0x4fb19e: sar 1 (positive) */
+                    const EgRec *pm = &rb[mid - 1000];
+                    long double c2 = fabsl((ax - F(pm->x)) * (ay - F(pn->y)) - (ax - F(pn->x)) * (ay - F(pm->y)));  /* 0x4fb1a0-0x4fb1f2 */
+                    if (c2 > tol) { SP_OUT(*pm); A = *pm; last = mid; }   /* 0x4fb1fd-0x4fb245 */
+                }
+            }
+            rb[1] = rb[1 + got];                              /* rec(1001) := rec(1001 + got) (0x4fb250) */
+            last = 1000;                                      /* 0x4fb277 */
+            /* 0x4fb27e: k > 0xdac -> BlockWrite(rec(3000), k - 3000) and k := 3000 - only the file batching */
+        }
+    } while (got >= 1000);                                    /* 0x4fb2b7 */
+    SP_OUT(rb[1]);                                            /* 0x4fb2f6: BlockWrite(rec(1001), 1) */
+#undef SP_OUT
+    *v = o; *nv = k;
+    return EG_OK;
+}
+/* FUN_004fb334 (0x4fb334-0x4fb614; [ebp+8] = tol (f32), [ebp+0xc] = P): pass 2 on VekAR2.TMP into buf / *cnt. */
+static int split_pass2(const EgRec *v, int nv, float scale, float tol, EgRec *buf, int *cnt)
+{
+    *cnt = 0;                                                 /* 0x4fb33d */
+    float eps = (float)(0.005L / scale);                      /* 0x4fb348: TBYTE 0.005 @0x4fb618 / scale [P+0x10] */
+    if (nv >= 10000) { *cnt = 0xbffe; return EG_OK; }         /* 0x4fb37d FileSize >= 0x2710 (then Close, Erase) */
+    if (nv < 2) return SPLIT_EXC;                             /* BlockRead 2 short: stale buffer - unreachable (pass 1
+                                                                 always writes its first and last record) */
+    EgRec A = v[0];                                           /* [ebp-0x24] */
+    buf[(*cnt)++] = v[0];                                     /* 0x4fb3d9 */
+    EgRec B = v[1], C = v[1];                                 /* [ebp-0x54] / [ebp-0x34] */
+    float dx = (float)((long double)F(B.x) - F(A.x)), dy = (float)((long double)F(B.y) - F(A.y));   /* 0x4fb437-0x4fb447 */
+    for (int i = 2; i < nv; i++) {                            /* blocks of 1000 (0x4fb44b..0x4fb5df): one sequence */
+        const EgRec *Q = &v[i];
+        long double qx = F(Q->x), qy = F(Q->y);
+        if (fabsl(qx - F(B.x)) > eps || fabsl(qy - F(B.y)) > eps) {   /* 0x4fb4a4-0x4fb4c4 */
+            float d;
+            if (fabsf(dx) > fabsf(dy))                        /* 0x4fb4ca-0x4fb4e1: fcompp |dx| vs |dy|, jbe */
+                d = (float)fabsl(qy - ((qx - F(A.x)) * dy / dx + F(A.y)));   /* 0x4fb4e3-0x4fb4fc: fdivrp = st1 / st0 */
+            else {
+                if (dy == 0.0f) return SPLIT_EXC;             /* 0x4fb50e: 0 / 0 with the invalid / zero-divide exceptions
+                                                                 unmasked (control word $1332) */
+                d = (float)fabsl(qx - ((qy - F(A.y)) * dx / dy + F(A.x)));   /* 0x4fb502-0x4fb51b */
+            }
+            if (d > tol) {                                    /* 0x4fb51e fcomps [ebp+8]; jbe */
+                if (*cnt > 0xbffd) return EG_OK;              /* 0x4fb532: Close (no Erase), cnt stays 0xbffe */
+                buf[(*cnt)++] = C;                            /* 0x4fb550 */
+                A = B; B = *Q;                                /* 0x4fb57a / 0x4fb588 */
+                dx = (float)((long double)F(B.x) - F(A.x)); dy = (float)((long double)F(B.y) - F(A.y));   /* 0x4fb5a2 */
+            }
+        }
+        C = *Q;                                               /* 0x4fb5b6 */
+    }
+    return EG_OK;
+}
+static int split_path(const EgRecs *in, int start, int end, float scale, float tol0, EgRec *buf, int *cnt)
+{
+    if (start < 0 || end > in->n || end - start < 2) return EG_ERR_NOT_DECODED;   /* Seek(-1): I/O error */
+    float tol = tol0;                                         /* [ebp-4] := [P+0x14] (0x4fb732) */
+    while (*cnt >= 0xbffd) {                                  /* 0x4fb73b / 0x4fb79b */
+        EgRec *v = NULL; int nv = 0;
+        int rc = split_pass1(in->r + start, end - start, scale, (float)(tol * 1.0f), &v, &nv);   /* 0x4fb747 fmuls 1.0f */
+        if (rc == SPLIT_EXC) return EG_ERR_NOT_DECODED;
+        if (rc) return rc;
+        rc = split_pass2(v, nv, scale, tol, buf, cnt);        /* 0x4fb77e */
+        free(v);
+        if (rc == SPLIT_EXC) return EG_ERR_NOT_DECODED;
+        (*cnt)--;                                             /* 0x4fb784 */
+        if (*cnt >= 0xbffd) pip_fab08(&tol, 2.0f);            /* 0x4fb786-0x4fb796 */
+    }
+    return EG_OK;
+}
+#undef SPLIT_EXC
+
+/* FUN_004fb724 -> FUN_004fb624 for one contour buf[0..cnt] (the split path above runs first for cnt >= 0xbffd) */
 static int prep_flush(EgRec *buf, int cnt, float scale, float tol, EgRecs *out)
 {
-    if (cnt > 0xbffc) return EG_ERR_NOT_DECODED;              /* split path FUN_004faf4c/FUN_004fb334 */
+    if (cnt > 0xbffc) return EG_ERR_NOT_DECODED;              /* split_path must have run */
+    if (cnt < 3) return EG_ERR_NOT_DECODED;                   /* only after the split path: FUN_004fab4c with n < 3 is not
+                                                                 decoded (the main loop calls it with cnt > 2 only) */
     int nout = 0;
     int rc = reduce_contour(buf, cnt, scale, tol, &nout);
     if (rc) return rc;
@@ -4642,8 +5304,13 @@ static int prep_flush(EgRec *buf, int cnt, float scale, float tol, EgRecs *out)
 
 int eg_contour_prep(const EgRecs *in, EgRecs *out, int KParamNormGr, double W)
 {
+    return eg_contour_prep_tol(in, out, KParamNormGr, W, 1e-4f);   /* pushed 0x38d1b717 (0x5288c9..0x528906) */
+}
+/* FUN_00504154 -> FUN_004fb97c with the tolerance [ebp+0x14] as a parameter: the roughing rings C / D push their own
+ * (FUN_00519e68 0x519eca, FUN_0051a7a0 0x51a806: FUN_0051969c(step), formats/engrave_engine.md 6.7) */
+int eg_contour_prep_tol(const EgRecs *in, EgRecs *out, int KParamNormGr, double W, float tol)
+{
     float pnorm = (float)(-(int)(unsigned char)KParamNormGr); /* 0x5288d1..0x5288e6 */
-    float tol = 1e-4f;                                        /* pushed 0x38d1b717 */
     if (pnorm == -6.0f) return EG_ERR_NOT_DECODED;            /* FUN_004c3cf0 path */
     float scale;
     if (pnorm == -5.0f) scale = 1.0f;                         /* 0x4fba69 */
@@ -4671,10 +5338,13 @@ int eg_contour_prep(const EgRecs *in, EgRecs *out, int KParamNormGr, double W)
     if (0.0001 > tol) tol = 1e-4f;                            /* 0x4fbb24 */
     if (in->n <= 2) return EG_OK;                             /* 0x4fbaf4 */
 
-    EgRec *buf = (EgRec *)malloc((size_t)(in->n + 2) * sizeof(EgRec));
+    /* one zero-filled buffer for all contours: the original's GetMem(0x9bfe6) is a FastMM large block = fresh
+     * VirtualAlloc memory (0x401a5c / 0x401778); FUN_004fab4c's retry can read the record after a contour (above) */
+    EgRec *buf = (EgRec *)calloc((size_t)in->n + 2, sizeof(EgRec));
     if (!buf) return EG_ERR_MEM;
     int cnt = 0;            /* [ebp-0x154] index of the last stored point */
     int inside = 0;         /* [ebp-0x409] */
+    int start = -1;         /* [ebp-0x3fc] */
     int rc = EG_OK;
     buf[0].tag = 0; buf[0].x = buf[0].y = buf[0].z = 0.0;
     for (int i = 0; i < in->n && !rc; i++) {
@@ -4686,19 +5356,26 @@ int eg_contour_prep(const EgRecs *in, EgRecs *out, int KParamNormGr, double W)
                 cnt++;
                 buf[cnt] = r;
                 inside = 1;
+                start = i - 1;                                /* local_400 := local_404 - 1 ([P-0x3fc]) */
             } else if (r.tag == EG_T_MOVE) {
                 buf[0] = r;
             }
         } else if (r.tag == EG_T_LINE) {
             if (cnt < 0xbffd) { cnt++; buf[cnt] = r; }        /* 0x4fbbda */
         } else if (r.tag == EG_T_MOVE) {
-            if (cnt > 2) rc = prep_flush(buf, cnt, scale, tol, out); /* 0x4fbc16 */
+            if (cnt > 2) {                                    /* 0x4fbc16: FUN_004fb724, end = [P-0x400] = i */
+                if (cnt >= 0xbffd) rc = split_path(in, start, i, scale, tol, buf, &cnt);
+                if (!rc) rc = prep_flush(buf, cnt, scale, tol, out);
+            }
             inside = 0;
             buf[0] = r;
             cnt = 0;
         }
     }
-    if (!rc && inside && cnt > 2) rc = prep_flush(buf, cnt, scale, tol, out); /* 0x4fbcd? end */
+    if (!rc && inside && cnt > 2) {                           /* end of file: FUN_004fb724 with end = the record count */
+        if (cnt >= 0xbffd) rc = split_path(in, start, in->n, scale, tol, buf, &cnt);
+        if (!rc) rc = prep_flush(buf, cnt, scale, tol, out);
+    }
     free(buf);
     return rc;
 }
@@ -5007,17 +5684,24 @@ int eg_reverse(const EgRecs *in, EgRecs *out)
 }
 
 /* ------------------------------------------------------------------ FUN_00519380 */
-/* FUN_00519088: corner metric of B between A and C */
+/* FUN_00519088 (0x519088-0x5191d6): corner metric of B between A and C. A = EAX, B = EDX, C = ECX (0x519217 / 0x519237).
+   Everything on the x87 stack (extended, control word $1332): the cross product 0x5190ab-0x5190cd; the four differences are
+   stored f32 (0x5190f1..0x51910f), the lengths are Sqrt (0x403380, fsqrt) of the extended sum stored f32 (0x519132 / 0x519155),
+   the final sum of squares 0x519177-0x5191b2 stays extended (the partial square fstpt -0x54) and is stored f32 at 0x5191b7. */
 static float corner_metric(const EgRec *A, const EgRec *B, const EgRec *C, int flag)
 {
-    double ax = F(A->x), ay = F(A->y), bx = F(B->x), by = F(B->y), cx = F(C->x), cy = F(C->y);
-    double cr = (bx - ax) * cy + ((ax * by - ay * bx) - (by - ay) * cx);
-    if ((cr < 0.0) == (flag != 0)) return 4.0f;
-    float u1 = F(bx - ax), u2 = F(by - ay), v1 = F(cx - bx), v2 = F(cy - by);
-    float l1 = F(sqrt((double)u1 * u1 + (double)u2 * u2)), l2 = F(sqrt((double)v1 * v1 + (double)v2 * v2));
-    if (l1 <= 0.0f || l2 <= 0.0f) return 0.0f;
-    float sx = F((double)v1 / l2 + (double)u1 / l1), sy = F((double)v2 / l2 + (double)u2 / l1);
-    return F((double)sx * sx + (double)sy * sy);
+    long double ax = F(A->x), ay = F(A->y), bx = F(B->x), by = F(B->y), cx = F(C->x), cy = F(C->y);
+    long double cr = ax * by - ay * bx;                       /* 0x5190ab-0x5190b7 (fsubrp = st1 - st0) */
+    cr = cr - (by - ay) * cx;                                 /* 0x5190b9-0x5190c2 */
+    cr = cr + (bx - ax) * cy;                                 /* 0x5190c4-0x5190cd */
+    if ((cr < 0.0L) == (flag != 0)) return 4.0f;              /* 0x5190cf-0x5190e5: setb ^ flag == 0 -> 4.0 */
+    float u1 = (float)(bx - ax), u2 = (float)(by - ay), v1 = (float)(cx - bx), v2 = (float)(cy - by);
+    float l1 = (float)sqrtl((long double)u1 * u1 + (long double)u2 * u2);
+    float l2 = (float)sqrtl((long double)v1 * v1 + (long double)v2 * v2);
+    if (!(l1 > 0.0f) || !(l2 > 0.0f)) return 0.0f;            /* 0x519158-0x519175 jbe */
+    long double sx = (long double)u1 / l1 + (long double)v1 / l2;
+    long double sy = (long double)u2 / l1 + (long double)v2 / l2;
+    return (float)(sx * sx + sy * sy);
 }
 
 /* FUN_00518f7c: rotate contour c[0..n-1] to start at k */
@@ -5876,6 +6560,8 @@ typedef struct {
     EgSlotInfo si;
     double W;
     EgRBox gbox;
+    float lbox[4];             /* FUN_00529514 -> FUN_004dce20(VekARH0): the working layer box (xmin, ymin, xmax, ymax) */
+    float kabr0;               /* block 7 +0 KAbrundungswinkel (f32; the C / D rings change it in place, sec. 6.7) */
     EgRecs slot[EG_NSLOT];     /* the slot files (FUN_00499f80(n)): 12 header records + moves */
     char gravur;               /* GravurTyp of the current block */
     int err;                   /* the engine's error *(int*)PTR_DAT_0052f230 */
@@ -5892,6 +6578,703 @@ static int recs_append(EgRecs *dst, const EgRecs *src) {   /* FUN_00499380(src, 
     return 1;
 }
 
+/* test hook for the Wine oracle (tools/tests/engrave_wine.c): with EG_DUMP_DIR set, the work files the original leaves in its
+   data folder are written in its formats (VekAR7 / VekAR6: 25-byte tag + 3 f64; VekAR5: i32; VekAR1 / VekAR8: 13-byte LG1)
+   so the stages can be compared file by file. No effect otherwise. */
+static void eg_dump(const char *name, const EgRecs *r, int rec25) {
+    const char *d = getenv("EG_DUMP_DIR"); if (!d || !r) return;
+    char p[1024]; snprintf(p, sizeof p, "%s/%s", d, name);
+    FILE *f = fopen(p, "wb"); if (!f) return;
+    for (int i = 0; i < r->n; i++) {
+        unsigned char t = (unsigned char)r->r[i].tag; fwrite(&t, 1, 1, f);
+        if (rec25) { double v[3] = { r->r[i].x, r->r[i].y, r->r[i].z }; fwrite(v, 8, 3, f); }
+        else { float v[3] = { (float)r->r[i].x, (float)r->r[i].y, (float)r->r[i].z }; fwrite(v, 4, 3, f); }
+    }
+    fclose(f);
+}
+static void eg_dump_i32(const char *name, const int *v, int n) {
+    const char *d = getenv("EG_DUMP_DIR"); if (!d) return;
+    char p[1024]; snprintf(p, sizeof p, "%s/%s", d, name);
+    FILE *f = fopen(p, "wb"); if (!f) return;
+    fwrite(v, 4, (size_t)n, f); fclose(f);
+}
+
+/* ================================================================================================================== */
+/* the path-parallel roughing 'C' (AbraeumVerf=Radius) and 'D' (Durchm): FUN_00528104 'C' / 'D' -> FUN_0051a298 / FUN_0051abac
+   (formats/engrave_engine.md 6.7). Engine global error *(int*)PTR_DAT_0052f230 = CdSt.err; a port-side failure or a NOT DECODED
+   case sets CdSt.nd (refused). f32 where the binary stores a DWORD, long double for values kept on the x87 stack (control word
+   $1332, 64-bit mantissa), TBYTE constants as their exact long double (checked against the exe bytes). */
+typedef struct {
+    int side;            /* block 7 +0x14 KGegenlauffraesen ([edi+0x14] in the ring functions) */
+    int kpng;            /* block 7 +0x15 KParamNormGr */
+    float *kabr;         /* block 7 +0 KAbrundungswinkel: clamped / decremented in place (0x51a174.., 0x51a09a..) */
+    int err;             /* *(int*)PTR_DAT_0052f230 */
+    int nd;              /* refuse: 1 = NOT DECODED, 2 = port error */
+    const char *why;
+} CdSt;
+
+static void cd_refuse(CdSt *s, int k, const char *why) { if (!s->nd) { s->nd = k; s->why = why; } }
+
+/* FUN_0051969c (0x51969c-0x519724): contour preparation tolerance from the ring step, ST0 return */
+static float cd_tol(float x)
+{
+    if (!(x > 0.25f)) return 0.001f;     /* 0x3a83126f */
+    if (!(x > 0.5f)) return 0.002f;      /* 0x3b03126f */
+    if (!(x > 0.75f)) return 0.003f;     /* 0x3b449ba6 */
+    if (!(x > 1.0f)) return 0.004f;      /* 0x3b83126f */
+    if (!(x > 2.0f)) return 0.008f;      /* 0x3c03126f */
+    return 0.01f;                        /* 0x3c23d70a */
+}
+/* FUN_00504348 (0x504348-0x50439c): precompute width for a ring batch, ST0 return.
+   TBYTE 1.05 @0x5043a0, 0.03 @0x5043ac, 0.01 @0x5043b8 */
+static float cd_width(float x)
+{
+    float w = (float)(1.05L * x);
+    if (0.03L > (long double)w) w = 0.03f;                   /* 0x3cf5c28f */
+    if (0.01L + x > (long double)w) w = (float)(0.01L + x);
+    return w;
+}
+/* FUN_004c3bb0 (l.14616): box over tags 0x0a..0x0c, init FUN_004c4434 (+-100000) */
+static void cd_box(const EgRecs *f, float b[4])
+{
+    b[0] = 100000.0f; b[1] = 100000.0f; b[2] = -100000.0f; b[3] = -100000.0f;
+    for (int i = 0; i < f->n; i++) {
+        const EgRec *r = &f->r[i];
+        if (r->tag < 0x0a || r->tag > 0x0c) continue;
+        float x = (float)r->x, y = (float)r->y;
+        if (x < b[0]) b[0] = x;
+        if (y < b[1]) b[1] = y;
+        if (b[2] < x) b[2] = x;
+        if (b[3] < y) b[3] = y;
+    }
+}
+/* FUN_004c45e4 (l.15182): a record (tags 0x0a..0x0c) outside the box */
+static int cd_outside(const EgRecs *f, const float b[4])
+{
+    for (int i = 0; i < f->n; i++) {
+        const EgRec *r = &f->r[i];
+        if (r->tag < 0x0a || r->tag > 0x0c) continue;
+        float x = (float)r->x, y = (float)r->y;
+        if (x < b[0] || b[2] < x || y < b[1] || b[3] < y) return 1;
+    }
+    return 0;
+}
+/* FUN_0051973c (l.76221): append {0x80, 0, 0, z} */
+static void cd_mark(CdSt *s, EgRecs *f, float z)
+{
+    if (!eg_recs_add(f, 0x80, 0.0, 0.0, z)) cd_refuse(s, 2, "out of memory");
+}
+/* FUN_00510128 (l.68785) with layer '' (FUN_004de528: the RAHMEN file is not used by the port, as for 'Z' / 'Y'): append the
+   box rectangle, z = 0: 0x0b (xmin,ymin), then (xmax,ymin) (xmax,ymax) (xmin,ymax) for Gegenlauf = 0, (xmin,ymax) (xmax,ymax)
+   (xmax,ymin) otherwise, then (xmin,ymin) */
+static void cd_rect(CdSt *s, EgRecs *f, const float b[4])
+{
+    float p[5][2] = { { b[0], b[1] }, { b[2], b[1] }, { b[2], b[3] }, { b[0], b[3] }, { b[0], b[1] } };
+    if (s->side) { p[1][0] = b[0]; p[1][1] = b[3]; p[3][0] = b[2]; p[3][1] = b[1]; }
+    for (int i = 0; i < 5; i++)
+        if (!eg_recs_add(f, i ? 0x0a : 0x0b, p[i][0], p[i][1], 0.0)) { cd_refuse(s, 2, "out of memory"); return; }
+}
+/* FUN_00519588 (l.76151, 0x519588-0x519677) = the retry loop of FUN_0051001c around FUN_0050443c (the same step (W-dist)/2
+   capped at 0.01, 0.999 W cap, 6 tries, error 0x67); its flag (the 5th FUN_0050443c argument) only reaches FUN_00503ed4's
+   unused ECX (0x503ed4-0x504137 never reads it). dst is rewritten (FUN_00503ed4: FUN_004bbd68 Rewrite). */
+static void cd_offset(CdSt *s, const EgOffsetPre *pre, EgRecs *dst, float dist, float W)
+{
+    dst->n = 0;
+    int rc = eg_offset_retry(pre, dst, s->side, dist, W);
+    if (rc == EG_OFF_OK || rc == EG_OFF_NODATA || rc == EG_OFF_PIECES || rc == EG_OFF_GIVEUP) s->err = rc;
+    else cd_refuse(s, 2, "offset (port error)");
+}
+/* FUN_00504154 -> FUN_004fb97c (src -> VekAR9, pushes [ebp+8] step (unused), +0xc W, +0x10 -KParamNormGr, +0x14 tol) */
+static void cd_prep(CdSt *s, const EgRecs *src, EgRecs *r9, float W, float tol)
+{
+    r9->n = 0;
+    int rc = eg_contour_prep_tol(src, r9, s->kpng, W, tol);
+    if (rc) cd_refuse(s, rc == EG_ERR_NOT_DECODED ? 1 : 2, "ring contour preparation");
+}
+/* error := -2; FUN_005041a4(VekAR9, Gegenlauf) pushes [ebp+8] A, +0xc (f32)(TBYTE pi/180 * block7[0]), +0x10 W; error < 0 -> 0.
+   The -2 only reaches tests 'error < 1' / '0 < error' / '< -1' (display) in the precompute (l.54098, 54106, 54663, 55972,
+   57363, 57444, 57458; FUN_004fcca0 l.53733 restores it per retry) - the same paths as 0. */
+static int cd_pre(CdSt *s, const EgRecs *r9, float W, float A, EgPreOut *po, EgOffsetPre *pre)
+{
+    eg_pre_free(po);
+    float abr = (float)(0.017453292519943295769L * (long double)*s->kabr);   /* TBYTE @0x51a124 / @0x51aa24 */
+    int rc = eg_offset_precompute(r9, s->side, W, abr, A, po);
+    if (rc == EG_PRE_ERR_NOTDECODED || rc == EG_PRE_ERR_STALE) { cd_refuse(s, 1, "ring offset precomputation: case NOT DECODED"); return 0; }
+    if (rc < 0) { cd_refuse(s, 2, "ring offset precomputation (port error)"); return 0; }
+    s->err = rc;
+    eg_pre_view(po, pre);
+    return 1;
+}
+static void cd_append(CdSt *s, EgRecs *dst, const EgRecs *src)   /* FUN_004c4344(src, dst, 4) -> FUN_004c3cf0(src, dst, 1): byte copy */
+{
+    for (int i = 0; i < src->n; i++)
+        if (!eg_recs_add(dst, src->r[i].tag, src->r[i].x, src->r[i].y, src->r[i].z)) { cd_refuse(s, 2, "out of memory"); return; }
+}
+/* the retry tail of FUN_00519e68 (0x51a044-0x51a0e7) / FUN_0051a7a0 (0x51a970-0x51a9ed): block7[0] > 45 -> 45 else -= dec;
+   tol < 0.01 -> 2 tol else 1.1 tol */
+static void cd_retry_tail(CdSt *s, float dec, float *tol)
+{
+    if (*s->kabr > 45.0f) *s->kabr = 45.0f;                          /* 0x42340000 */
+    else *s->kabr = (float)((long double)*s->kabr - dec);
+    if (0.01L > (long double)*tol) *tol = (float)((long double)*tol * 2.0f);
+    else *tol = (float)(1.1L * (long double)*tol);
+}
+
+/* FUN_00519e68 (l.76687, 0x519e68-0x51a114): n rings at k * step (k = 1..n) of the contours of src, appended to out; next =
+   the last ring. [ebp+8] block 7, +0xc 'V' (always, from FUN_0051a154), +0x10 colour, +0x14 n, +0x18 z of the 0x80 record
+   (FUN_0051973c appends it to next before FUN_00519588 rewrites next: never visible), +0x1c step. */
+static void cd_c_core(CdSt *s, const EgRecs *src, EgRecs *out, EgRecs *next, int n, float step)
+{
+    float tol = cd_tol(step);                                        /* 0x519ea4 */
+    float W = cd_width((float)((long double)n * step));              /* 0x519eac-0x519ebf */
+    int esi = 0, ebx = 1;
+    EgRecs r9 = { 0 }; EgPreOut po; memset(&po, 0, sizeof po); EgOffsetPre pre;
+    float box[4];
+    do {
+        cd_prep(s, src, &r9, W, tol);                                /* 0x519efb */
+        if (s->nd) break;
+        if (r9.n <= 3) s->err = 100;                                 /* FUN_004c449c, 0x519f0a */
+        else {
+            cd_box(&r9, box);                                        /* 0x519f1e */
+            box[0] -= 0.01f; box[1] -= 0.01f; box[2] += 0.01f; box[3] += 0.01f;   /* FUN_004c4540(0.01), 'V' */
+            esi++;
+            s->err = -2;
+            if (!cd_pre(s, &r9, W, 3.14159274f /* 0x40490fdb */, &po, &pre)) break;
+            if (s->err < 0) s->err = 0;
+            while (s->err == 0 && ebx <= n) {                         /* 0x51a02e */
+                cd_offset(s, &pre, next, (float)((long double)ebx * step), W);   /* 0x519fdc */
+                if (s->nd) break;
+                if (s->err == 0 && cd_outside(next, box)) s->err = 0x67;        /* 0x519ff7 */
+                if (s->err == 0) { ebx++; cd_append(s, out, next); }           /* 0x51a015 */
+                if (s->nd) break;
+            }
+            if (s->nd) break;
+            if (s->err == 0x67 && esi < 3) {
+                s->err = 0;
+                if (esi == 2) { W = cd_width((float)((long double)ebx * step)); n = ebx; }   /* 0x51a069-0x51a088 */
+                else W = (float)(1.1L * (long double)W);                                     /* TBYTE @0x51a130 */
+                cd_retry_tail(s, 1.0f, &tol);                                                 /* 1.0f @0x51a140 */
+            } else esi = 0xff;
+        }
+    } while (esi < 3 && s->err <= 0);
+    eg_recs_free(&r9); eg_pre_free(&po);
+}
+
+/* FUN_00519904 (l.76356, 0x519904-0x519da1): VekAR2 (mode-0 core output, z = d / r) -> appended to out: the parts with
+   z >= 0.49 (TBYTE @0x519db0), entered / left at the interpolated 0.49 point; z of the written records = 0. Emission through
+   FUN_00519860 drops a record within 0.001 (TBYTE @0x4a2c38, FUN_004a2c14 / FUN_004a2bd4 f32 distance) of the last emitted
+   one (init {0, -9999, -9999}). */
+typedef struct { int tag; float x, y, z; } CdR;
+static void cd_emit(CdSt *s, EgRecs *out, CdR *le, const CdR *r)
+{
+    long double dx = (long double)r->x - le->x, dy = (long double)r->y - le->y;
+    float d = (float)sqrtl(dx * dx + dy * dy);
+    if (0.001L > (long double)d) return;
+    if (r->tag < 0) { cd_refuse(s, 1, "D roughing: record tag from uninitialised stack (FUN_00519904 [ebp-0x1cf0]) NOT DECODED"); return; }
+    if (!eg_recs_add(out, r->tag, r->x, r->y, r->z)) { cd_refuse(s, 2, "out of memory"); return; }
+    *le = *r;
+}
+static void cd_mid(CdSt *s, const EgRecs *in, EgRecs *out)
+{
+    const long double T = 0.49L;
+    CdR L = { 0, 0, 0, 0 }, last = L, cur = { -1, 0, 0, 0 }, le = { 0, -9999.0f, -9999.0f, 0 };
+    int pend = 0, pend2 = 0;                                      /* [ebp-0x179] / [ebp-0x17a] */
+    for (int i = 0; i < in->n && !s->nd; i++) {
+        CdR r = { in->r[i].tag, (float)in->r[i].x, (float)in->r[i].y, (float)in->r[i].z };
+        if (r.tag == 0x0b) { L = r; pend = 1; continue; }        /* 0x519d1e */
+        if (r.tag != 0x0a && r.tag != 0x0c) continue;
+        r.tag = 0x0a;                                             /* 0x519aaf */
+        if (T <= r.z || T <= L.z) {
+            if (T <= L.z) {
+                if (T <= r.z) { cur = r; pend2 = 0; }             /* 0x519c46 */
+                else {                                            /* 0x519ba8: leaving, cur = the 0.49 point (tag kept) */
+                    float a = (float)((long double)r.x - L.x), b = (float)((long double)r.y - L.y);
+                    float c = (float)((long double)r.z - L.z), d = (float)(T - L.z);
+                    cur.x = (float)((long double)a / c * d + L.x);
+                    cur.y = (float)((long double)b / c * d + L.y);
+                    cur.z = 0.49f;                                /* 0x3efae148 */
+                    pend2 = 1;
+                }
+            } else {                                              /* 0x519aed: entering, L := the 0.49 point */
+                float a = (float)((long double)r.x - L.x), b = (float)((long double)r.y - L.y);
+                float c = (float)((long double)r.z - L.z), d = (float)(T - L.z);
+                L.x = (float)((long double)a / c * d + L.x);
+                L.y = (float)((long double)b / c * d + L.y);
+                L.z = 0.49f;
+                cur = r;
+            }
+            if (pend) {                                           /* 0x519c5b */
+                L.tag = 0x0b; L.z = 0.0f; last = L;
+                cd_emit(s, out, &le, &L);
+                pend = 0;
+            }
+            if (fabsl((long double)cur.x - last.x) > 0.001L || fabsl((long double)cur.y - last.y) > 0.001L) {   /* 0x519c99 */
+                cur.z = 0.0f; last = cur;
+                cd_emit(s, out, &le, &cur);
+                pend = pend2;
+            }
+        } else pend = 1;                                          /* 0x519d07 */
+        L = r;                                                    /* 0x519d0e */
+    }
+}
+
+/* FUN_0051a7a0 (l.77149, 0x51a7a0-0x51aa13): one 'D' step. [ebp+8] block 7, +0xc colour, +0x10 n (1), +0x14 z of the 0x80
+   record, +0x18 step. Per ring k: next = offset at k step (FUN_00519588), then FUN_00519dc8: mode-0 core at the same distance
+   (FUN_005041dc(.., 1, colour, 0, 0.0, k step, W) -> VekAR2) -> FUN_00519904 -> out. */
+static void cd_d_core(CdSt *s, const EgRecs *src, EgRecs *out, EgRecs *next, int n, float acc, float step)
+{
+    float tol = cd_tol(step);                                        /* 0x51a7e2 */
+    float W = cd_width((float)((long double)n * step));              /* 0x51a7ea-0x51a7fd */
+    int cnt = 0;
+    EgRecs r9 = { 0 }, ar2 = { 0 }; EgPreOut po; memset(&po, 0, sizeof po); EgOffsetPre pre;
+    float box[4];
+    do {
+        cd_prep(s, src, &r9, W, tol);                                /* 0x51a837 */
+        if (s->nd) break;
+        if (r9.n <= 3) s->err = 100;                                 /* 0x51a846 */
+        else {
+            cd_box(&r9, box);
+            box[0] -= 0.01f; box[1] -= 0.01f; box[2] += 0.01f; box[3] += 0.01f;   /* FUN_004c4540(0x3c23d70a) */
+            cnt++;
+            s->err = -2;
+            if (!cd_pre(s, &r9, W, 0.62831855f /* 0x3f20d97c */, &po, &pre)) break;
+            if (s->err < 0) s->err = 0;
+            for (int ebx = 1; s->err == 0 && ebx <= n; ebx++) {      /* 0x51a8a6-0x51a96a */
+                float dist = (float)((long double)ebx * step);
+                cd_offset(s, &pre, next, dist, W);                   /* 0x51a8df */
+                if (s->nd) break;
+                if (s->err == 0 && cd_outside(next, box)) s->err = 0x67;
+                if (s->err == 0 || s->err == 100) {
+                    cd_mark(s, next, acc);                           /* 0x51a917 */
+                    acc = (float)((long double)acc + step);
+                    /* FUN_00519dc8: core mode 0, tol index 1, p7 0 */
+                    EgOffsetParams kp = { s->side, 1 };
+                    int rc = eg_offset_core(&pre, &ar2, NULL, 0, 0.0f, dist, W, &kp);
+                    if (rc) { cd_refuse(s, 2, "D roughing: offset core (port error)"); break; }
+                    if (s->err == 0 || s->err == 100) cd_mid(s, &ar2, out);   /* 0x519e2b-0x519e4c */
+                    if (s->nd) break;
+                    if (s->err == 100) break;                        /* 0x51a959 */
+                }
+            }
+            if (s->nd) break;
+            if (s->err == 0x67 && cnt < 3) {
+                s->err = 0;
+                if (cnt == 2) W = (float)(1.01L * (long double)step);  /* TBYTE @0x51aa30 */
+                else W = (float)(1.1L * (long double)W);               /* TBYTE @0x51aa3c */
+                cd_retry_tail(s, 2.0f, &tol);                          /* 2.0f @0x51aa4c */
+            } else cnt = 0xff;
+        }
+    } while (cnt < 3 && s->err <= 0);
+    eg_recs_free(&r9); eg_recs_free(&ar2); eg_pre_free(&po);
+}
+
+static void cd_clamp(CdSt *s)   /* FUN_0051a154 0x51a174-0x51a19b / FUN_0051aa5c 0x51aa7c-0x51aaa3 */
+{
+    if (!(*s->kabr >= 10.0f)) *s->kabr = 10.0f;
+    else if (*s->kabr > 30.0f) *s->kabr = 30.0f;
+}
+
+/* FUN_00528104 'C' (0x5281ea-0x5282b8) / 'D' (0x5282bd-0x528391) up to the merge: VekAR10 -> ar10.
+   box = FUN_00519508(layer box, W) (l.76119): layer box -+ W, united with the Grenze box PTR_DAT_0052ed80. */
+static void cd_rough(CdSt *s, char verf, int gravur_v, const float lbox[4], const EgRBox *gbox, float maxR, float W,
+                     float step, const EgOffsetPre *pre0, EgRecs *ar10)
+{
+    float box[4] = { lbox[0] - W, lbox[1] - W, lbox[2] + W, lbox[3] + W };
+    if (gbox->xmin < box[0]) box[0] = gbox->xmin;
+    if (gbox->ymin < box[1]) box[1] = gbox->ymin;
+    if (box[2] < gbox->xmax) box[2] = gbox->xmax;
+    if (box[3] < gbox->ymax) box[3] = gbox->ymax;
+    ar10->n = 0;                                                     /* FUN_004c4720(VekAR10) */
+    if (0.01L > (long double)maxR) return;                           /* 0x51a2d0 / 0x51abdd: TBYTE 0.01 */
+    cd_mark(s, ar10, maxR * 2.0f);                                   /* FUN_0051973c(VekAR10, 2 maxR) */
+    EgRecs a11 = { 0 }, a8 = { 0 };
+    cd_offset(s, pre0, &a11, maxR, W);                               /* FUN_00519588(VekAR11, Gegenlauf, colour, 1, maxR, W) */
+    if (!gravur_v && !s->nd) { cd_rect(s, &a11, box); cd_rect(s, ar10, box); }   /* FUN_00510128 x2 (VekAR11, VekAR10) */
+    if (verf == 'C') {
+        /* FUN_0051a298 0x51a354-0x51a376: n = Round(maxR / step) in 1..100 (16-bit compare) */
+        int16_t n = (int16_t)llrintl((long double)maxR / step);
+        if (n < 1) n = 1; else if (n > 100) n = 100;
+        if (s->err == 0 && !s->nd) {                                 /* FUN_0051a154(VekAR10, n, colour, block 7, step) */
+            cd_clamp(s);
+            float acc = step; (void)acc;                             /* [ebp-4]: only the z of the hidden 0x80 records */
+            EgRecs *A = &a11, *B = &a8;                              /* VekAR11 / VekAR8 */
+            B->n = 0;                                                /* FUN_004c4720(VekAR8) */
+            while (s->err == 0 && !s->nd) {
+                cd_c_core(s, A, ar10, B, n, step);
+                if (s->err == 0 && !s->nd) cd_c_core(s, B, ar10, A, n, step);
+            }
+            if (s->err == 100) s->err = 0;
+        }
+    } else {
+        float step2 = step * 2.0f;                                   /* 0x51ac6b: [ebp+0x1c] * 2.0f */
+        if (s->err == 0 && !s->nd) {                                 /* FUN_0051aa5c(VekAR10, 1, colour, block 7, 2 step) */
+            cd_clamp(s);
+            float acc = (float)(1.2L * (long double)step2);          /* TBYTE @0x51ab88 */
+            EgRecs *A = &a11, *B = &a8;
+            B->n = 0;
+            while (s->err == 0 && !s->nd) {
+                cd_d_core(s, A, ar10, B, 1, acc, step2);
+                if (s->err == 0) acc = (float)((long double)1 * step2 + acc);
+                if (s->err == 0 && !s->nd) cd_d_core(s, B, ar10, A, 1, acc, step2);
+                if (s->err == 0) acc = (float)((long double)1 * step2 + acc);
+            }
+            if (s->err == 100) s->err = 0;
+        }
+    }
+    eg_recs_free(&a11); eg_recs_free(&a8);
+}
+
+/* FUN_00528104 'C' / 'D' for the block: the rings (above), then FUN_0051170c(VekAR10, file(10), file(slot), connect 0,
+   KZeilenVerbinden, colour, (f32)(rt[slot] * 2.0f)) (0x52825c-0x5282b3 / 0x528335-0x52838c), the KAbrWegZusammen merge
+   (0x528576-0x52862d) and the resets of error 100 / short error 0x44f (0x52862d-0x528656). */
+static void eng_rough_cd(EgEng *g, const EgOffsetPre *pre)
+{
+    const EgEstDat *e = g->e;
+    const EgToolRow *R = &g->rows[g->si.last];
+    CdSt s; memset(&s, 0, sizeof s);
+    s.side = e->conventional != 0; s.kpng = e->param_norm; s.kabr = &g->kabr0;
+    /* stepover (1 - KAbraeumueberlapp(+0xc) / 100) * rt[slot] in x87, pushed f32 (0x5281fd-0x528232 / 0x5282dd-0x528305) */
+    float step = (float)((1.0L - (long double)(float)e->overlap / 100.0L) * (long double)R->rt);
+    EgRecs ar10 = { 0 };
+    cd_rough(&s, e->abr, g->gravur == 'V', g->lbox, &g->gbox, (float)g->si.maxR, (float)g->W, step, pre, &ar10);
+    if (s.nd) { eng_fail(g, -1, s.nd == 1 ? (s.why ? s.why : "roughing C / D: case NOT DECODED") : "roughing C / D (port error)"); eg_recs_free(&ar10); return; }
+    EgRecs *fin = &g->slot[g->si.last], *t10 = &g->slot[10];
+    int se = 0;
+    int rc = eg_rough_merge_51170c(&ar10, fin, 0, e->connect_lines, R->rt * 2.0f, t10, &se);
+    eg_recs_free(&ar10);
+    if (rc) { eng_fail(g, -1, "roughing C / D merge (port error)"); return; }
+    if (e->abr_merge) {                                              /* block 7 +0x1c, l.86845-86862 */
+        if (!e->abr_first) { rc = eg_rough_append_527dfc(t10, fin); t10->n = 0; }
+        else { rc = eg_rough_append_527dfc(fin, t10); fin->n = 0; }
+        if (rc) { eng_fail(g, -1, "roughing C / D (port error)"); return; }
+    }
+    if (s.err == 100) s.err = 0;
+    if (s.err > 0) eng_fail(g, s.err, "roughing C / D");
+}
+
+/* ================================================================================================================== */
+/* the corner tool ("Ecke", KorrekturVerf 'E'), formats/engrave_engine.md 4.9: FUN_00528dac 'E' (l.87218-87229) ->
+   FUN_00528a1c (FUN_005043c4: the offset core FUN_00501ec4 in variable mode -> VekAR1.Eck, joined by FUN_00503ed4 into
+   VekAR12.TMP) and FUN_00528b10 (VekAR12 -> VekH2R0.H2R -> FUN_004f5048 mode 3 -> VekH2R1.H2R, appended to the slot file).
+   FUN_004f5048 = FUN_004f442c (contour table) + the cell walk FUN_004f4d38 (groups: the nearest contour to the cell corner
+   and the contours inside it, FUN_004f467c / FUN_004f47a4) + per group the hatch FUN_004f39e0 (the port's rgh_hatch_4f39e0)
+   and the group's own contours (FUN_004f49f4 / FUN_004f4b54 / FUN_004f426c). Engine error = CkSt.err of FUN_004f5048 (its
+   char *param_4); a NOT DECODED case or a port failure sets CkSt.nd (refused). x87: values kept on the FPU are long double
+   (control word $1332), stored values in their stored width; TBYTE constants checked against the exe bytes. */
+typedef struct { int start, end; unsigned char used; } CkTab;      /* 9-byte entries, F[-0xc] = GetMem(0x62e11) */
+typedef struct { float x, y; } CkPt;                               /* F[-4] minimum / F[-8] maximum, GetMem(0x57e48) each */
+typedef struct {
+    const rgh_R9s *in;          /* VekH2R0.H2R */
+    CkTab *tab; CkPt *mn, *mx;
+    int last;                   /* F[-0x28c]: index of the last contour */
+    float bx0, by0, bx1, by1;   /* F[-0x24] box: +1 xmin, +5 ymin, +0xa xmax, +0xe ymax (FUN_004c4434: +-100000) */
+    rgh_R9s grp;                /* VekH2R2.H2R; count = FUN_004f4d38 [-0x150] */
+    rgh_R9s *out;               /* VekH2R1.H2R (F[-0x278]) */
+    unsigned char err;          /* *param_4 */
+    int mode;                   /* param_5 (3) */
+    rgh_HB *b;                  /* param_6 (persistent: FUN_004f49f4 and the hatch write into it) */
+    int nd; const char *why;
+} CkSt;
+
+static void ck_refuse(CkSt *c, int k, const char *why) { if (!c->nd) { c->nd = k; c->why = why; } }
+static void ck_push(CkSt *c, rgh_R9s *a, unsigned char tag, float x, float y)
+{
+    if (rgh_r9_push(a, tag, x, y)) ck_refuse(c, 2, "corner tool: out of memory");
+}
+
+/* FUN_004f43e4 (dis 4f43e4-4f442a): the box of contour k starts at (10000, 10000) / (-9999, -9999) (0x461c4000 / 0xc61c3c00) */
+static void ck_box0(CkSt *c, int k)
+{
+    c->mn[k].x = 10000.0f; c->mn[k].y = 10000.0f; c->mx[k].x = -9999.0f; c->mx[k].y = -9999.0f;
+}
+
+/* FUN_004f442c (l.46087-46177, dis 4f442c-4f467a): contour table + boxes. 0 ok, 0x3f3 (< 4 records), 0x65 (> 45000 contours)
+   in the short error *PTR_DAT_0052f2e4 */
+static int ck_scan(CkSt *c)
+{
+    const rgh_R9s *in = c->in;
+    int cnt = 0, seen = 0;
+    c->tab[0].end = 0;                                                   /* 4f444b: table[0] +4 := 0; the rest is zero memory */
+    if (in->n <= 3) return 0x3f3;                                        /* 4f445e */
+    ck_box0(c, 0);
+    for (int i = 0; i < in->n; i++) {
+        const rgh_R9 *r = &in->r[i];
+        if (r->tag == 0x0a || r->tag == 0x0c) {                          /* 4f44a6-4f45bf: strict < / > (jae / jbe skip) */
+            if (r->x < c->bx0) c->bx0 = r->x;
+            if (c->bx1 < r->x) c->bx1 = r->x;
+            if (r->y < c->by0) c->by0 = r->y;
+            if (c->by1 < r->y) c->by1 = r->y;
+            if (r->x < c->mn[cnt].x) c->mn[cnt].x = r->x;
+            if (c->mx[cnt].x < r->x) c->mx[cnt].x = r->x;
+            if (r->y < c->mn[cnt].y) c->mn[cnt].y = r->y;
+            if (c->mx[cnt].y < r->y) c->mx[cnt].y = r->y;
+        }
+        if (r->tag == 0x0b) {                                            /* 4f45c1-4f4636 */
+            if (seen) {
+                c->tab[cnt].end = i - 1;
+                if (c->tab[cnt].start < c->tab[cnt].end) {
+                    c->tab[cnt].used = 0;
+                    cnt++;
+                    if (cnt > 0xafc8) return 0x65;                       /* 45000 */
+                    ck_box0(c, cnt);
+                }
+            } else seen = 1;
+            c->tab[cnt].start = i;
+        }
+    }
+    c->tab[cnt].end = in->n - 1;                                         /* 4f464f-4f4664 */
+    c->tab[cnt].used = 0;
+    c->last = cnt;
+    return 0;
+}
+
+/* FUN_004f467c (l.46186-46219): contour i appended to VekH2R2 (rewritten at the group's first contour: ck_cell empties it), marked
+   used (0xff) */
+static void ck_add(CkSt *c, int i)
+{
+    for (int j = c->tab[i].start; j <= c->tab[i].end && !c->nd; j++)
+        ck_push(c, &c->grp, c->in->r[j].tag, c->in->r[j].x, c->in->r[j].y);
+    c->tab[i].used = 0xff;
+}
+
+/* FUN_004f47a4 (l.46224-46305, dis 4f47a4-4f49df): the first point P of contour i inside contour k (parity of the crossings
+   of the ray to -x). The original compares the PREVIOUS record's x (not its y) with P.y (4f48a7-4f48b9: flds -0x1f = x) and
+   each record's y with P.y; on equality P.y += 0.0002 (TBYTE@4f49e8, = 0.0002L) and the count restarts. */
+static int ck_inside(const CkSt *c, int i, int k)
+{
+    const rgh_R9 *P = &c->in->r[c->tab[i].start];
+    float px = P->x, py = P->y;
+    for (;;) {
+        int cnt = 0, bump = 0;
+        rgh_R9 prev = c->in->r[c->tab[k].start];
+        for (int j = c->tab[k].start + 1; j <= c->tab[k].end; j++) {
+            const rgh_R9 *q = &c->in->r[j];
+            if (fabsl((long double)prev.x - py) == 0.0L) { bump = 1; break; }
+            if (fabsl((long double)q->y - py) == 0.0L) { bump = 1; break; }
+            if (q->tag == 0x0a || q->tag == 0x0c) {
+                float dy = (float)((long double)q->y - prev.y);                       /* 4f4903-4f4909 */
+                if (dy != 0.0f) {
+                    float t = (float)(((long double)py - prev.y) / dy);                 /* 4f491c-4f492a */
+                    if (t > 0.0f && t < 1.0f) {
+                        long double xc = ((long double)q->x - prev.x) * t + prev.x;     /* 4f494f-4f495b */
+                        if (xc < px) cnt++;
+                    }
+                }
+            }
+            prev = *q;
+        }
+        if (!bump) return (cnt & 1) == 1;
+        py = (float)(0.0002L + py);                                                      /* 4f4993-4f499c */
+    }
+}
+
+/* FUN_004f49f4 (l.46309-46355, dis 4f49f4-4f4b3c): with mode bit 2 the hatch angle of the group: pi/2 (0x3fc90fdb) when the
+   box of records 1..n-1 is higher than wide, else 0 */
+static void ck_angle(CkSt *c)
+{
+    if (!(c->mode & 2)) return;
+    float x0 = 100000.0f, y0 = 100000.0f, x1 = -100000.0f, y1 = -100000.0f;   /* FUN_004c4434 */
+    short m = (short)((unsigned short)c->grp.n - 1);
+    for (short k = 1; m > 0; k++, m--) {
+        const rgh_R9 *r = &c->grp.r[k];
+        if (r->x < x0) x0 = r->x;
+        if (x1 < r->x) x1 = r->x;
+        if (r->y < y0) y0 = r->y;
+        if (y1 < r->y) y1 = r->y;
+    }
+    if ((long double)y1 - y0 > (long double)x1 - x0) { uint32_t u = 0x3fc90fdb; memcpy(&c->b->angle, &u, 4); }
+    else c->b->angle = 0.0f;
+}
+
+/* FUN_004f426c (dis 4f426c-4f43d8): does the straight line from the last hatch point L to the group's first point F cross
+   one of the group's segments (records 1..n-2 as segment ends, from record 1 on; a 0x0b record restarts, other tags skip)?
+   Both parameters strictly inside (0, 1); the determinant and the parameters stored as f32. */
+static int ck_cross(const rgh_R9 *buf, int n, float fy, float fx, float ly, float lx)
+{
+    float dx = (float)((long double)fx - lx), dy = (float)((long double)fy - ly);        /* 4f4273-4f4283 */
+    if (n <= 2 || n - 4 < 0) return 0;                                                     /* 4f429f-4f42ae */
+    rgh_R9 prev = buf[1];                                                                    /* 4f428d */
+    for (int j = 2; j <= n - 2; j++) {
+        const rgh_R9 *r = &buf[j];
+        if (r->tag == 0x0b) { prev = *r; continue; }
+        if (r->tag != 0x0a && r->tag != 0x0c) continue;
+        float ex = (float)((long double)prev.x - r->x), ey = (float)((long double)prev.y - r->y);
+        float det = (float)((long double)dy * ex - (long double)dx * ey);                 /* 4f4307-4f4316 */
+        if (det != 0.0f) {
+            float t = (float)((((long double)prev.y - ly) * ex - ((long double)prev.x - lx) * ey) / det);
+            if (t > 0.0f && t < 1.0f) {
+                float u = (float)((((long double)prev.x - lx) * dy - ((long double)prev.y - ly) * dx) / det);
+                if (u > 0.0f && u < 1.0f) return 1;
+            }
+        }
+        prev = *r;
+    }
+    return 0;
+}
+
+/* FUN_004f4b54 (l.46360-46440, dis 4f4b54-4f4d23): the group's contours appended to the output; the first record becomes 0x0a
+   (a straight link from the last hatch point) when there was no error, linking is on (+0x1d) and the link crosses none of the
+   group's segments, else 0x0b */
+static void ck_outline(CkSt *c, const rgh_R9s *h3)
+{
+    unsigned char tag = 0x0b;
+    if (c->err == 0 && c->b->link) {
+        if (h3->n > 0) {
+            const rgh_R9 *l = &h3->r[h3->n - 1];
+            if (l->tag != 0x0a && l->tag != 0x0c) {   /* 4f4bcc-4f4bfe re-reads the same record forever */
+                ck_refuse(c, 1, "corner tool: hatch output ending in a 0x0b record (FUN_004f4b54 loops forever): NOT DECODED");
+                return;
+            }
+            tag = ck_cross(c->grp.r, c->grp.n, c->grp.r[0].y, c->grp.r[0].x, l->y, l->x) ? 0x0b : 0x0a;
+        }
+    }
+    c->grp.r[0].tag = tag;                                               /* 4f4cb7-4f4cc3 */
+    for (int j = 0; j < c->grp.n && !c->nd; j++) ck_push(c, c->out, c->grp.r[j].tag, c->grp.r[j].x, c->grp.r[j].y);
+}
+
+/* FUN_004f4d38 (dis 4f4d38-4f5020): one cell (corner cx, cy; the window reaches to cx + cw / cy - ch) */
+static void ck_cell(CkSt *c, float cx, float cy, float cw, float ch)
+{
+    float x1 = (float)((long double)cx + cw), y0 = (float)((long double)cy - ch);       /* 4f4d44-4f4d6f */
+    c->grp.n = 0;
+    int bl;
+    do {
+        bl = 0;
+        float best = 10000.0f;                                                            /* 0x461c4000 */
+        int k = 0;
+        for (int i = 0; i <= c->last; i++) {
+            if (c->tab[i].used) continue;
+            if (c->mx[i].y < y0) continue;                                                /* 4f4dc5-4f4dd3 jb */
+            if (c->mn[i].x > x1) continue;                                                /* 4f4ddf-4f4dec ja */
+            long double a = (long double)c->mn[i].x - cx; a = a * a;                      /* fstpt -0x174 */
+            long double q = (long double)c->mx[i].y - cy;
+            float d = (float)sqrtl(q * q + a);                                            /* 0x403380, fstps */
+            if (d < best) { best = d; k = i; bl = 1; }
+        }
+        if (!bl) break;
+        ck_add(c, k);
+        for (int i = 0; i <= c->last && !c->nd; i++) {                                    /* 4f4e90-4f4f38 */
+            if (c->tab[i].used) continue;
+            if (c->mn[i].x < c->mn[k].x || c->mn[i].y < c->mn[k].y) continue;
+            if (c->mx[i].x > c->mx[k].x || c->mx[i].y > c->mx[k].y) continue;
+            if (ck_inside(c, i, k)) ck_add(c, i);
+        }
+        if (c->nd) return;
+        if (c->grp.n > 0) {                                                               /* 4f4f3e */
+            rgh_R9s h4 = { 0, 0, 0 }, bnd = { 0, 0, 0 }, h3 = { 0, 0, 0 };
+            int big = c->grp.n >= 0x7530;
+            if (c->mode & 1) {
+                if (!big) ck_angle(c);                                                    /* FUN_004f49f4 */
+                else for (int j = 0; j < c->grp.n && !c->nd; j++) ck_push(c, &h4, c->grp.r[j].tag, c->grp.r[j].x, c->grp.r[j].y);   /* -> VekH2R4 */
+            }
+            /* FUN_004f39e0(VekH2R2 -> VekH2R3, colour, err, param_6): the port's hatch changes its input in place (rotation),
+               the original rotates its own copy - the group buffer of FUN_004f49f4 is read before */
+            for (int j = 0; j < c->grp.n && !c->nd; j++) ck_push(c, &bnd, c->grp.r[j].tag, c->grp.r[j].x, c->grp.r[j].y);
+            if (!c->nd && rgh_hatch_4f39e0(&bnd, &h3, &c->err, c->b)) ck_refuse(c, 2, "corner tool: hatch (port error)");
+            if (!c->nd && c->err == 0)                                                    /* FUN_004c3cf0(VekH2R3 -> out, 1) */
+                for (int j = 0; j < h3.n && !c->nd; j++) ck_push(c, c->out, h3.r[j].tag, h3.r[j].x, h3.r[j].y);
+            if (!c->nd && (c->mode & 1)) {
+                if (!big) ck_outline(c, &h3);                                             /* FUN_004f4b54 */
+                else for (int j = 0; j < h4.n && !c->nd; j++) ck_push(c, c->out, h4.r[j].tag, h4.r[j].x, h4.r[j].y);
+            }
+            free(h4.r); free(bnd.r); free(h3.r);
+            c->grp.n = 0;                                                                 /* 4f4fff */
+        }
+    } while (bl && c->err == 0 && !c->nd);
+}
+
+/* FUN_004f5048 (l.46583-46676, dis 4f5048-4f5316) with param_5 = mode */
+static void ck_5048(CkSt *c)
+{
+    int n = c->in->n, nb = 1;
+    for (int i = 0; i < n; i++) if (c->in->r[i].tag == 0x0b) nb++;
+    c->err = 0;                                                                           /* 4f50a4 */
+    c->out->n = 0;
+    c->tab = calloc((size_t)nb + 1, sizeof *c->tab);
+    c->mn = calloc((size_t)nb + 1, sizeof *c->mn); c->mx = calloc((size_t)nb + 1, sizeof *c->mx);
+    if (!c->tab || !c->mn || !c->mx) { ck_refuse(c, 2, "corner tool: out of memory"); goto done; }
+    c->bx0 = 100000.0f; c->by0 = 100000.0f; c->bx1 = -100000.0f; c->by1 = -100000.0f;  /* FUN_004c4434 */
+    int se = ck_scan(c);
+    /* FUN_004c4720: the output is rewritten (empty) before the branch */
+    if (se == 0x65) { ck_refuse(c, 1, "corner tool: more than 45000 corner contours (FUN_004f5048 short error 0x65 branch): NOT DECODED"); goto done; }
+    if (se != 0) goto done;                                                               /* 0x3f3: nothing */
+    float cw = (float)(((long double)c->bx1 - c->bx0) / 20.0L);                          /* 4f5178-4f5189 (20.0f @4f531c) */
+    if (cw < 2.0f) cw = 2.0f;                                                             /* 2.0f @4f5320 */
+    float ch = (float)(((long double)c->by1 - c->by0) / 20.0L);
+    if (ch < 2.0f) ch = 2.0f;
+    float cy = c->by1;
+    do {
+        float cx = c->bx0;
+        do {
+            ck_cell(c, cx, cy, cw, ch);
+            if (c->nd) goto done;
+            cx = (float)((long double)cx + cw);                                           /* 4f51f5-4f51fd */
+        } while (!(cx > c->bx1) && c->err == 0);
+        cy = (float)((long double)cy - ch);                                               /* 4f5213-4f521f */
+    } while (!(cy < c->by0) && c->err == 0);
+done:
+    free(c->tab); free(c->mn); free(c->mx); free(c->grp.r);
+    c->tab = NULL; c->mn = c->mx = NULL; c->grp.r = NULL;
+}
+
+/* FUN_00528a1c (l.87010-87044, dis 528a1c-528b02) + FUN_00528b10 (l.87050-87100, dis 528b10-528c68) for slot s. The engine
+   error they leave is not an error of the run: FUN_00528dac keeps it only for a message (local_8) and clears it (l.87224-87229). */
+static void eng_corner(EgEng *g, const EgOffsetPre *pre, int s)
+{
+    const EgEstDat *e = g->e;
+    const int gegen = e->conventional != 0;
+    /* p7 = R[s] + *extra, dist = R[s + 1] + *extra (row +0x18 / +0x35 = next row +0x18; flds; fadds; fstps) */
+    float p7 = (float)((long double)g->rows[s].R + 0.0L), dist = (float)((long double)g->rows[s + 1].R + 0.0L);
+    EgRecs eck = { 0 }, ar2 = { 0 }, ar12 = { 0 };
+    int tries = 1, err;
+    do {
+        /* FUN_005043c4 (dis 5043c4-504407): FUN_005041dc(VekAR1.Eck, VekAR2.TMP, side, p4 = tries, colour, mode 1, p7, dist, W),
+           error := 0, FUN_00503ed4(VekAR1.ECK -> VekAR12.TMP, tol = p7) */
+        EgOffsetParams kp = { gegen, tries };
+        int rc = eg_offset_core(pre, &ar2, &eck, 1, p7, dist, (float)g->W, &kp);
+        if (rc == EG_OFF_ERR_UNDEF) { eng_fail(g, -1, "corner tool: the variable-mode offset reads undefined heap (B list beyond its records): NOT DECODED"); goto out; }
+        if (rc) { eng_fail(g, -1, "corner tool: variable-mode offset (port error)"); goto out; }
+        err = eg_offset_join(&eck, &ar12, p7);
+        if (err < 0) { eng_fail(g, -1, "corner tool: join (port error)"); goto out; }
+        if (err == EG_OFF_RETRY) {                                       /* 528aa3-528ac6 */
+            tries++;
+            if (tries > 5) err = 0;
+            dist = (float)(0.97L * dist);                                /* TBYTE@528b04 = 0.97L */
+        }
+    } while (err == EG_OFF_RETRY);
+    /* error 100 and short error 0x44f are cleared (528ad4-528afd), any other error only kept for the message */
+    /* FUN_00528b10: step s = (2 - KAbraeumueberlapp / 50) * rt[slot] (block 7 +8 [-0x64]; 50.0f @528c6c, 2.0f @528c70) */
+    float st = (float)((2.0L - (long double)(float)e->overlap / 50.0L) * (long double)g->rows[s].rt);
+    if (ar12.n > 3) {                                                    /* FUN_00498edc(VekAR12.TMP) > 3 */
+        rgh_R9s h0 = { 0, 0, 0 }, h1 = { 0, 0, 0 };
+        /* FUN_00499380(VekAR12.TMP -> VekH2R0.H2R, 1): types 1 -> 3, 9-byte (tag, x, y); tags 0 / 1 / 5..7 / 9 / 0x96..0x9c dropped */
+        for (int i = 0; i < ar12.n; i++) {
+            int t = ar12.r[i].tag;
+            if (t == 0 || t == 1 || (t >= 5 && t <= 7) || t == 9 || (t >= 0x96 && t <= 0x9d)) {
+                if (t == 0x9d) { eng_fail(g, -1, "corner tool: tag 0x9d in VekAR12: NOT DECODED"); free(h0.r); goto out; }
+                continue;
+            }
+            if (rgh_r9_push(&h0, (unsigned char)t, (float)ar12.r[i].x, (float)ar12.r[i].y)) { eng_fail(g, -1, "corner tool: out of memory"); free(h0.r); goto out; }
+        }
+        /* param block (528b87-528be8): +0 / +4 / +8 / +0xc the box of FUN_0052919c's [ebp+0xc] - not read, flag = 1 replaces it
+           with the file box (FUN_004f39e0 @4f3b04); +0x10 s, +0x14 s / 4 (4.0f @528c8c), +0x18 angle 0, +0x1c flag 1, +0x1d link 1,
+           +0x1f one-way 0 (+0x1e is not read by the hatch) */
+        rgh_HB hb; memset(&hb, 0, sizeof hb);
+        hb.s = st; hb.e = (float)((long double)st / 4.0L); hb.angle = 0.0f; hb.flag = 1; hb.link = 1; hb.oneway = 0;
+        CkSt c; memset(&c, 0, sizeof c);
+        c.in = &h0; c.out = &h1; c.mode = 3; c.b = &hb;
+        ck_5048(&c);
+        if (c.nd) eng_fail(g, -1, c.why ? c.why : "corner tool");
+        else if (c.err == 0)                                             /* 528c32-528c54: FUN_00499380(VekH2R1 -> file(slot), 0): z = 0 */
+            for (int i = 0; i < h1.n; i++)
+                if (h1.r[i].tag && !eg_recs_add(&g->slot[s], h1.r[i].tag, h1.r[i].x, h1.r[i].y, 0.0)) { eng_fail(g, -1, "corner tool: out of memory"); break; }
+        /* c.err != 0: the engine error c.err + 0x14 (528c13-528c26), cleared by FUN_00528dac */
+        free(h0.r); free(h1.r);
+    }
+out:
+    eg_recs_free(&eck); eg_recs_free(&ar2); eg_recs_free(&ar12);
+}
+
 /* FUN_00528dac (p_4b0000.c l.87144-87300): one block */
 static void eng_block(EgEng *g, const EgRecs *v1) {
     const EgEstDat *e = g->e;
@@ -5905,6 +7288,7 @@ static void eng_block(EgEng *g, const EgRecs *v1) {
     /* FUN_005041a4(VekAR1, Gegenlauf; W, KAbrundungswinkel in rad, 0.62831855) -> FUN_00501550 */
     EgPreOut po; memset(&po, 0, sizeof po);
     int rc = eg_offset_precompute(src, gegen, (float)g->W, (float)(e->round_angle * 0.017453292519943295), 0.62831855f, &po);
+    eg_dump("VekAR1.TMP", src, 0); eg_dump("VekAR7.TMP", &po.ar7, 1); eg_dump("VekAR6.TMP", &po.ar6, 1); eg_dump_i32("VekAR5.TMP", po.ar5, po.n5);
     eg_recs_free(&vs);
     if (rc) { eg_pre_free(&po); eng_fail(g, rc, rc == EG_PRE_ERR_NOTDECODED || rc == EG_PRE_ERR_STALE ? "offset precomputation: case NOT DECODED" : "offset precomputation"); return; }
     EgOffsetPre pre; eg_pre_view(&po, &pre);
@@ -5912,7 +7296,11 @@ static void eng_block(EgEng *g, const EgRecs *v1) {
         const EgToolRow *R = &g->rows[s];
         char k = R->corr;
         EgRecs t = { 0 };
-        if (k == 'E') { eng_fail(g, -1, "corner tool (KorrekturVerf Ecke) is not ported"); break; }
+        if (k == 'E') {                                /* FUN_00528a1c + FUN_00528b10; the error is cleared (l.87218-87229) */
+            if (s + 1 > g->si.last) { eng_fail(g, -1, "corner tool in the last row (rejected by FUN_00529b50)"); break; }
+            eng_corner(g, &pre, s);
+            continue;
+        }
         if ((k == '3' || k == 'A') && e->contours_on == 'S' && R->angle > 0) {
             /* FUN_00528c9c -> FUN_00517ac8: offset core in mode 0 at L, then FUN_00517594 */
             double L, ratio;
@@ -5929,14 +7317,18 @@ static void eng_block(EgEng *g, const EgRecs *v1) {
             eng_fail(g, -1, "Grund with a 3D correction (rejected by FUN_00529b50)"); break;
         } else {   /* FUN_0051001c(VekAR1 -> VekAR8, Gegenlauf, 1, colour, R + *extra, W) + append to the slot file */
             rc = eg_offset_retry(&pre, &t, gegen, (float)R->R, (float)g->W);
-            if (rc == EG_OFF_NODATA) rc = 0;          /* l.87252: error 100 is reset */
-            if (rc) { eg_recs_free(&t); eng_fail(g, rc, "2D offset"); break; }
+            if (rc < 0) { eg_recs_free(&t); eng_fail(g, rc, "2D offset"); break; }
+            /* VekAR8 (the join's output, also when it ended with an error, e.g. < 4 records for error 100) is appended
+               (l.87250-87252), then the slot loop ends on any error > 0 (l.87266). The error stays: error 100 is cleared only
+               by the block loop of FUN_0052919c after each block (l.87357-87363 / l.87385-87391), not with KBlockweise < 2. */
             recs_append(&g->slot[s], &t);
+            if (rc) { eg_recs_free(&t); eng_fail(g, rc, rc == EG_OFF_NODATA ? "2D offset: nothing left (error 100)" : "2D offset"); break; }
         }
         eg_recs_free(&t);
     }
     if (!g->err && e->abr != 'K') {                    /* FUN_00528104 */
-        if (e->abr != 'Z' && e->abr != 'Y') eng_fail(g, -1, "roughing types other than zigzag / one way are not ported");
+        if (e->abr == 'C' || e->abr == 'D') eng_rough_cd(g, &pre);  /* FUN_00528104 'C' / 'D' */
+        else if (e->abr != 'Z' && e->abr != 'Y') eng_fail(g, -1, "roughing types other than zigzag / one way / C / D are not ported");
         else {
             EgRecs b = { 0 };
             /* the boundary: FUN_0051001c(VekAR1 -> VekAR10, Gegenlauf, 1, colour, maxR, W) */
@@ -5962,7 +7354,19 @@ static void eng_block(EgEng *g, const EgRecs *v1) {
     eg_pre_free(&po);
 }
 
+static int eng_main(const EgEstDat *e, const EgRecs *contours, EgResult *out, EgRecs *lg1_keep, int *code, char *err, size_t errn);
 int eg_engine(const EgEstDat *e, const EgRecs *contours, EgResult *out, char *err, size_t errn) {
+    return eng_main(e, contours, out, NULL, NULL, err, errn);
+}
+/* the same run, returning ENGTOOLP.LG1 as records (lg1) and the error code (0 = ok) - for the Wine oracle
+   (tools/tests/engrave_wine.c, user decision EG-2) */
+int eg_engine_lg1(const EgEstDat *e, const EgRecs *contours, EgRecs *lg1, int *code, char *err, size_t errn) {
+    EgResult r; memset(&r, 0, sizeof r);
+    int ok = eng_main(e, contours, &r, lg1, code, err, errn);
+    eg_result_free(&r);
+    return ok;
+}
+static int eng_main(const EgEstDat *e, const EgRecs *contours, EgResult *out, EgRecs *lg1_keep, int *code, char *err, size_t errn) {
     EgEng g; memset(&g, 0, sizeof g); g.e = e;
     memset(out, 0, sizeof *out);
     EgRecs L = { 0 }, V1 = { 0 }, V10 = { 0 }, VR = { 0 }, layer = { 0 }, lg1 = { 0 };
@@ -5970,20 +7374,45 @@ int eg_engine(const EgEstDat *e, const EgRecs *contours, EgResult *out, char *er
     int rc;
     /* FUN_004dd3e4: ENGCONT -> working layer, tolerance 0.001 (0x529eea) */
     if ((rc = eg_load_layer(contours, &L, 0.001))) { eng_fail(&g, rc, "input contours"); goto done; }
-    /* FUN_00529514: the global box = Grenze box united with the layer box */
-    {
-        double x0 = e->box[0], y0 = e->box[1], x1 = e->box[2], y1 = e->box[3];
-        for (int i = 0; i < L.n; i++) {
-            x0 = fmin(x0, L.r[i].x); y0 = fmin(y0, L.r[i].y); x1 = fmax(x1, L.r[i].x); y1 = fmax(y1, L.r[i].y);
-        }
-        g.gbox.xmin = (float)x0; g.gbox.ymin = (float)y0; g.gbox.xmax = (float)x1; g.gbox.ymax = (float)y1;
+    /* FUN_00529700 when Bahnoptimierung ([ebp-4] of FUN_00529e94, EST_DAT parser 0x522b55; tested at 0x529f19) */
+    if (e->bahnopt && (rc = eg_bahnopt(&L, (float)e->bo_vec_res, (float)e->bo_min_pts, (float)e->bo_min_dist, e->bo_close))) {
+        eng_fail(&g, rc, rc == EG_ERR_NOT_DECODED ? "path optimisation (Bahnoptimierung): case NOT DECODED" : "path optimisation"); goto done;
     }
+    /* PTR_DAT_0052ed80 = the Grenze box of EST_DAT. FUN_00529514 (l.87430) unites it with the layer box only in a local copy
+       (local_18) for the view (FUN_00471310); the global box itself - which FUN_00504268 (W) and FUN_00528104 (the drawing
+       box of the roughing) read - stays the Grenze box. Measured with the Wine oracle: W = 0.0005 x 2540 for a part reaching
+       below x = 0. */
+    g.gbox.xmin = (float)e->box[0]; g.gbox.ymin = (float)e->box[1]; g.gbox.xmax = (float)e->box[2]; g.gbox.ymax = (float)e->box[3];
+    /* FUN_00529514 -> FUN_004dce20 -> FUN_004dcb90(VekARH0, 0) (p_4b0000.c l.87430 / l.30167 / l.30007): no record -> zeros, the layer's first two records when they are a
+       {1 xmin ymin zmin} {5 xmax ymax zmax} header, else the box over tags 0x0a / 0x0b / 0x0c / 0x11 / 0x12 from FUN_00499018
+       (+-100000); handed to FUN_0052919c -> FUN_00528104 (ecx) for the C / D drawing box (FUN_00519508) */
+    if (L.n == 0) memset(g.lbox, 0, sizeof g.lbox);
+    else if (L.n >= 2 && L.r[0].tag == 0x01 && L.r[1].tag == 0x05) {
+        g.lbox[0] = (float)L.r[0].x; g.lbox[1] = (float)L.r[0].y; g.lbox[2] = (float)L.r[1].x; g.lbox[3] = (float)L.r[1].y;
+    } else {
+        g.lbox[0] = 100000.0f; g.lbox[1] = 100000.0f; g.lbox[2] = -100000.0f; g.lbox[3] = -100000.0f;
+        for (int i = 0; i < L.n; i++) {
+            int t = L.r[i].tag;
+            if (t != 0x0a && t != 0x0b && t != 0x0c && t != 0x11 && t != 0x12) continue;
+            float x = (float)L.r[i].x, y = (float)L.r[i].y;
+            if (x < g.lbox[0]) g.lbox[0] = x;
+            if (y < g.lbox[1]) g.lbox[1] = y;
+            if (g.lbox[2] < x) g.lbox[2] = x;
+            if (g.lbox[3] < y) g.lbox[3] = y;
+        }
+    }
+    g.kabr0 = (float)e->round_angle;
     /* tool library (block 0xf) and FUN_00529b50 */
     short sidx[10]; char scor[10];
     for (int i = 0; i < 10; i++) { sidx[i] = -1; scor[i] = '3'; }
     for (int i = 0; i < e->ntools && i < 10; i++) {
         const EgEstTool *t = &e->tool[i];
         snprintf(lib[i].name, sizeof lib[i].name, "%s", t->name);
+        for (char *q = lib[i].name; *q; q++) {   /* the EST_DAT parser upper-cases every line first: FUN_00497e08 (p_460000.c; UpCase, ä ö ü -> Ä Ö Ü),
+                                                    called by FUN_005229b0 before the key tests - LName "ausspitzen" is AUSSPITZEN in the LG1 header */
+            unsigned char c = (unsigned char)*q;
+            *q = (char)(c == 0xe4 ? 0xc4 : c == 0xf6 ? 0xd6 : c == 0xfc ? 0xdc : (c >= 'a' && c <= 'z') ? c - 32 : c);
+        }
         lib[i].D = (float)t->depth; lib[i].fly = (float)t->fly; lib[i].rt = (float)t->tip_r; lib[i].angle = (float)t->angle;
         lib[i].r3a = 0; lib[i].Rs = (float)t->shank_r; lib[i].feed = (float)t->feed; lib[i].plunge = (float)t->plunge;
         lib[i].spindle = (float)t->rpm; lib[i].wechsel = (short)t->change;
@@ -6016,6 +7445,7 @@ int eg_engine(const EgEstDat *e, const EgRecs *contours, EgResult *out, char *er
         for (int b = 0; b < nb && !g.err; b++) {
             if (e->engrave_type != 'V') g.gravur = ty[b];
             eng_block(&g, &bl[b]);
+            if (g.err == 100) { g.err = 0; g.msg[0] = 0; }   /* l.87357-87363 / l.87385-87391 (short error 0x44f too) */
         }
         for (int b = 0; b < nb; b++) eg_recs_free(&bl[b]);
         free(bl); free(ty);
@@ -6029,7 +7459,18 @@ int eg_engine(const EgEstDat *e, const EgRecs *contours, EgResult *out, char *er
         if (rc) { eg_recs_free(&o); eng_fail(&g, rc, "roughing re-sort"); goto done; }
         eg_recs_free(&g.slot[10]); g.slot[10] = o;
     }
-    if (e->abr == 'Z' && e->abr_round && !e->abr_merge) { eng_fail(&g, -1, "KAbrZeilenRund is not wired"); goto done; }
+    /* FUN_0052919c tail @5293bf-529468: error < 1, AbraeumVerf 'Z', KAbrZeilenRund (+0x1d, [ebp-0x4f]) and not
+     * KAbrWegZusammen (+0x1c, [ebp-0x50]): delete VekAR2 (FUN_00498b84), FUN_00513e38(file(10) -> VekAR2, 5, d) and
+     * rename VekAR2 back to file(10) (FUN_00498ea0). d = (2 - KAbraeumueberlapp / 50) * rt[last] / 2.5 in x87 extended
+     * (block 7 +8 [ebp-0x64] f32, 50.0f / 2.0f / 2.5f at 0x529508 / 0x52950c / 0x529510, row +0xc f32), pushed as f32. */
+    if (e->abr == 'Z' && e->abr_round && !e->abr_merge) {
+        float ov = (float)e->overlap, rt = (float)g.rows[g.si.last].rt;
+        float d = (float)((2.0L - (long double)ov / 50.0L) * (long double)rt / 2.5L);
+        EgRecs o = { 0 };
+        rc = eg_rough_round_513e38(&g.slot[10], 5, d, &o);
+        if (rc) { eg_recs_free(&o); eng_fail(&g, rc, rc == EG_ROUGH_NOT_DECODED ? "roughing corner rounding: case NOT DECODED" : "roughing corner rounding"); goto done; }
+        eg_recs_free(&g.slot[10]); g.slot[10] = o;
+    }
     /* FUN_00518574: spike removal in slots 0..9 */
     for (int s = 0; s < 10; s++) if (g.slot[s].n > 12) eg_spike_filter(&g.slot[s], NULL, NULL);
     /* FUN_005299e8: depth cuts */
@@ -6062,6 +7503,8 @@ int eg_engine(const EgEstDat *e, const EgRecs *contours, EgResult *out, char *er
         else if (out->n && tg >= 0x0a && tg <= 0x0d) eg_recs_add(&out->tp[out->n - 1].rec, tg, lg1.r[i].x, lg1.r[i].y, lg1.r[i].z);
     }
 done:
+    if (code) *code = g.err;
+    if (lg1_keep) { *lg1_keep = lg1; lg1.r = NULL; lg1.n = lg1.cap = 0; }
     eg_recs_free(&L); eg_recs_free(&V1); eg_recs_free(&V10); eg_recs_free(&VR); eg_recs_free(&layer); eg_recs_free(&lg1);
     for (int s = 0; s < EG_NSLOT; s++) eg_recs_free(&g.slot[s]);
     if (g.err) { seterr(err, errn, g.msg); eg_result_free(out); return 0; }
@@ -6104,8 +7547,36 @@ int engrave_generate(const EngraveIn *in, const EgChain *ch, int nch, Move **m, 
     e.param_norm = nch ? param_norm_gr(hi[0] - lo[0], hi[1] - lo[1]) : 1;
     EgResult r;
     int ok = eg_engine(&e, &c, &r, err, errn);
+    if (!ok) {   /* FEHLER n -> engrave.dll FUN_180049c30 (core3.c l.355-376): 53 -> exception 1 (engraveres 169), else exception 7 (175 "External
+                    process error:") with message 14000 + n of mwEngrave_ExternalProcessErrors (MWMSGMAP #196..#231 -> engraveres 196-231). The
+                    port's engine error carries "(code n)"; the two texts are joined with a space (ours: FUN_18002df40's composition NOT DECODED) */
+        static const struct { int n; const char *t; } EPE[] = { { 1, "User has aborted operation" }, { 2, "Too many vectors for contour" }, { 3, "Too many contours (>8000)" },
+        { 4, "HRKORRD : Disk or hard disk problem" }, { 6, "HRKORRD : Possible overlapping of contours ?" },
+        { 7, "HRKORRD : Too many control vectors. Reduce data size or increase rounding angle limit" }, { 8, "HRKORRD : Possible overlapping of contours ?" },
+        { 9, "HRKORRD : Calculation depth is exceeded" }, { 11, "HRKORRD : Possible overlapping of contours ?" },
+        { 12, "HRKORRD : Too many control vectors. Reduce data size or increase rounding angle limit" }, { 13, "HRKORRD : Error in contour" },
+        { 14, "HRKORRD : Not enough memory" }, { 23, "HSCHRAFF : Canceled with <Esc>" }, { 40, "HSCHRAFF : Wrong roughing area" },
+        { 41, "HSCHRAFF : No data is present" }, { 42, "HSCHRAFF : Wrong roughing area" }, { 43, "HSCHRAFF : Error No 23" },
+        { 44, "HSCHRAFF : Too many roughing toolpaths" }, { 45, "HSCHRAFF : Wrong rough angle" }, { 50, "File write error" },
+        { 51, "Tool without tip radius" }, { 52, "No tool angle" }, { 100, "KONTBILD : No data" },
+        { 101, "KONTBILD : Too many sub toolpaths (>7200)" }, { 102, "File write error" }, { 103, "KONTBILD : toolpath creation is impossible" },
+        { 901, "Source data file name must be in capital letters." }, { 902, "Target data file name must be in capital letters." },
+        { 905, "Roughing is not possible" }, { 906, "Clean corners strategy is not possible here." },
+        { 907, "3D toolpath moves can not be generated with the selected 'base' option." },
+        { 908, "Tool tip radiuses or angles must be in ascending order." }, { 909, "At least one tool must be selected." } };
+        const char *q = strstr(err, "(code "); int n = q ? atoi(q + 6) : 0;
+        if (n == 53) snprintf(err, errn, "Some of the base contours are overlapping");
+        else for (size_t k = 0; k < sizeof EPE / sizeof EPE[0]; k++) if (EPE[k].n == n) { snprintf(err, errn, "External process error: %s", EPE[k].t); break; }
+    }
     eg_recs_free(&c);
     if (!ok) return 0;
+    /* the tool name of each block (engrave.dll reads it from the 156-byte LG1 header, FUN_18005e3a0, bytes 0x50..0x9b = the 0x98 / 0x99
+       name records of FUN_00517c20's header): slot s <= last -> tool s, slot 10 (roughing) -> the last row's tool (eg_engine's
+       eg_tool_header calls) */
+    for (int k = 0; k < r.n; k++) {
+        int sl = r.tp[k].tool, ti = sl >= 0 && sl < e.ntools ? sl : sl == 10 ? e.ntools - 1 : -1;
+        if (ti >= 0) snprintf(r.tp[k].name, sizeof r.tp[k].name, "%s", e.tool[ti].name);
+    }
     ok = eg_lg1_to_moves(&r, &lk, m, nm);
     eg_result_free(&r);
     if (!ok) { seterr(err, errn, "engrave: unknown record in the engine output (engraveres error 12)"); return 0; }

@@ -219,6 +219,9 @@ int doc_write(const char *path) {
     for (int i = 0; i < F.nops; i++) if (F.ops[i].stale) fprintf(f, "STALE %d\n", F.ops[i].id);   /* tool changed after Mastercam made it */
     dirty_write_project(f);                                  /* dirty ops and their changed parameters (cui_dirty.c; ours: DIRTY lines) */
     for (int i = 0; i < F.nops; i++) if (F.ops[i].nrev) fprintf(f, "REVERSED %d %d\n", F.ops[i].id, F.ops[i].nrev);   /* Reverse toolpath, replayed on open */
+    /* a Mastercam op renamed in the Toolpaths manager (cui_misc.c op_set_comment): its comment, replayed on open (ours: the project line;
+       an op of ours keeps its comment in its OP line) */
+    for (int i = 0; i < F.nops; i++) if (F.ops[i].cmt_edited && F.ops[i].raw) fprintf(f, "OPCOMMENT %d %s\n", F.ops[i].id, F.ops[i].comment);
     /* batch 11: post values of a Mastercam op edited here (cui_ops.c pp_ok_apply_postvals): groups, then the record bytes 0x398-0x399,
        0x7e8-0x867, 0xb50-0xb79 in hex; replayed on open after the reversals */
     for (int i = 0; i < F.nops; i++) if (F.ops[i].postv && F.ops[i].raw && F.ops[i].raw_n >= PV_CAN + 40) {
@@ -424,6 +427,9 @@ int doc_read(const char *proj, const char *part_override) {
             if (!strncmp(ln, "STALE ", 6)) { int id = atoi(ln + 6); for (int i = 0; i < F.nops; i++) if (F.ops[i].id == id) F.ops[i].stale = 1; }
             if (!strncmp(ln, "REVERSED ", 9)) { int id = 0, k = 0; char rm[300]; sscanf(ln + 9, "%d %d", &id, &k);   /* the same NCI -> the same result */
                 for (int i = 0; i < F.nops; i++) if (F.ops[i].id == id) for (int r = 0; r < k && r < 64; r++) nci_reverse_op(&F, i, rm, sizeof rm); }
+            if (!strncmp(ln, "OPCOMMENT ", 10)) { int id = atoi(ln + 10); const char *t = strchr(ln + 10, ' ');   /* the op's comment as renamed */
+                for (int i = 0; i < F.nops; i++) if (F.ops[i].id == id && F.ops[i].raw) { int k = -1; for (int j = 0; j < ncamops; j++) if (camops[j]->op_index == i) k = j;
+                    if (k < 0) op_set_comment(i, t ? t + 1 : ""); } }
             if (!strncmp(ln, "POSTVALS ", 9)) {   /* batch 11: the same record bytes -> the same NCI records */
                 static const int R[3][2] = { { PV_COOL_OLD, 2 }, { PV_MISC_SET, PV_MISC_REAL + 80 - PV_MISC_SET }, { PV_CAN_ON, PV_CAN + 40 - PV_CAN_ON } };
                 int id = 0, g = 0, pos = 0; char rm[300];

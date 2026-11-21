@@ -35,6 +35,10 @@ echo "== Mastercam post engine CLI (viewer/mp)"
 make -C viewer/mp -j"$JOBS"
 
 echo "== Qt app ($QB)"
+if [ -f "$QB/CMakeCache.txt" ]; then      # configured at another path (tree moved): start over
+    cached=$(sed -n 's/^CMAKE_HOME_DIRECTORY:INTERNAL=//p' "$QB/CMakeCache.txt")
+    [ "$cached" != "$PWD/viewer-qt" ] && { echo "build.sh: $QB was configured for $cached; recreating it"; rm -rf "$QB"; }
+fi
 if [ ! -f "$QB/CMakeCache.txt" ]; then
     ARGS=(-S viewer-qt -B "$QB" -DCMAKE_BUILD_TYPE=RelWithDebInfo)
     if [ -d "$DEPS/saribbon-src" ] && [ -d "$DEPS/qtads-src" ]; then

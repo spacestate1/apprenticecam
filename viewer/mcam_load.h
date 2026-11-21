@@ -26,7 +26,7 @@ typedef struct {
     int seq;                /* Operations Manager order (op entity +0xe6) */
     int opcode;             /* op entity +0x6c */
     int tool;               /* tool number used (from NCI) */
-    char comment[64];
+    char comment[0x78];     /* op +6 = record 0x6e, 0x78 bytes (strcpy0(.., 0x78) in COpMgrTree::OnEndlabeledit @180361440) */
     char type[48];          /* from opcode */
     int first_poly, npolys; /* polylines of this op (toolpaths are grouped per op after loading) */
     long npts;              /* toolpath points of this op */
@@ -37,6 +37,8 @@ typedef struct {
     int slot;               /* TlMgr slot of its tool: OP_ID +0x5ac (formats/part_tools.md 1.1); -1 = not read */
     uint8_t *nci; size_t nci_n;   /* its NCI section (-2 .. -3 records, file format) rewritten here (Reverse toolpath); NULL = as stored */
     int nrev;               /* times Reverse toolpath ran on it here (the project file replays them) */
+    int cmt_edited;         /* its comment (raw 0x6e) was changed here by the Toolpaths manager's label edit (core_ui cui_misc.c op_set_comment,
+                               OnEndlabeledit @180361440): the save writes it into the record, the project file replays it (OPCOMMENT) */
     int postv, postv_groups; /* batch 11: its post values (coolant / canned text / misc values, cam_postvals.c) were edited here: raw holds
                                them and nci their NCI records (pv_nci_rewrite); groups = PVG_* (the project file replays them) */
 } Op;
@@ -463,7 +465,10 @@ typedef struct { int rapid; V3 p; double feed;              /* generated toolpat
                  int arc, cw; double cx, cy;
                  int cc;
                  int apl; double cz;
-                 int ctf; } Move;   /* ctf: the NCI contour flags of the move's record (lin +0x40 / arc +0x58: 1 first, 2 last move of a
+                 int ctf;
+                 int sof; } Move;   /* sof: a new NCI section-start block (bnci_wr_sof + 1002) before this move - the engine's pass start
+                                      (formats/nci_save.md 7); 0 elsewhere */
+                 /* ctf: the NCI contour flags of the move's record (lin +0x40 / arc +0x58: 1 first, 2 last move of a
                                       contour pass, gr_lin_mill / gr_arc_mill's flags argument) - set by the Thread Mill engine (cam2d_ops.c
                                       tm_pass, FUN_180236810), 0 elsewhere */
                                    /* apl: the arc's plane 0 XY, 1 YZ, 2 XZ (Mastercam NCI planes; 1 / 2 only from the arc

@@ -736,10 +736,9 @@ static void pp_cut_page(const PpOps *ops, void *u, CamParams *p) {
            (4589 "Computer" / 4597 "Off"; Control / Wear / Reverse Wear not offered - the LinuxCNC post has no G41/G42),
            Compensation direction (4577 "Left" / 4579 "Right" of each chain's direction = side_rel) */
         P_ROW(24, 2);
-        if (p->contour_type == 2) { ops->label(u, "Contour type:", 0); ops->label(u, "Engrave", 0); }
-        else { static const char *ctypes[] = { "2D", "2D chamfer" }; ops->label(u, "Contour type", 0);
-               p->contour_type = ops->combo(u, ctypes, 2, p->contour_type, 200, 80); }
-        if (p->contour_type != 2) {
+        { static const char *ctypes[] = { "2D", "2D chamfer" }; ops->label(u, "Contour type", 0);
+          p->contour_type = ops->combo(u, ctypes, 2, p->contour_type, 200, 80); }
+        {
             static const char *ct[] = { "Computer", "Off" }, *cd[] = { "Left", "Right" };
             int off = p->side == SIDE_ON; ops->label(u, "Compensation type", 0);
             int noff = ops->combo(u, ct, 2, off, 200, 80);
@@ -963,13 +962,23 @@ static struct { uint16_t off; uint8_t n; uint8_t v[8]; } pf_ed[PF_NED]; static i
    checked): MapToDlg FUN_180191570 sets it to the index (mode - 1), the radio handlers FUN_180191710 / 180191740 / 1801917b0 to 1 / 2 /
    3 (All / Each / Separate) - so on open "Separate" enables it, after a click "After each". pf_tc_click: the last click (0 none) */
 static int pf_tc_click, pf_tc_last = 1;
-void pf_reset(void) { pf_ned = 0; pf_tc_click = 0; }
+static void pf_sub_reset(void);
+void pf_reset(void) { pf_ned = 0; pf_tc_click = 0; pf_sub_reset(); }
 int pf_dirty_sig(unsigned char *out, int cap) { int n = (int)sizeof pf_ed[0] * pf_ned; if (n > cap) n = cap; memcpy(out, pf_ed, n); return n; }
 static int pf_opcode(void) { int st; return mcam_opcode_for(&pending.p, &st); }
 static int pf_style(void) { int t = pending.p.type; return t == CAM_DYNAMIC ? 0 : t == CAM_AREA ? 1 : t == CAM_DYNCONTOUR ? 2 : t == CAM_PEEL ? 3 : -1; }
+static const uint8_t *pf_src(uint32_t *n);
+/* user decision E-2018: Engrave's block S sits where its 'ENGR' marker (S+0x128) is - 2017 records 0x12f0 (marker at 0x1418), 2018
+   records (10560 bytes) 0x12f8 (marker at 0x1420; formats/engrave.md 2.2); the template rows hold the 2017 offsets */
+static int eg_s_shift(void) {
+    if (pending.p.type != CAM_ENGRAVE) return 0;
+    uint32_t n = 0; const uint8_t *r = pf_src(&n);
+    return r && n >= 0x1424 && !memcmp(r + 0x1420, "ENGR", 4) ? 8 : 0;
+}
 static int pf_off(const PfDef *d) {                       /* the control's record offset for this op's opcode, -1 none */
     int oc = pf_opcode(), any = -1;
-    for (int i = 0; i < 6 && d->off[i]; i++) { if (d->opc[i] == oc) return d->off[i]; if (!d->opc[i]) any = d->off[i]; }
+    for (int i = 0; i < 6 && d->off[i]; i++) { if (d->opc[i] == oc) { any = d->off[i]; break; } if (!d->opc[i]) any = d->off[i]; }
+    if (any >= 0x12f0 && any < 0x12f0 + 0x1d6) any += eg_s_shift();
     return any;
 }
 static const uint8_t *pf_src(uint32_t *n) {
@@ -1011,6 +1020,61 @@ static void pf_put(int off, int type, double v) {
     if (t == CAM_CONTOUR) cam_tab_mirror(p, off, n, b);   /* Tabs 2834: the generator's tab fields follow the record */
 }
 static int pf_has_patch(int off) { for (int k = 0; k < pf_ned; k++) if (pf_ed[k].off == off) return 1; for (int k = 0; k < pending.p.nrpatch; k++) if (pending.p.rpatch[k].off == off) return 1; return 0; }   /* this dialog's edits or the op's record patches */
+/* ---- Engrave's push-button sub-dialogs (formats/engrave.md 2.4). Mastercam: each button's handler copies the page members into
+   the dialog, DoModal, and copies them back unless Cancel (IDCANCEL 2): 1085 Depth cuts... -> 1804 FUN_180009ea0, 1062 Filter... ->
+   1806 FUN_18000a140, 1064 Remachining... -> 1807 FUN_18000a550, 1148 Wrapping... -> 10502 FUN_18000a980 (page 1802 message map
+   0x1804d1a90..0x1804d1c10), 1060 Entry-ramp... -> 1805 FUN_18000df40 (page 1803, 0x1804d2e40). Here the dialog's edits go to the record
+   edits as on a page; Cancel restores them. The buttons are enabled by FUN_18000ab60 (1802: 1085 with Depth cuts on page +0xda4 =
+   S+0xa0, 1062 with Filter on +0xd98 = op +0x2d2, 1064 with Remachining on +0xda0 = S+0x90, 1148 with Wrapping on +0xdc0 = (S+0xe4 == 1))
+   and FUN_18000e030 (1803: 1060 with Entry-ramp on +0xe7c and Rough on +0xe48). OK / Cancel live, Help (9) not ported. */
+static int pf_sub;                                      /* the open sub-dialog's template id, 0 none */
+static CamParams pf_sub_p; static OpHFlags pf_sub_hf; static int pf_sub_ned;
+static struct { uint16_t off; uint8_t n; uint8_t v[8]; } pf_sub_ed[PF_NED];
+static int eg_push_live(int dlg, int id) {               /* -1: not an Engrave push button */
+    if (pf_sub && dlg == pf_sub) return id == 1 || id == 2 ? 1 : id == 9 ? 0 : -1;
+    if (dlg == 1802) switch (id) {
+        case 1085: return pf_rv(eg_s_shift() + 0x1390, PFT_S32) != 0;
+        case 1062: return pf_rv(0x33a, PFT_U8) != 0;
+        case 1064: return pf_rv(eg_s_shift() + 0x1380, PFT_S32) != 0;
+        case 1148: return pf_rv(eg_s_shift() + 0x13d4, PFT_S32) == 1;
+    }
+    if (dlg == 1803 && id == 1060) return pf_rv(eg_s_shift() + 0x1394, PFT_S32) != 0 && pf_rv(eg_s_shift() + 0x1301, PFT_U8) != 0;
+    return -1;
+}
+static int eg_push_target(int dlg, int id) {
+    if (dlg == 1802) return id == 1085 ? 1804 : id == 1062 ? 1806 : id == 1064 ? 1807 : id == 1148 ? 10502 : 0;
+    if (dlg == 1803) return id == 1060 ? 1805 : 0;
+    return 0;
+}
+static void pf_sub_reset(void) { pf_sub = 0; }
+void pf_sub_open(int dlg) {
+    pf_sub_p = pending.p; pf_sub_hf = pp_hf; pf_sub_ned = pf_ned; memcpy(pf_sub_ed, pf_ed, sizeof pf_ed);
+    pf_sub = dlg;
+}
+int pf_sub_dialog(void) { return pf_sub; }
+/* the template's caption and size (dialog units; engraveres RT_DIALOG, tools/pe_dialogs.py) */
+const char *pf_sub_title(int dlg, int *w, int *h) {
+    static const struct { int dlg, w, h; const char *t; } T[] = { { 1804, 176, 109, "Depth cuts" }, { 1805, 188, 81, "Ramp" },
+        { 1806, 186, 173, "Filter settings" }, { 1807, 190, 167, "Engrave remachining" }, { 10502, 246, 189, "Wrap toolpath" } };
+    for (size_t i = 0; i < sizeof T / sizeof T[0]; i++) if (T[i].dlg == dlg) { if (w) *w = T[i].w; if (h) *h = T[i].h; return T[i].t; }
+    return NULL;
+}
+/* OK: the dialog's DDV (MFC DDV_MinMaxDouble -> AfxFailMinMaxReal: AFX_IDP_PARSE_REAL_RANGE "Please enter a number between %1 and %2.",
+   the bounds printed "%.*g" with DBL_DIG; the dialog stays open): 1805 plunge angle 10..90 (FUN_180024760), 10502 grid distance
+   1e-6..99999 (FUN_1801fea10; "1e-006": MSVC 2013's three-digit exponent). 1 = closed */
+int pf_sub_ok(char *msg, size_t n) {
+    if (!pf_sub) return 1;
+    if (pf_sub == 1805) { double v = pf_rv(eg_s_shift() + 0x13a0, PFT_F64); if (!(v >= 10.0 && v <= 90.0)) { if (msg) snprintf(msg, n, "Please enter a number between 10 and 90."); return 0; } }
+    if (pf_sub == 10502) { double v = pf_rv(eg_s_shift() + 0x13e0, PFT_F64); if (!(v >= 1e-06 && v <= 99999.0)) { if (msg) snprintf(msg, n, "Please enter a number between 1e-006 and 99999."); return 0; } }
+    if (pf_ned != pf_sub_ned || memcmp(pf_ed, pf_sub_ed, sizeof pf_ed[0] * (size_t)pf_ned)) pp_tstate[pp_page] = 1;   /* SetPageDataChanged */
+    pf_sub = 0;
+    return 1;
+}
+void pf_sub_cancel(void) {
+    if (!pf_sub) return;
+    pending.p = pf_sub_p; pp_hf = pf_sub_hf; pf_ned = pf_sub_ned; memcpy(pf_ed, pf_sub_ed, sizeof pf_ed);
+    pf_sub = 0;
+}
 /* the contour direction kept in record 0x5d2 (op +0x56a): written only when it differs from the record's (or a patch already holds it) */
 static void cd_dir_put(CamParams *p, int right) {
     if (pf_has_patch(0x5d2) || (int)pf_rv(0x5d2, PFT_U8) != right) pf_put(0x5d2, PFT_U8, right);
@@ -1054,6 +1118,7 @@ void pf_apply(CamParams *p) {
 /* the record offsets each engine reads from its block (cam2d_ops.c mcb / mcd / mcs by engine, cam2d_pock.c pkb / pkd /
    pks): a control on one of them is honoured as stored, so it is live here */
 static int pf_honoured(int off) {
+    if (off >= 0x12f0 + 8 && off < 0x12f0 + 8 + 0x1d6 && eg_s_shift()) off -= 8;   /* Engrave 2018 record (E-2018): the 2017 offsets below */
     /* Pocket: tapered walls generate for every type but Remachining (N9-19: process_pocket's taper arguments, cam2d_pock_taper.c; the open pocket cutting method FUN_1801e6970 / FUN_1801e5de0, cam2d_pock_open.c, reads only the outer angle) */
     if (pending.p.type == CAM_POCKET && pending.p.pk_ok && (off == 0x1288 || off == 0x1290 || off == 0x1298) && (int)pf_rv(0x13fa, PFT_S16) != 3) return 1;
     /* Remachining 2999 (FUN_180053a70 / FUN_1800550c0 read them; cam2d_remach_gen.c) */
@@ -1079,6 +1144,7 @@ static int pf_honoured(int off) {
     if (pending.p.type == CAM_CONTOUR && (off == 0x1465 || off == 0x1460)) return 1;
     /* batch 10: the Line/Arc filter block of the Arc Filter / Tolerance page 10318 (cam_filter.c reads it from the op's record with the
        page's patches: FUN_18004dd30 -> the filter globals; bnci_filter_op skips drill ops); XZ / YZ only with MCAM_ARC_FILTER_PLANES=1 */
+    if (pending.p.type == CAM_ENGRAVE && off == 0x338) return 1;   /* Engrave Filter settings 1806 Look ahead (cam_filter.c reads 0x338) */
     if (pending.p.type != CAM_DRILL && (off == 0x33a || off == 0x320 || off == 0x33b || off == 0x33e || off == 0x328 || off == 0x330
         || off == 0x33f || off == 0x340 || ((off == 0x33c || off == 0x33d) && cam_arc_filter_planes_on()))) return 1;
     /* 2026-11-08: the Smoothing block of page 10318 (cam_smooth.c reads it from the op's record with the page's patches: FUN_18094adc0 ->
@@ -1183,7 +1249,11 @@ static int pf_honoured(int off) {
        flat cutter angle 0xd8, Enter On 0x130) and the ones it refuses on (remachining 0x90, XY stock 0xc8, wrapping 0xe4) */
     static const uint16_t ENGR[] = { 0x12f0, 0x12f8, 0x1300, 0x1301, 0x1303, 0x1304, 0x1308, 0x1310, 0x1318, 0x1320, 0x1324, 0x1328, 0x132c, 0x1330,
                                      0x1338, 0x1340, 0x1348, 0x1350, 0x1358, 0x1360, 0x1364, 0x1380, 0x138c, 0x1390, 0x1394, 0x1398, 0x139c, 0x13a0,
-                                     0x13b0, 0x13b8, 0x13c0, 0x13c8, 0x13d4, 0x1420, 0 };
+                                     0x13b0, 0x13b8, 0x13c0, 0x13c8, 0x13d4, 0x1420,
+                                     /* 2026-11-19 the sub-dialogs 1807 / 10502: stored, generation refuses while remachining / wrapping is on
+                                        (remachining roughing tool S+0x78 / +0x80 / +0x88, source S+0xbc, finish after S+0xe0; wrap type S+0xe8,
+                                        grid S+0xf0) */
+                                     0x1368, 0x1370, 0x1378, 0x13ac, 0x13d0, 0x13d8, 0x13e0, 0 };
     /* Pencil (cam3d_pencil.c gen_pencil): the cut method bytes 0x16bd / 0x16d5 / 0x16d4, the refused start point 0x16bf and Use Z depths 0x16c9,
        the offsets 0x16cb / 0x1540 (refused unless none), Overthickness 0x12d0 (refused), Bitangency angle 0x12d8, tolerance 0x12a0 */
     static const uint16_t PENC[] = { 0x16bd, 0x16d5, 0x16d4, 0x16bf, 0x16c9, 0x16cb, 0x1540, 0x12d0, 0x12d8, 0x12a0, 0 };
@@ -1329,8 +1399,8 @@ static int pf_bget(const PfDef *d, double *v, int *live) {
     /* 3025 = the Tab Cutoff op's Cut page (HSTCutoffCutPage, opcode 0x82): the same record fields (MapToDlg FUN_18015dab0 /
        UpdateLocalOp FUN_18015db80 read / write 0x5d0 / 0x5d2 / 0x5d3 / 0x1238 as the contour page); its functions enable / disable
        nothing - the greyed states below are this program's engine limits, as on 2938 */
-    case K(2938, 1290): case K(3025, 1290): *v = p->side == SIDE_ON || p->contour_type == 2 ? 4 : p->ct_comp;
-        *live = p->contour_type != 2 && (p->ct_comp == 0 || pf_cc_ok()); return 1;   /* a stored Control / Wear / Reverse wear without the switch: greyed */
+    case K(2938, 1290): case K(3025, 1290): *v = p->side == SIDE_ON ? 4 : p->ct_comp;
+        *live = p->ct_comp == 0 || pf_cc_ok(); return 1;   /* a stored Control / Wear / Reverse wear without the switch: greyed */
     /* batch 5: Optimize cutter comp in control 2144 (0x5d4; FUN_180158ac0: comp = Control and type 2D / 2D chamfer / Ramp /
        Remachining), tip comp 1310 (0x1231: the taper's reference, FUN_1800569a0, and the NCI 1013 flag), corner rounding 1210 /
        break 1211 (0x1450 / 0x1468; FUN_180158ac0: disabled for Control comp and Remachining; cam2d.c ct_offset - 2D here) */
@@ -1338,11 +1408,11 @@ static int pf_bget(const PfDef *d, double *v, int *live) {
     /* Infinite look ahead 0x1238: enabled by FUN_180158ac0 (decomp/mcmill_all.c l.241430-241439): compensation in the computer, or Control with Optimize (2144) on, or Multi Passes on, or wall stock != 0, or type 2D / 3D chamfer. Cutoff page 3025: always. User decision D-5: closed chains only (cam2d.c chain_offset) */
     case K(2938, 1223): *v = !p->ct_nolook; *live = (p->side != SIDE_ON && p->ct_comp != 1) || (p->side != SIDE_ON && p->ct_comp == 1 && p->ct_ccopt) || pf_mp_on() || p->stock_xy != 0.0 || p->contour_type == 1 || p->ct_rtype == 2 || p->ct_rtype == 3; return 1;
     case K(3025, 1223): *v = !p->ct_nolook; return 1;
-    case K(2938, 1310): case K(3025, 1310): *v = p->ct_tipcomp; *live = p->contour_type != 2; return 1;
+    case K(2938, 1310): case K(3025, 1310): *v = p->ct_tipcomp; *live = 1; return 1;
     case K(2938, 1210): *v = p->ct_crnd; *live = p->side != SIDE_ON && p->contour_type == 0 && p->ct_comp != 1; return 1;
     case K(2938, 1211): *v = p->ct_cbrk; *live = p->side != SIDE_ON && p->contour_type == 0 && p->ct_comp != 1; return 1;
-    case K(2938, 1274): case K(3025, 1274): if (p->side == SIDE_ON || p->contour_type == 2) { *v = pf_rv(0x5d2, PFT_U8); *live = 0; } else *v = p->side == 2; return 1;
-    case K(2938, 2064): *v = p->contour_type == 1 ? 2 : p->contour_type == 0 && p->ct_rtype != 0 && p->ct_rtype != 2 ? p->ct_rtype : 0; *live = p->contour_type != 2; return 1;
+    case K(2938, 1274): case K(3025, 1274): if (p->side == SIDE_ON) { *v = pf_rv(0x5d2, PFT_U8); *live = 0; } else *v = p->side == 2; return 1;
+    case K(2938, 2064): *v = p->contour_type == 1 ? 2 : p->contour_type == 0 && p->ct_rtype != 0 && p->ct_rtype != 2 ? p->ct_rtype : 0; *live = 1; return 1;
     case K(2938, 1335): case K(3025, 1335): *v = p->roll; return 1;
     /* Ramp contour child 2997 (FUN_18015ae90; MapToDlg FUN_18015b220 / MapToOp FUN_18015b2c0 - no enable rule in the page's methods) */
     case K(2998, 597): case K(2998, 598): *v = p->ct_omode; return 1;   /* Oscillate child 2998 (HSTContourOscillatePage) */
@@ -1417,8 +1487,8 @@ static int pf_bget(const PfDef *d, double *v, int *live) {
         *v = t == CAM_CONTOUR && p->mc_depth_nf <= 0 && p->mc_depth_fs == 0 ? pf_rv(0x880, PFT_F64) : p->mc_depth_fs; *live = pf_dc_on(); return 1;
     case K(25598, 1377): if (!(t == CAM_SLOT || t == CAM_CIRCLE || t == CAM_FACE) || !p->mc_ok) return 0; *v = p->mc_keep_down; *live = pf_dc_on(); return 1;   /* Facing
                                                     (batch 7): bnci_face local_4385 = depth cuts && Zigzag / One pass && 0x891 */
-    case K(25598, 1381): if (t != CAM_CONTOUR) return 0; *v = p->dc_taper; *live = pf_dc_on() && p->contour_type != 2; return 1;   /* FUN_180056a70: opcode 1, any contour type (user 2026-10-23) */
-    case K(25598, 1252): if (t != CAM_CONTOUR) return 0; *v = p->dc_taper_a; *live = pf_dc_on() && p->contour_type != 2 && p->dc_taper; return 1;   /* radians, shown in degrees */
+    case K(25598, 1381): if (t != CAM_CONTOUR) return 0; *v = p->dc_taper; *live = pf_dc_on(); return 1;   /* FUN_180056a70: opcode 1, any contour type (user 2026-10-23) */
+    case K(25598, 1252): if (t != CAM_CONTOUR) return 0; *v = p->dc_taper_a; *live = pf_dc_on() && p->dc_taper; return 1;   /* radians, shown in degrees */
     case K(25598, 1979): case K(25598, 1980): if (t != CAM_CONTOUR) return 0; *v = p->dc_bydepth; *live = pf_dc_on(); return 1;
     /* Lead In/Out 3013 (contour) / 2793 (pocket), batch 4: each side its own (cam_fileop.c LEADS; the engines: cam2d.c
        lead_sides / pass for the contour and the zigzag pocket's finish, cam2d_pock.c for the High Speed pocket). Enable
@@ -1791,7 +1861,6 @@ static int pf_bitems(const PfDef *d, const char **it, int *code) {
                                                     with MCAM_CUTTER_COMP=1, or a stored Control / Wear / Reverse Wear (Engrave: ours, the two) */
         IT(0, "Computer"); IT(4, "Off"); return n; }
     case K(2938, 2064):   /* contour type: 2D (mcmillres 1229) / 2D chamfer (1234), the generator's two; Engrave is ours */
-        if (p->contour_type == 2) { IT(0, "Engrave"); return n; }
         IT(0, "2D"); IT(2, "2D chamfer"); IT(4, "Ramp"); IT(5, "Remachining"); IT(6, "Oscillate");   /* Mastercam's list order; mcmillres 1240 Ramp / 1247 Oscillate */
         { static const char *tn[7] = { "", "3D", "", "3D chamfer", "", "Remachining", "" };   /* a stored other type (refused) */
           if (p->contour_type == 0 && p->ct_rtype > 0 && p->ct_rtype < 7 && p->ct_rtype != 2 && p->ct_rtype != 4 && p->ct_rtype != 5 && p->ct_rtype != 6) IT(p->ct_rtype, tn[p->ct_rtype]); }
@@ -1938,7 +2007,7 @@ static int pf_custom(const PfDef *d, double *v, int *live) {
         return pf_ar_custom(d, v, live); }
     if (d->dlg == 1465 && p->type == CAM_OPTIROUGH) return pf_opti_custom(d, v, live);
     if (d->dlg == 1324 && p->type == CAM_WATERLINE) return pf_wl_custom(d, v, live);
-    if (d->dlg == 1803 && p->type == CAM_ENGRAVE && d->id == 1065) { *v = 100 - pf_rv(0x12f8, PFT_F64); *live = 1; return 1; }   /* engrave.dll
+    if (d->dlg == 1803 && p->type == CAM_ENGRAVE && d->id == 1065) { *v = 100 - pf_rv(eg_s_shift() + 0x12f8, PFT_F64); *live = 1; return 1; }   /* engrave.dll
                                                     pagexfer.c l.19 / l.97: S+0x08 holds the overlap = 100 - stepover % */
     if (d->dlg == 1002 && p->type == CAM_SFPROJECT && d->id == 997) {   /* Finish Project: the source op 0x1418 (OK l.157960-157970) */
         int id = (int)pf_rv(0x1418, PFT_S32), ok = 0; for (int i = 0; i < F.nops; i++) if (F.ops[i].id == id) ok = 1;
@@ -2011,7 +2080,7 @@ static void pf_custom_set(const PfDef *d, double v) {
     }
     if (d->dlg == 1037 && pending.p.type == CAM_SRPROJECT && d->id == 997) { pf_put(0x14e8, PFT_S32, (int)v); return; }
     if (d->dlg == 1002 && pending.p.type == CAM_SFPROJECT && d->id == 997) { pf_put(0x1418, PFT_S32, (int)v); return; }
-    if (d->dlg == 1803 && pending.p.type == CAM_ENGRAVE && d->id == 1065) { pf_put(0x12f8, PFT_F64, 100 - v); return; }   /* pagexfer.c l.97 */
+    if (d->dlg == 1803 && pending.p.type == CAM_ENGRAVE && d->id == 1065) { pf_put(eg_s_shift() + 0x12f8, PFT_F64, 100 - v); return; }   /* pagexfer.c l.97 */
     if (d->dlg == 1517 && pending.p.type == CAM_HSTPROJECT) {
         if (d->id == 1489) pf_put(0x1558, PFT_S32, v < 1 ? 0 : (int)v - 1);
         if (d->id == 997) pf_put(0x157c, PFT_S32, (int)v);
@@ -2398,8 +2467,8 @@ static void pf_marks(PfCtx *c, int dlg) {
                               "(mccoreres 4589 / 4597; Control / Wear / Reverse Wear not offered)";
     switch (dlg) {
     case 2938: case 3025:
-        if (p->contour_type != 2 && !pf_cc_ok()) pf_mark(c, 188, 22, COMP);
-        else if (p->contour_type != 2)
+        if (!pf_cc_ok()) pf_mark(c, 188, 22, COMP);
+        else
             pf_mark(c, 188, 22, "Compensation (MCAM_CUTTER_COMP=1, ours): Control posts G41 / G42 D<tool number> after the plunge, G40 on "
                     "the pass's last move (FUN_180056be0). Wear / Reverse Wear: refused by the LinuxCNC post");
         break;
@@ -2463,6 +2532,9 @@ static int pf_group_on(int dlg, int gid) {   /* the state of group / check box G
    style code: 5 Dynamic, 3 One pass, 0 Zigzag; 1857 = Zigzag only, dis 0x18016cd60..0x18016cd81) and 3020 1724 (FUN_18018e3a0
    l.276855: Ramp entry on and Output helixes as arcs off); other pages: not live (as before) */
 static int pf_en_rule(const PfDef *d) {
+    /* Engrave remachining 1807 (CRemachDlg): the roughing tool's edits iff "Roughing tool" (radio member +0x1d90 = S+0xbc == 1;
+       FUN_180024a00, run at init and by the radio clicks 0x1800249a0 / 0x1800249b0) */
+    if (d->dlg == 1807 && (d->id == 1058 || d->id == 1072 || d->id == 1076)) return (int)pf_rv(eg_s_shift() + 0x13ac, PFT_S32) == 1;
     /* Pocket: Tapered walls (cam2d_pock_taper.c; Open pocket cutting method: cam2d_pock_open.c). HSTDepthCutsPage::enable_taper_controls (l.247981-248026) with the Depth cuts group's check (enable_depthcut_controls l.247974: +0x18e8): the check 1381 (0x565, +0x3a88) is the group's buddy (l.247447),
        the angle 1252 (0x4e4) needs the group and the check. The Subprogram check 1463 (0x5b7, +0x3b60: HWND +0x3ba0): checking taper with it warns 0x95b (mcmillres 2395) and unchecks; 1463 is not live for Pocket here */
     /* The island angle 1466 (0x5ba, +0x52c8) the same: FUN_18017c550's page rule, l.265140-265143, with the group's check; every Pocket type but Remachining (no taper port) */
@@ -2637,6 +2709,7 @@ static void pf_emit(PfCtx *c, int dlg, int ox, int oy) {
             s->live = pending.p.type == CAM_CONTOUR && pending.p.lead_on; continue; }
         if (d->kind == PFK_PUSH && dlg == 3013 && (d->id == 25502 || d->id == 25504)) {   /* the lead copy buttons (lead_copy): the source group on */
             s->live = pending.p.type == CAM_CONTOUR && pending.p.lead_on && (d->id == 25502 ? pending.p.lead_in_on : pending.p.lead_out_on); continue; }
+        if (d->kind == PFK_PUSH && pending.p.type == CAM_ENGRAVE) { int lv = eg_push_live(dlg, d->id); if (lv >= 0) { s->live = lv; continue; } }
         if (d->kind == PFK_PUSH || d->kind == PFK_TRACK) { s->live = 0; continue; }   /* buttons / sliders: handlers not ported */
         double v = 0; int live = 0, bound = pf_bget(d, &v, &live), cust = 0, off = -1;
         if (!bound) cust = pf_custom(d, &v, &live);
@@ -2711,6 +2784,7 @@ static int pf_pocket_facepanel(void) { if (pending.p.type != CAM_POCKET || !pend
 /* the child panel 3005 shows (HSTPocketEntryPage: 3010 helix 0xbc2 / 3011 ramp 0xbc3 in static 2990), 0 = none */
 static int pf_entry_child(void) { int on = (int)pf_rv(0x12a0, PFT_U8), ty = (int)pf_rv(0x12a2, PFT_S16); return !on ? 0 : ty == 1 ? 3011 : ty == 0 ? 3010 : 0; }
 int pf_ctls(PfShown *out, int cap) {
+    if (pf_sub) { PfCtx c = { out, cap, 0 }; pf_emit(&c, pf_sub, 0, 0); return c.n; }   /* an open push-button sub-dialog (Engrave, eg_sub_*) */
     int pg = pp_page_shown(), dlg = pf_page_dialog(pg);
     if (!dlg) return 0;
     PfCtx c = { out, cap, 0 };
@@ -2737,6 +2811,7 @@ int pf_ctls(PfShown *out, int cap) {
 }
 /* a control's change: id + value (edit: the number; check: 0 / 1; radio: ignored; combo / list: the item index) */
 static const PfDef *pf_def_shown(int id) {
+    if (pf_sub) { for (int i = 0; i < (int)(sizeof PF_DEF / sizeof PF_DEF[0]); i++) if (PF_DEF[i].dlg == pf_sub && PF_DEF[i].id == id) return &PF_DEF[i]; return NULL; }
     int pg = pp_page_shown(), dlg = pf_page_dialog(pg);
     if (dlg == 2940 && pf_rv(0x13fa, PFT_S16) == 4) {   /* the Open pocket child panel 3001 (3101 = its control 2101, see pf_emit) */
         for (int i = 0; i < (int)(sizeof PF_DEF / sizeof PF_DEF[0]); i++) if (PF_DEF[i].dlg == 3001 && PF_DEF[i].id == (id == 3101 ? 2101 : id) && id != 2101) return &PF_DEF[i];
@@ -2843,6 +2918,11 @@ void pf_set(int id, double v) {
     PfShown sh[160]; int n = pf_ctls(sh, 160), k = -1;
     for (int i = 0; i < n; i++) if (sh[i].id == id && sh[i].kind != PFK_STATIC && sh[i].kind != PFK_PIC && sh[i].kind != PFK_GROUP) k = i;
     if (k < 0 || !sh[k].live) return;                         /* greyed / not on the page */
+    if (sh[k].kind == PFK_PUSH && pending.p.type == CAM_ENGRAVE) {   /* the Engrave push buttons / a sub-dialog's OK / Cancel */
+        if (pf_sub) { if (id == 1) { char m[200] = ""; if (!pf_sub_ok(m, sizeof m)) snprintf(cam_msg, sizeof cam_msg, "%s", m); } else if (id == 2) pf_sub_cancel(); }
+        else { int to = eg_push_target(pf_page_dialog(pp_page), id); if (to) pf_sub_open(to); }
+        return;
+    }
     if (sh[k].kind == PFK_PUSH) { if (id == 1098 && pf_page_dialog(pp_page) == 2834) tb_start();
         if ((id == 25502 || id == 25504) && pf_page_dialog(pp_page) == 3013) lead_copy(id == 25502);
         if ((id == 1391 || id == 1392) && pf_page_dialog(pp_page) == 3013) adj_copy(id == 1391);
@@ -2876,6 +2956,8 @@ void pf_set(int id, double v) {
         if (d->val == PFV_CUSTOM && !pf_bget(d, &bv, &bl)) pf_custom_set(d, rv);
         else if (!pf_bset(d, rv)) {
             int off = pf_off(d); if (off < 0) return;
+            if (d->dlg == 1806 && d->type == PFT_F64) rv = (double)(float)rv;   /* CFilterDlg: DDX_Text float members, op = (double)float (pagexfer.c l.57-59);
+                                                                                   the corpus / defaults hold 0.00019999999494757503 for 0.0002 */
             pf_put(off, d->type, rv);
             /* "[% of D] % [distance]" pairs (formats/opdlg_fields_notes.md F2 / F3: B = A x D / 100): the engine reads the % side,
                the distance written with it as Mastercam's handlers do */
@@ -2912,3 +2994,21 @@ void pf_set(int id, double v) {
     if (memcmp(&before, &pending.p, sizeof before) || memcmp(&hb, &pp_hf, sizeof hb) || ned != pf_ned || memcmp(edb, pf_ed, sizeof pf_ed)) pp_tstate[pp_page] = 1;   /* SetPageDataChanged */
 }
 #undef K
+
+/* Engrave's depth warning dialog 1808 (mwConicalWarningDlg, ctor FUN_180021f90, DDX FUN_180022070: the text 1165 "The maximum depth of
+   cut for this tool is %s" with printf "%.4f" of the float (FUN_1802647a0), the radio 1166 group -> +0x1d90, set to 0 = "Use the maximum
+   depth" before DoModal), asked by the regeneration's heights FUN_18001bb30 (heights.c l.163-201) when the tool's cone is shorter than the
+   depth. The front end asks it between gen_begin and the computation: 1 when JOB asks, *dmax its value. pp_dwarn_preset: the answer of
+   a scripted run (script step egdwarn:N, 1..3; 0 = not answered) */
+int pp_dwarn_preset;
+int pp_engrave_dwarn(const CamOp *job, double *dmax) { return job && job->p.type == CAM_ENGRAVE && cam_engrave_dwarn(&F, job, dmax); }
+/* user decision E-DW1 (formats/user_decisions.md): asked before EVERY regeneration of an Engrave op that shows it, as Mastercam's
+   heights FUN_18001bb30 does - the op dialog's OK, Regenerate selected / dirty, the regenerations of a tool / chain change. The answer
+   lives only for that regeneration (op->p.eg_dwarn; 0 when the warning does not show) */
+void pp_engrave_ask(CamOp *op) {
+    double dm = 0;
+    if (!op || op->p.type != CAM_ENGRAVE) return;
+    op->p.eg_dwarn = 0;
+    if (!pp_engrave_dwarn(op, &dm)) return;
+    op->p.eg_dwarn = cui_hooks.ask_dwarn ? cui_hooks.ask_dwarn(dm) : pp_dwarn_preset;
+}

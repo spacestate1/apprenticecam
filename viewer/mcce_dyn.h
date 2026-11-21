@@ -66,11 +66,15 @@ typedef struct {
 } McceRec;
 
 /* one input boundary (pock_bound): closed loop (or open chain), island flag */
-typedef struct { double *xy; int n; int island; int open; } McceBnd;
+typedef struct { double *xy; int n; int island; int open;
+                 int ne; char *ety; double *ent; } McceBnd;   /* ne > 0: the bound's own entities (ety 'L' / 'A', ent 5 doubles each: L x1 y1 x2 y2,
+                                                                 A cx cy r sa sw) - mcmill hands MCCECalcDynPock pock_bounds of lines and arcs
+                                                                 (formats/dynamic.md "2D HS input"); xy stays their chord polyline */
 
 /* LoadDynPockParm (mcmill FUN_1801af380) on an operation record (entity offsets, OP_ID record); metric = part units */
 void mcce_parm_from_record(McceParm *p, const uint8_t *rec, uint32_t n, int metric);
 /* MCCECalcDynPock (l.12159): motion / material / third boundary sets -> records (malloc'd) */
+void mcce_bnd_free_ents(McceBnd *b);           /* frees ety / ent (not xy) */
 void mcce_thread_release(void);             /* ours: free the calling thread's engine caches (a worker thread before it ends) */
 void mcce_abort_set(int on);                     /* ours: 1 = stop (Cancel, from another thread); 0 = run (the caller resets it) */
 int mcce_abort_get(void);

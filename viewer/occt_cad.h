@@ -52,6 +52,9 @@ int occt_cad_points(const OccCad *c, double **xyz, int *n);
 /* imported solids: operations on a BRep text blob */
 /* triangles (3 vertices per triangle, each x y z nx ny nz, model units, outward), deflection in model units; returns triangle count or -1 */
 int occt_brep_mesh(const uint8_t *b, size_t n, double deflection, float **tri, char *err, size_t errn);
+/* the same + each face's triangle count (TopExp_Explorer face order = occt_brep_topo's; the triangles are face after face; *fntri malloc'd,
+   nface entries; a face without a triangulation counts 0) - the shaded face highlight (scene.c) */
+int occt_brep_mesh_faces(const uint8_t *b, size_t n, double deflection, float **tri, int **fntri, int *nface, char *err, size_t errn);
 /* the same, 9 doubles per triangle, for the 3D toolpaths' drive mesh (occt_mesh_xt) */
 int occt_brep_drive(const uint8_t *b, size_t n, double deflection, double **tri, char *err, size_t errn);
 int occt_brep_edges(const uint8_t *b, size_t n, XtBEdge **out, int *nskip);   /* lines and circles, as xt_brep_edges */

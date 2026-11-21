@@ -456,7 +456,7 @@ three loops.
 
 - `area_mill_passes` (area_mill.c): rule 11.3 on a clearance grid (spacing max(0.01 mm x unit, √(box area / 2e6)), the
   floor is OURS and scaled for inch parts since CAM small items part 1 (b)): exact distance
-  to T's boundary per cell, medial-axis cells = cells whose neighbour's nearest boundary point is > 6 cells away, the E walk
+  to T's boundary per cell (bucket ring search from the bucket's distance to the nearest non-empty bucket, B1 2026-11-19: same result, no empty rings walked), medial-axis cells = cells whose neighbour's nearest boundary point is > 6 cells away, the E walk
   = breadth-first search along axis cells (upwards) to the first cells E away (our approximation of McHmm's exact
   Voronoi; buckle: t = 2.009 / 3.99 against 2.0154 / 4.00). Components are followed with flood fills: a split continues
   every part from r. **Islands: McHmm keeps separate radii per loop until loops merge (rule 3); the port treats a

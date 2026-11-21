@@ -146,9 +146,24 @@ int srf_pick_active;
 int pick_surfs_ok(void) { return srf_pick_active || xf_selecting() || geo_cmd == G_X2NURBS || drv_pick || (!cam_mode && !geo_cmd && !geo_chaining && !ex_mode && !sld_mode && !analyze_pick && !st_pick); }
 static int pick_only_surf;
 int pick_entity_surf(float mx, float my) { pick_only_surf = 1; int e = pick_entity(mx, my); pick_only_surf = 0; return e >= 0 && F.ents[e].type == E_SURF ? e : -1; }
+/* solids (SOLID_ID 0x10000) in the mask: with shading on (MayBeHidden(3): render_cfg 3 / 4 opaque) select_ent_univ first calls
+   FUN_180207a70 (decomp/mastercam_selpre.c, "SelectFace"): the shaded surface hit (gl_Hit_Surfs, mask 0x100), then the solid under
+   the cursor (mask 0x10000, sld_get_num_solids_visible > 0: sld_pick_solid_from_cursor(cursor, mask, bits, 1, true, ..) - the solid
+   entity and the hit point), which replaces the surface only when its point is nearer the viewer (world_to_view z: surface z <
+   solid z: "if (local_29b0 < local_29c8)" after the two world_to_view calls). That shaded candidate then meets the wireframe ones as the surface's did
+   (pick_surf_shaded's rule below). Here: the part solids (XT / imported) along the cursor ray, this program's face tessellation
+   (N13-3); the solids made in this session are not entities here (their faces have no display ranges: not picked). The caller
+   sets pick_sld_on where its mask takes solids (the general selection, the drive / check prompt's 0x110100); the opaque shaded
+   display only (the translucent one picks solids after the wireframe, select_ent_univ l.842-866: not ported) */
+int pick_sld_on, pick_sld_si = -1, pick_sld_f = -1;
+/* ours, user decision SH-1 (2026-11-20): APPROVED DEVIATION - on hover (the auto-highlight, cui_hover_update) a wireframe candidate
+   beats the solid face under the cursor only within SLD_HOVER_WIRE_PX, not the whole 17.4 px aperture (select_ent_univ's rule, kept
+   for clicks): on a face covered with wireframe (the PCR rack's hole circles) Mastercam's rule left almost no face highlight */
+#define SLD_HOVER_WIRE_PX 5.0
+int pick_sld_hover;
 int pick_entity(float mx, float my) {
     int best = -1; double bd = SEL_APERTURE_PX; V3 bp = { 0 };
-    pick_noport_under = -1;
+    pick_noport_under = -1; pick_sld_si = pick_sld_f = -1;
     int shaded = solid_mode != 0, surfs = (F.nsurfs || F.nmeshes) && pick_surfs_ok();
     /* the Chaining dialog in Single mode with config 6026 "Allow surface edges in single mode" (run_chain_dlg case 2: get_event's mask
        DAT_1813c4cbc | 0x100, decomp/mccore_chain_range.c l.17843-17850): SURF_ID joins the wireframe mask - surfaces only (no PMESH_ID / notes) */
@@ -183,25 +198,50 @@ int pick_entity(float mx, float my) {
         }
         for (int pi = en->first_poly; pi < en->first_poly + en->npoly; pi++) {
             const Poly *p = &F.polys[pi];
-            float ax = 0, ay = 0;
+            float ax = 0, ay = 0; V3 pa = { 0 };
             for (int k = 0; k < p->count; k++) {
                 V3 q = F.pts[p->first + k]; float sx, sy;
                 if (!scene_to_screen(vp_w, vp_h, q.x, q.y, q.z, &sx, &sy)) continue;
                 sx += vp_x; sy += vp_y;
-                if (k) { double d = seg_dist(mx, my, ax, ay, sx, sy); if (d < bd) { bd = d; best = e; bp = q; } }
-                ax = sx; ay = sy;
+                if (k) { double d = seg_dist(mx, my, ax, ay, sx, sy);
+                    if (d < bd) {   /* the candidate's point = the point on the entity at the cursor's parameter (select_ent_univ
+                                       pt_on_ent_from_t(t), decomp/mastercam_seluniv.c l.506; t_on_line / the projection on the
+                                       segment) - the view z the shaded candidate is compared with. Before 2026-11-19: the segment's
+                                       end vertex (wrong depth for long lines: az_dbl_line regression) */
+                        double ux = sx - ax, uy = sy - ay, l2 = ux * ux + uy * uy, t = l2 > 0 ? ((mx - ax) * ux + (my - ay) * uy) / l2 : 0;
+                        t = t < 0 ? 0 : t > 1 ? 1 : t;
+                        bd = d; best = e; bp = (V3){ pa.x + (q.x - pa.x) * t, pa.y + (q.y - pa.y) * t, pa.z + (q.z - pa.z) * t }; } }
+                ax = sx; ay = sy; pa = q;
             }
         }
     }
     /* notes (E_NOTE): candidates where surfaces are (the general selection; the commands keep their masks) - select_ent_univ's N_ID / W_ID
        distance (cui_note.c note_pick), the nearest wins (strictly nearer than the wireframe's) */
     if (pick_surfs_ok() && F.nnotes && !pick_only_surf) { double nd, nw[3]; int ne = note_pick(mx, my, &nd, nw); if (ne >= 0 && nd < bd) { bd = nd; best = ne; bp = (V3){ nw[0], nw[1], nw[2] }; } }
-    if (shaded && (surfs || csrf)) {
-        double sz, hz = -1e300, nz; pss_no_mesh = csrf; int s = pick_surf_shaded(mx, my, best >= 0, &sz, &hz);
-        int np = noport_under(mx, my, &nz);
-        if (np >= 0 && (s < 0 || nz > hz)) { s = -1; pick_srf_uv_ok = 0; }   /* CS-20: in front, not decoded */
-        if (s >= 0 && (best < 0 || vmat[6] * bp.x + vmat[7] * bp.y + vmat[8] * bp.z < sz)) best = s;
-        if (best < 0) pick_noport_under = np;
+    int sldp = pick_sld_on && solid_mode == 1 && !pick_only_surf && F.nsolids > 0;
+    if (shaded && (surfs || csrf || sldp)) {
+        double sz = -1e300, hz = -1e300, nz = -1e300; int s = -1, np = -1;
+        if (surfs || csrf) {
+            pss_no_mesh = csrf; s = pick_surf_shaded(mx, my, best >= 0, &sz, &hz);
+            np = noport_under(mx, my, &nz);
+            if (np >= 0 && (s < 0 || nz > hz)) { s = -1; pick_srf_uv_ok = 0; }   /* CS-20: in front, not decoded */
+        }
+        int ssi = -1, sfi = -1; double hp[3], solz = -1e300;
+        if (sldp && sld_pick_part_face_front(mx, my, -1, &ssi, &sfi, hp) == 1) {
+            solz = vmat[6] * hp[0] + vmat[7] * hp[1] + vmat[8] * hp[2];
+            if (np >= 0 && nz > solz) ssi = -1;        /* a surface / mesh whose pick is not decoded in front: hidden as the surface hit is */
+        } else ssi = -1;
+        if (ssi >= 0 && (s < 0 || sz < solz)) {        /* FUN_180207a70: the solid replaces the surface only when nearer */
+            /* a wireframe candidate within the aperture stays when its point is visible: IsPosVisible(pt, 1, -1, 1e-5) (mastercam.dll
+               0x1802064a0, decomp/mastercam_dlsearch_tpn.c:899-962; select_ent_univ applies it to its wireframe candidates,
+               decomp/mastercam_seluniv.c l.547) - hidden only by a face in front of that point by more than |z * 1e-5 * 150| (cui_snap.c
+               sld_pos_visible). With a shaded candidate select_ent_univ lists the wireframe candidates (FUN_18020f2f0) and resolves them
+               (FUN_180203a70 = std::sort of the 0x30-byte candidates, decomp/mastercam_selpre.c:140) and takes the first visible one: a line on a face stays pickable, a line behind
+               the solid does not */
+            if (best < 0 || (pick_sld_hover && bd > SLD_HOVER_WIRE_PX) || !sld_pos_visible(bp.x, bp.y, bp.z)) { best = -1; pick_sld_si = ssi; pick_sld_f = sfi; }
+        }
+        else if (s >= 0 && (best < 0 || vmat[6] * bp.x + vmat[7] * bp.y + vmat[8] * bp.z < sz)) best = s;
+        if (best < 0 && pick_sld_si < 0) pick_noport_under = np;
         pss_no_mesh = 0;
     }
     return best;
@@ -248,7 +288,7 @@ int sel_list_surfs(int **out) {               /* the selected surfaces (Ent indi
     for (int i = 0; i < F.nents; i++) if (is_sel(i) && F.ents[i].type == E_SURF) l[n++] = i;
     *out = l; return n;
 }
-void sel_clear(void) { if (ent_sel) memset(ent_sel, 0, ent_sel_n); nselected = 0; }
+void sel_clear(void) { if (ent_sel) memset(ent_sel, 0, ent_sel_n); nselected = 0; sld_sel_clear(); }   /* set_clr_sel_bits_all(.., 0x1f1fff, ..): solids too */
 /* Esc with no function running (decoded 2026-11-14, formats/ui.md "Esc with no function running"). The main frame's
    PreTranslateMessage (mastercam.dll FUN_18026ad90) posts every WM_KEYDOWN as thread message 0x802a (Esc) / 0x802b (any other
    key); with the Toolpaths manager focused COpMgrTree::PreTranslateMessage (@180364f70) posts Esc the same way. A running
@@ -274,7 +314,8 @@ void sel_toggle(int e) {
 }
 /* SelectAllMask (Ctrl+A, mastercam.kmp): every visible entity (mcamui.c run_mc_function) */
 void sel_all(void) { sel_grow(); nselected = 0; for (int i = 0; i < F.nents; i++) { ent_sel[i] = F.ents[i].type != 0 && (F.ents[i].type != E_SPLINE || !spl_skip(&F.ents[i])) && (F.ents[i].type != E_SURF || surf_pickable(&F.ents[i]))
-        && (F.ents[i].type != E_MESH || mesh_pickable(&F.ents[i])) && !(F.ents[i].type == E_NOTE && F.ents[i].blanked); nselected += ent_sel[i]; } overlay_dirty = 1; }   /* a blanked note (sel bit 0x100) is not
+        && (F.ents[i].type != E_MESH || mesh_pickable(&F.ents[i])) && !(F.ents[i].type == E_NOTE && F.ents[i].blanked); nselected += ent_sel[i]; }
+    overlay_dirty = 1; }   /* solids: whether SelectAllMask's mask takes SOLID_ID is NOT DECODED - not selected */   /* a blanked note (sel bit 0x100) is not
                                                                   drawn, so not visible / selectable - as a blanked surface (surf_pickable) */
 /* the test scripts' sel:3,4,5 (sel:none clears) */
 void sel_set_list(const char *arg) {
@@ -557,6 +598,48 @@ int cui_autohl_active(const CuiHlState *s) {
    bodies, FUN_1800a44c0 checks the Bodies button): the body under the cursor (sld_select along the cursor ray, the
    front one) is the highlighted tag (hit type 1). Plain idle, point entry and chaining keep mask 0: no solid hover. */
 int sld_hover_body = -1;
+/* The GAF highlight of a solid under the cursor (formats/ui.md "Shaded face highlight of solids"). mccore FUN_1804df930 (every mouse
+   move of the idle pump / select_ents / point entry: PumpPreSelection -> FUN_1804e50a0 case 0x8032 -> FUN_1804e55b0 -> FUN_1804df190 ->
+   FUN_1804df930, decomp/mccore_autocursor.c):
+   (a) mfMODE & 0x7000 with a hit of an enabled kind (get_event's solid modes - not used by the prompts ported here);
+   (b) render_cfg 3 (Shaded, not translucent) and sld_identify_from_cursor(.., highlight) hits (needs the solid pick mask) -> that tag
+       is highlighted, the wireframe auto-highlight erased;
+   (c) DrawAutoHighlight (mastercam.dll 0x18031f290, decomp/mastercam_acdlg.c): the entity of the current mask under the cursor
+       (select_ent_univ, solids through FUN_180207a70: pick_entity / pick_sld_on). A SOLID_ID entity with auto_highlight_solid_faces
+       (config 4037 "Solids by faces?", mccore_dlg292.c:74-75; .data 0x18088522e = 1) -> sld_get_highlight_face_on_body_from_cursor
+       (the body's front face; none -> nothing highlighted) -> SetAutoHighlightSolidsFace(face) -> FUN_180259770(face, 1) =
+       SetGrRenderAutoHighlighted on that face's GrFace; with 4037 off the solid entity itself is the auto-highlighted node and
+       MaintainGrSolid (mcgeomsld FUN_18025a620, GafSolids.cpp) sets AutoHighlighted on its GrSolid, which GrSolid::SetAltRender
+       (gafgr 0x10e72370) passes to every GrFace;
+   then, only when no entity is auto-highlighted, sld_identify_from_cursor(.., highlight) again (mask 0 -> no hit, the tag cleared).
+   sld_identify_from_cursor (decomp/mcgeomsld_snap.c:495): sld_select with the pick mask, the first hit; a face hit becomes its body
+   unless the mask has 4; FUN_180099aa0 flags a body (1) / face (4) tag through FUN_180259770 (a body = all its faces); a body tag also
+   gets its edges in select_color at the repaint (FUN_180098b20 -> FUN_180042a00). Masks here: the Extrude panel's Select Target Body
+   (sld_pick_one_ent mask 1: point entry, the auto-highlight off - TurnOffAutoHighlight in FUN_1804e11e0 - so only the final
+   sld_identify), the drive / check prompt's solid selection (ms_sld_pick_mask; select_ents' general selection with the mask
+   0x110100, so (c) takes solid entities too). Only the opaque shaded display draws the flags (scene.c draw_solid_mesh). */
+/* SOLID_ID in the current selection mask: the general selection (select_ents / the idle pump, mask 0x1f1fff) and the drive / check
+   prompt (0x110100); not the commands' own masks */
+static int sld_in_mask(void) {
+    return pick_surfs_ok() && (drv_pick || (!cam_mode && !geo_cmd && !geo_chaining && !ex_mode && !sld_mode && !analyze_pick && !st_pick && !srf_pick_active && !xf_selecting() && geo_cmd != G_X2NURBS));
+}
+/* the general selection's click (mccore FUN_1804e4550, the idle pump's 0x8030 with no solid pick mask -> FUN_1804dff70: the
+   auto-highlighted entity - GetAutoHighlightEntity - else find_an_entity with the same mask; then FUN_1804e8d50 flips its selection
+   bit 4, decomp/sldhl/mccore_click.c): with solids in the mask a SOLID_ID entity is picked as the hover picks it (pick_entity,
+   pick_sld_on) - the whole solid, whatever face config 4037 highlights */
+int pick_entity_gs(float mx, float my, int *solid) {
+    pick_sld_on = sld_in_mask(); int e = pick_entity(mx, my); pick_sld_on = 0;
+    *solid = e < 0 ? pick_sld_si : -1;
+    return e;
+}
+int hover_sld = -1, hover_sld_face = -1, hover_sld_kind, hover_sld_tag;
+int cfg_sld_by_faces = 1;
+static int sld_tag_hover(int pm, float mx, float my, int *si, int *f) {   /* sld_identify_from_cursor's tag: 1 = a part solid's face / body */
+    int s, fc; double hp[3];
+    if (!pm || sld_pick_part_face_front(mx, my, -1, &s, &fc, hp) != 1) return 0;
+    *si = s; *f = pm & 4 ? fc : -1;                    /* LAB_1800bd1c3: a face hit without mask bit 4 becomes its body */
+    return 1;
+}
 int cui_hover_update(float mx, float my, int active) {
     int sb = ex_mode && ex_pick == 2 ? ex_pick_body(mx, my) : -1, ch = 0;
     if (sb != sld_hover_body) {
@@ -564,7 +647,28 @@ int cui_hover_update(float mx, float my, int active) {
         if (getenv("MCAMUI_EXDUMP")) { printf("    sldhover %d\n", sb); fflush(stdout); }   /* tests (solid_compare.sh) */
     }
     if (sld_hover_update(mx, my)) ch = 1;             /* solid chaining: the solid pick mask is set (cui_sldchain.c) */
-    int he = active && !sld_mode ? pick_entity(mx, my) : -1;   /* no wireframe pick in the solid selection */
+    int he = -1, hs = -1, hf = -1, hk = 0, ht = 0;
+    if (sb >= 0) { hs = sb; hk = 1; ht = 1; }          /* Select Target Body: the body tag (FUN_180099aa0 type 1) */
+    else if (active && !sld_mode) {                    /* no wireframe pick in the solid chaining */
+        int pm = solid_mode == 1 ? ms_sld_pick_mask() : 0, done = 0;
+        if (pm && scene_render_cfg() == 3 && sld_tag_hover(pm, mx, my, &hs, &hf)) { done = 1; ht = 1; }   /* (b) */
+        if (!done) {
+            pick_sld_on = sld_in_mask(); pick_sld_hover = 1;   /* SH-1 */
+            he = pick_entity(mx, my); pick_sld_on = 0; pick_sld_hover = 0;   /* (c) */
+            if (he < 0 && pick_sld_si >= 0) {
+                hs = pick_sld_si; hf = -1;
+                if (cfg_sld_by_faces) {                /* the body's front face (sld_get_highlight_face_on_body_from_cursor) */
+                    int s2, f2; double hp[3];
+                    if (sld_pick_part_face_front(mx, my, pick_sld_si, &s2, &f2, hp) == 1) hf = f2; else hs = -1;
+                }
+            }
+            else if (he < 0 && sld_tag_hover(pm, mx, my, &hs, &hf)) ht = 1;
+        }
+    }
+    if (hs != hover_sld || hf != hover_sld_face || hk != hover_sld_kind || ht != hover_sld_tag) {
+        hover_sld = hs; hover_sld_face = hf; hover_sld_kind = hk; hover_sld_tag = ht; overlay_dirty = 1; ch = 1;
+        if (getenv("MCAMUI_SLDHL")) { printf("    sldhl kind %d solid %d face %d tag %d\n", hk, hs, hf, ht); fflush(stdout); }   /* tests */
+    }
     if (he == hover_ent) return ch;
     hover_ent = he; overlay_dirty = 1; return 1;
 }
@@ -732,6 +836,7 @@ void cui_config_item(int key, const char *q) {
     if (key == 1000 || (key >= 19000 && key <= 19040)) bp_opt_cfg(&bp_opt, key, q);   /* [BACKPLOT] backplot.md 12.1 / 13.1 (FUN_1801b7980; cui_backplot.c, phase 8) */
     if (key == 16013) undo_lim_on = yn == 'y';
     else if (key == 4053) cfg_stipple_hl = yn == 'y';     /* "Use stipple on solids/surfaces?" (StippleHighlight) */
+    else if (key == 4037) cfg_sld_by_faces = yn == 'y';   /* "Solids by faces?" (auto_highlight_solid_faces, mccore_dlg292.c:74-75) */
     else if (key == 4056) cfg_dashed_wire = yn == 'y';     /* "Use dashed on wireframe?" (GetDashedWireHightlight) */
     else if (key == 16009) cfg_constr_3d = yn == 'y';      /* constr_view_is_3d (mccore FUN_1801ba870 case 0x3e89; cui_stock.c) */
     int v; if (sscanf(q, "%d", &v) != 1) return;

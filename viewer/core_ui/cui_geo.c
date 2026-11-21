@@ -90,6 +90,7 @@ static GeoIn geo_live_in, geo_in_now; static unsigned long geo_live_hash;
 static void geo_live_start(int from);
 static void brkmany_run(void);
 static void geo_live_pv_note(void);
+static void let_chs_free(void); static void let_take_chains(void);   /* Create Letters live until OK (ours, user decision LET-1) */
 /* where a command clears its soft locks (geo_soft_clear_at): the result made by its picks, rebuilt by a panel change, committed by
    the next pick, Apply (panel code 1), the first (centre / base) pick of a result */
 enum { SC_MADE, SC_REBUILD, SC_NEXT, SC_APPLY, SC_FIRST, SC_FAIL };
@@ -372,7 +373,8 @@ void geo_chains_done(void) {
     /* a new dialog: Offset Chains' OnInitDialog FUN_18001e550 sets +0x5090 and posts 0x66 (decomp/xform/gaps/oninit.c); Roll's FUN_18002b020
        clears it (as every CXf*Dlg's OnInitDialog, vt slot 95) - 0x66 only in the rounds after an Apply */
     if (geo_cmd == G_OFFSETC || geo_cmd == G_XROLL) { geo_xmod = geo_cmd == G_OFFSETC || geo_xround2; geo_xround2 = 0; xrl_pick = 0; xrl_pts_ok = 0; }   /* (+0x10500: the dialog's ctor) */
-    if (geo_nchains && (geo_cmd != G_SREV || srf_rev_axis_ok())) { geo_live_prefix = 0; geo_run(); geo_reset_picks(); }
+    if (geo_cmd == G_LETTERS) { if (geo_nchains) let_take_chains(); }   /* ours, LET-1: the letters on these chains built live (the live ones before moved) */
+    else if (geo_nchains && (geo_cmd != G_SREV || srf_rev_axis_ok())) { geo_live_prefix = 0; geo_run(); geo_reset_picks(); }
     if (geo_cmd == G_LETTERS && !geo_chaining) { geo_chains_free(); geo_chain_begin(); }   /* create_letters' chain_it loop (FUN_18006cce0 :261) */   /* Revolve: the axis first */
     else if (geo_cmd == G_SREV) snprintf(cam_msg, sizeof cam_msg, "%s", geo_prompt());
     snprintf(cam_msg, sizeof cam_msg, "%s", geo_prompt()[0] ? geo_prompt() : geo_name(geo_cmd));
@@ -386,7 +388,9 @@ const char *const *geo_panel_tabs(int *n) {
     if (geo_cmd == G_XDYN) { *n = 2; return two; }      /* xformdynamicmanagerview.baml: BasicTabItem / AdvancedTabItem */
     *n = 1; return one;
 }
-int geo_panel_enabled(void) { if (wm_rg_wait) return 0;   /* AfxSuspendWindow during wait_for_space */ if (xf_cmd(geo_cmd)) return xf_panel_enabled(); if (dn_cmd(geo_cmd)) return 0;   /* Note: greyed (cui_draft_note.c dn_button) */ return !geo_chaining && !(geo_cmd == G_BBOX && bb_selecting()); }   /* Bounding Box: greyed while its Manual
+int geo_panel_enabled(void) { if (wm_rg_wait) return 0;   /* AfxSuspendWindow during wait_for_space */ if (xf_cmd(geo_cmd)) return xf_panel_enabled(); if (dn_cmd(geo_cmd)) return 0;   /* Note: greyed (cui_draft_note.c dn_button) */
+    if (geo_cmd == G_LETTERS && geo_live) return 1;      /* ours, LET-1: live letters - the panel's Apply / OK / Cancel and settings while chain_it runs again */
+    return !geo_chaining && !(geo_cmd == G_BBOX && bb_selecting()); }   /* Bounding Box: greyed while its Manual
                                                                    selection runs (ours: Mastercam suspends / does not service the panel then) */
 /* Offset Chains / Roll: Apply = FUN_18000b7d0 (geo_xmod above) */
 int geo_panel_apply_enabled(void) { if (geo_cmd == G_LNORM) return wm_ln_enable_apply();   /* EnableApply: the view model vf+0x30(1) at each line, 0 at the selection (FUN_1803584a0), the same moments as NumberSelected */ if (xf_cmd(geo_cmd)) return xf_apply_enabled(); if (dr_cmd(geo_cmd) || do_cmd(geo_cmd)) return 1; if (geo_cmd == G_BBOX) return bb_apply_enabled();
@@ -426,7 +430,7 @@ int geo_start(const char *name) {
     geo_cmd = c; geo_apolar_cw = 0; geo_reset_picks(); geo_phase = 0; overlay_dirty = 1; geo_applied = 0;
     ac_tmid_clear();                                     /* temp midpoints die with the previous point entry (FUN_180708450) */
     if (c == G_CVIEWS) { geo_cmd = G_NONE; wm_combine_views(); return 1; }   /* combine_views: no panel; 1986 / the message box (cui_wfmisc.c) */
-    if (c == G_LETTERS) wm_let_begin();                  /* create_letters :36-62 */
+    if (c == G_LETTERS) { wm_let_begin(); let_chs_free(); }   /* create_letters :36-62; ours, LET-1: no live placement yet */
     if (c == G_RGROOVE) wm_rg_begin();                   /* MakeReliefGrooves: dialog init (cui_wfmisc.c) */
     if (c == G_BBOX) bb_begin(0);                        /* FUN_180343ae0's start: settings, entity step, first compute (cui_bbox.c) */
     if (sl_cmd(c)) sl_begin(c);
@@ -610,7 +614,9 @@ static int geo_live_kind(int c) {
     case G_SDRAFT: return LV_LIVE | LV_REBUILD;         /* DraftSurface: UndoTransStart, FUN_180125d80, sktcher_live_color; 0x6b / 0x67 (panel changes) undo_go_back +
                                                            rebuild; 100 / 0x65 (OK / Apply) / Esc (OnCancel posts 100) UndoTransCommit + sktcher_main_color */
     case G_SREV: return LV_LIVE | LV_REBUILD;           /* FUN_18008c9e0 sktcher_live_color; panel changes UndoTransTerminate + rebuild; OK / Esc commit (FUN_18008ca80) */
-    case G_LETTERS: return 0;                            /* FUN_18006c0b0: UndoTransCommit per placement, no preview */
+    case G_LETTERS: return LV_LIVE | LV_ESC_DROP | LV_PICK_MOVES;   /* Mastercam: FUN_18006c0b0 UndoTransCommit per placement, no preview. Ours, user
+                                                                  decision LET-1 (approved deviation): live until OK, the next placement moves it,
+                                                                  Esc drops it, Apply rebuilds it (geo_let_apply) */
     case G_RGROOVE: return LV_LIVE | LV_ESC_DROP | LV_MAINCOL;   /* Preview Groove: FUN_180076420 (delete_all_by_mask); OK: one transaction, the preview is built again */
     case G_SPLCURV: return LV_LIVE | LV_REBUILD | LV_MAINCOL;   /* FUN_1801fc2a0: UndoTransStart per build, Terminate on a panel change, OK / Apply / Cancel commit */
     case G_XROLL: return LV_LIVE | LV_REBUILD | LV_ESC_DROP | LV_MAINCOL;   /* FUN_18002bf70's preview: the results keep their source's
@@ -692,7 +698,8 @@ void geo_take(int e, V3 w) {
         geo_ent[0] = e; geo_entpt[0] = w; snprintf(cam_msg, sizeof cam_msg, "%s", geo_prompt()); overlay_dirty = 1; return;
     }
     if (dr_cmd(geo_cmd) || do_cmd(geo_cmd)) return;      /* the drafting picks come through geo_click (cui_draft.c dr_click, cui_draft_ord.c do_click) */
-    if (geo_cmd == G_LETTERS && e >= 0 && wm_let_arcpick(e, w)) { if (wm_let_take_cancelled()) { geo_end(); return; } scene_reupload(); return; }   /* FUN_18006d450: a cancelled width prompt ends the loop */
+    if (geo_cmd == G_LETTERS && e >= 0 && wm_let_arcpick(e, w)) { if (wm_let_take_cancelled()) { geo_end(); return; } scene_reupload(); return; }
+    if (geo_cmd == G_LETTERS && !geo_need()) return;     /* ours, LET-1: Top of Chain takes no point - the live letters stay as they are */   /* FUN_18006d450: a cancelled width prompt ends the loop */
     if (geo_cmd == G_PTNODES && (e < 0 || e >= F.nents || F.ents[e].type != E_SPLINE)) return;   /* select_ent mask 0x88 */
     if (geo_cmd == G_SCONE && prim_top_pick) {           /* the cone's Top radius pick (FUN_180032250 param_2 4): type 8 centred at base + height x
                                                            axis in the cone's view; > tol -> +0x18, Top radius mode (+0x2a 1) */
@@ -783,6 +790,7 @@ void geo_take(int e, V3 w) {
         int prim_once = geo_cmd >= G_SBLOCK && geo_cmd <= G_STOR && geo_npick == 1 && !had_live;
         int pd_e = geo_ent[0]; V3 pd_w = geo_entpt[0];
         geo_run(); geo_reset_picks();
+        if (geo_cmd == G_LETTERS) let_chs_free();       /* ours, LET-1: a point placement now (the chains of moved Top of Chain letters dropped) */
         if (geo_cmd == G_LETTERS && wm_let_take_cancelled()) { geo_end(); return; }   /* FUN_18006d450: a cancelled width prompt ends the loop */
         if (geo_cmd == G_PTNODES) { geo_end(); return; }   /* create_spline_points: one spline, then the command ends (cui_wfmisc.c) */
         if (geo_cmd == G_PT_DYN) { geo_ent[0] = pd_e; geo_entpt[0] = pd_w; geo_nent = 1; geo_ptdyn_pv = gp.v_dist; geo_ptdyn_plk = gp.lk_dist & GEO_LK_HARD; }   /* the entity stays picked: more
@@ -834,6 +842,7 @@ void geo_end(void) {
     if (dr_cmd(geo_cmd)) dr_end();                        /* the dimension loop's exit (cui_draft.c) */
     if (do_cmd(geo_cmd)) do_end();                        /* doOrdinate's exit (cui_draft_ord.c) */
     if (geo_live_prefix) geo_live_drop(); else geo_live_commit();
+    if (geo_cmd == G_LETTERS) let_chs_free();            /* ours, LET-1 */
     if (geo_chaining) { chain_dlg_done(); cam_clear_selection(); geo_chaining = 0; }   /* chain_it cancelled: cancel_chaining, the mode kept (run_chain_dlg LAB_1801f1afa) */
     if (ns_chaining) ns_chain_end();                     /* Geometry Nesting's chain_it cancelled: back to its property sheet (cui_nest.c) */
     geo_chains_free(); geo_panel_req = -1;               /* free_chains(&local_4d0) at the loop exit (sketcher_fillet_2.c:306-309) */
@@ -1347,6 +1356,7 @@ void geo_sext_plane_done(int e) {
     geo_run(); geo_reset_picks(); overlay_dirty = 1;
 }
 void geo_live_update(void) {                   /* a panel value changed: rebuild the live result from the same picks */
+    if (geo_cmd == G_LETTERS && geo_live) return;        /* ours, LET-1: live letters are rebuilt by Apply only (geo_let_apply) */
     if (geo_cmd == G_SEXT) {                           /* code 6 into To plane: get_plane_info again before the build (apps.c l.22430-22462) */
         if (gps[G_SEXT].mode != geo_sext_mode && gps[G_SEXT].mode == 1) srf_ext_plane_forget();
         geo_sext_mode = gps[G_SEXT].mode;
@@ -3510,6 +3520,54 @@ static void geo_chain_button(int code) {
     case 2: geo_cancel(); return;                       /* Cancel: geo_live_kind (Fillet / Chamfer Chains commit; Offset Chains 100 deletes the preview) */
     }
 }
+/* ---- Create Letters live until OK: ours, user decision LET-1 (formats/user_decisions.md), an APPROVED DEVIATION from Mastercam 2017, whose
+   create_letters commits every placement at once (FUN_18006c0b0 / FUN_18006cce0: UndoTransCommit per placement, no preview) and whose later
+   setting changes only reach the next placement. Here a placement - a click (wm_let_exec), the arc of the arc alignments (FUN_18006d450,
+   wm_let_arcpick) or the chains of Top of Chain (wm_let_chain_exec) - is built as the live result (geo_live_kind G_LETTERS: LV_LIVE, its
+   own open undo step in the live colour). The next click / arc / chain moves it (LV_PICK_MOVES: the live letters dropped, built at the new
+   placement); Apply (panel code 1) builds it again at the same placement with the panel's settings now; OK (code 0, Enter) commits it as one
+   undo step and ends the command (geo_end); Esc / Cancel drops it (LV_ESC_DROP). A settings change alone does not rebuild (geo_live_update).
+   The letter geometry itself (fonts, widths, alignment, chain placement, the missing-file list, LETTERS.PRM) is unchanged (cui_wfmisc.c). */
+static Chain let_chs[256]; static int let_nchs;          /* the chains the live Top of Chain letters were built on (taken over from geo_chains) */
+static void let_chs_free(void) { for (int i = 0; i < let_nchs; i++) cam_chain_free(&let_chs[i]); let_nchs = 0; }
+/* the placement built live (geo_run without its pick list: the point p, or the chains let_chs); the live letters before it dropped */
+static void let_build(int chain, V3 p) {
+    geo_live_drop();
+    int from = F.nents, nu = nundo;
+    memset(&geo_in_now, 0, sizeof geo_in_now); if (!chain) { geo_in_now.npick = 1; geo_in_now.pick[0] = p; }
+    geo_live_n = 0; geo_live_marked = 0;
+    if (chain) {                                         /* wm_let_chain_exec reads geo_chains: let_chs lent to it (geo_chains is empty while chain_it runs again) */
+        static Chain sv[256]; int n0 = geo_nchains; memcpy(sv, geo_chains, sizeof(Chain) * n0);
+        memcpy(geo_chains, let_chs, sizeof(Chain) * let_nchs); geo_nchains = let_nchs;
+        wm_let_chain_exec();
+        memcpy(geo_chains, sv, sizeof(Chain) * n0); geo_nchains = n0;
+    } else wm_let_exec(p);
+    if (nundo == nu) undo_ents_added(from);
+    if (nundo != nu) geo_live_start(from);
+    scene_reupload();
+}
+/* the arc pick of the arc alignments (wm_let_arcpick): its centre is the placement */
+void geo_let_point(V3 p) { let_chs_free(); let_build(0, p); }
+/* geo_chains_done: the chains chain_it returned are the placement (they are kept for Apply; chain_it then runs again as create_letters' loop) */
+static void let_take_chains(void) {
+    let_chs_free();
+    memcpy(let_chs, geo_chains, sizeof(Chain) * geo_nchains); let_nchs = geo_nchains; geo_nchains = 0;
+    V3 z0 = { 0, 0, 0 }; let_build(1, z0);
+    if (!geo_live) let_chs_free();
+}
+/* Apply: nothing live - nothing; the live letters built again at their placement. A placement of the other kind than the alignment now
+   (Top of Chain switched since) is kept as it is: a new click / chain moves it */
+static void geo_let_apply(void) {
+    if (!geo_live || !geo_live_valid()) { geo_live = 0; geo_live_n = 0; return; }   /* an Undo meanwhile ended it */
+    int chain = let_nchs > 0;
+    if (chain != (wm_let_chain() != 0)) return;
+    char msg[sizeof cam_msg]; snprintf(msg, sizeof msg, "%s", cam_msg);
+    let_build(chain, geo_live_in.pick[0]);
+    snprintf(cam_msg, sizeof cam_msg, "%s", msg);      /* the prompt stays (the placement prompt / chain_it's) */
+    if (!geo_live) let_chs_free();
+    if (wm_let_take_cancelled()) geo_end();              /* FUN_18006d450: a cancelled width prompt ends the loop */
+    overlay_dirty = 1;
+}
 void geo_panel_button(int code) {
     if (ds_running()) return;                           /* AfxSuspendThisWindow while dyno_surf runs (FUN_180282390) */
     if ((geo_cmd == G_CDYN || geo_cmd == G_CCONST || geo_cmd == G_CFLOW) && (code == 0 || code == 1)) cd_built = 0;
@@ -3525,6 +3583,9 @@ void geo_panel_button(int code) {
     if (sp_cmd(geo_cmd)) { if (!sp_button(code)) geo_end(); return; }
     if (dr_cmd(geo_cmd)) { if (!dr_button(code)) geo_end(); return; }   /* cui_draft.c: OK-New commits and restarts, OK / Cancel end */
     if (do_cmd(geo_cmd)) { if (!do_button(code)) geo_end(); return; }   /* cui_draft_ord.c */
+    if (geo_cmd == G_LETTERS && code == 1) { geo_let_apply(); return; }   /* ours, LET-1: Apply rebuilds the live letters */
+    if (geo_cmd == G_LETTERS && geo_chaining && (code == 0 || code == 2)) { if (code == 0) geo_end(); else geo_cancel(); return; }   /* ours, LET-1: OK / Cancel
+                                                           while chain_it runs again (the panel is enabled with live letters) */
     if (geo_chain_cmd(geo_cmd)) { geo_chain_button(code); return; }
     if (geo_cmd == G_LNORM && code == 1) { wm_ln_apply(); return; }   /* code 1: Apply (Enter) - FUN_1803584a0 disasm 180358fbb-180359688 */
     if (geo_cmd == G_LNORM && code == 7) { wm_ln_reselect(); return; }   /* code 7 */
@@ -3845,7 +3906,7 @@ int cui_geo_script(const char *st, const char *arg_in) {
     else if (!strcmp(st, "slset") && arg) sl_script(arg);   /* tests: Curve Slice plane / options (cui_slice.c) */   /* tests: the spline panels' end conditions (cui_spline.c) */
     else if (!strcmp(st, "geoenter")) { if (ds_running()) geo_ds_key(0xb); else if (geo_cmd == G_CEDGEA || geo_cmd == G_STRIMS) geo_ce_enter(); else if (sp_cmd(geo_cmd)) sp_enter_key(); else if (sl_cmd(geo_cmd)) sl_enter_key(); else if (si_cmd(geo_cmd)) si_enter_key(); }   /* the <Enter> key of the spline commands (FUN_180260ef0 event 0x800, select_ents' End Selection) */
     else if (!strcmp(st, "geoesc")) geo_escape();
-    else if (!strcmp(st, "geoapply")) { if (geo_chain_cmd(geo_cmd) || geo_cmd == G_BBOX || xf_cmd(geo_cmd) || dr_cmd(geo_cmd) || do_cmd(geo_cmd) || sp_cmd(geo_cmd) || sl_cmd(geo_cmd) || si_cmd(geo_cmd)) geo_panel_button(1); else if (!geo_steps()[0]) geo_apply(); else geo_live_commit(); }   /* the panel's Apply (code 1) */
+    else if (!strcmp(st, "geoapply")) { if (geo_chain_cmd(geo_cmd) || geo_cmd == G_LETTERS || geo_cmd == G_BBOX || xf_cmd(geo_cmd) || dr_cmd(geo_cmd) || do_cmd(geo_cmd) || sp_cmd(geo_cmd) || sl_cmd(geo_cmd) || si_cmd(geo_cmd)) geo_panel_button(1); else if (!geo_steps()[0]) geo_apply(); else geo_live_commit(); }   /* the panel's Apply (code 1) */
     else if (!strcmp(st, "geobtn") && arg) geo_panel_button(atoi(arg));   /* ours: geobtn:N - panel code N (0 OK, 1 Apply, 2 Cancel, 4 Reselect) */
     else if (!strcmp(st, "geochains")) {                  /* ours: the chain command's state and chains */
         printf("    geochains cmd '%s' chaining %d n %d apply %d panel %d\n", geo_name(geo_cmd), geo_chaining, geo_nchains, geo_panel_apply_enabled(), geo_panel_enabled());

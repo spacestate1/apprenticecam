@@ -131,6 +131,23 @@ struct Writer {
        face it comes first in the attribute chain, then mcEptrPtr (0104_MULTIAXIS_ROUGHING_FALSE_FLOOR) */
     int coldef = 0;
     std::vector<int> colattrs;
+    /* CNC/mcEntinfoPtr (Options::mc_entinfo; formats/solid_import_save.md 3): ATTRIB_DEF type 9000, fields int, int, pointer, pointer
+       (ps_open_parasolids 0x18004d370: 0x170d, 0x170d, 0x1715, 0x1715; data: fields [1, 1, 9, 9]), actions / legal owners as mcEptrPtr;
+       one ATTRIBUTE per face / edge, first in its chain, INT_VALUES [kind] and [op 0], the two pointer fields empty (24,599 / 24,599 faces
+       and edges of the corpus body-op XTs: face [0x34] [0], edge [0] [0]) */
+    int infodef = 0;
+    std::vector<int> infoattrs;
+    void entinfo(int owner, int kind) {
+        if (!o.mc_entinfo || !o.mc_attributes) return;
+        int a = st.add("ATTRIBUTE"), k = st.add("INT_VALUES"), op = st.add("INT_VALUES");
+        st.seta(k, "values", {(double)kind}); st.seta(op, "values", {0});
+        st.set(a, "definition", infodef); st.set(a, "owner", owner); st.seta(a, "fields", {(double)k, (double)op, 0, 0});
+        int old = st.n[owner].f.count("attributes_features") ? (int)st.n[owner].f["attributes_features"][0] : 0;
+        st.set(a, "next", old); st.set(a, "previous", 0);
+        if (old) st.set(old, "previous", a);
+        st.set(owner, "attributes_features", a);
+        infoattrs.push_back(a);
+    }
     void colour(int owner, int c) {
         if (!coldef) {
             coldef = st.add("ATTRIB_DEF"); int id = st.add("ATT_DEF_ID");
@@ -505,6 +522,15 @@ bool Writer::run(const TopoDS_Shape &shape) {
         st.set(attdef, "field_names", 0);
         st.seta(attdef, "legal_owners", {0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 1, 0, 0, 0});
         st.seta(attdef, "fields", {9});         /* SCH_pointer_field (ref 101) */
+        if (o.mc_entinfo) {
+            infodef = st.add("ATTRIB_DEF"); int iid = st.add("ATT_DEF_ID");
+            std::string in = "CNC/mcEntinfoPtr";
+            st.seta(iid, "string", std::vector<double>(in.begin(), in.end()));
+            st.set(infodef, "next", 0); st.set(infodef, "identifier", iid); st.set(infodef, "type_id", 9000);
+            st.seta(infodef, "actions", {0, 0, 0, 0, 3, 6, 0, 0}); st.set(infodef, "field_names", 0);
+            st.seta(infodef, "legal_owners", {0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 1, 0, 0, 0});
+            st.seta(infodef, "fields", {1, 1, 9, 9});
+        }
     }
     /* --- regions / shells (ref 19-20, 88-89): region 0 = the infinite void region */
     int vreg = st.add("REGION");
@@ -578,6 +604,7 @@ bool Writer::run(const TopoDS_Shape &shape) {
         st.set(c, "owner", e);
         edges_n.push_back(e); curves_n.push_back(c);
         attribute(e);
+        entinfo(e, 0);                          /* FUN_18026fa70: FUN_180050bb0(edge, 0, 0, ...) */
         /* vertices on the XT curve (ours, self-check) */
         auto en = ends[kv.first];
         for (const void *vk : {en.first, en.second}) if (vk) {
@@ -615,6 +642,7 @@ bool Writer::run(const TopoDS_Shape &shape) {
         faces_n.push_back(fn); surfs_n.push_back(sn);
         attribute(fn);
         if (o.face_color.IsBound(F) && o.mc_attributes) colour(fn, o.face_color(F));
+        entinfo(fn, 0x34);                      /* FUN_18026fa70: FUN_180050bb0(face, 0x34, 0, ...) */
         /* fins in wire order (BRepTools_WireExplorer: connected order, orientation composed with the face's) */
         std::vector<FinT> fins;
         for (TopExp_Explorer wx(F, TopAbs_WIRE); wx.More(); wx.Next()) {
@@ -714,14 +742,20 @@ bool Writer::run(const TopoDS_Shape &shape) {
         st.set(colattrs[a], "next_of_type", a + 1 < n ? colattrs[a + 1] : 0);
         st.set(colattrs[a], "previous_of_type", a ? colattrs[a - 1] : 0);
     }
+    for (int a = 0, n = (int)infoattrs.size(); a < n; a++) {
+        st.set(infoattrs[a], "next_of_type", a + 1 < n ? infoattrs[a + 1] : 0);
+        st.set(infoattrs[a], "previous_of_type", a ? infoattrs[a - 1] : 0);
+    }
     if (o.mc_attributes) {
         st.set(list, "node_id", 0); st.set(list, "list_type", 4); st.set(list, "notransmit", 1);
         st.set(list, "owner", body); st.set(list, "next", 0); st.set(list, "previous", 0);
-        int nd = colattrs.empty() ? 1 : 2;
+        int nd = 1 + (colattrs.empty() ? 0 : 1) + (infodef ? 1 : 0);
         st.set(list, "list_length", nd); st.set(list, "block_length", 20); st.set(list, "finger_index", 1);
         st.set(list, "finger_block", plb); st.set(list, "list_block", plb);
         std::vector<double> ent(20, 0); ent[0] = attrs.empty() ? 0 : attrs[0];
-        if (nd == 2) ent[1] = colattrs[0];
+        int ne = 1;
+        if (!colattrs.empty()) ent[ne++] = colattrs[0];
+        if (infodef) ent[ne++] = infoattrs.empty() ? 0 : infoattrs[0];   /* last, as in 424 / 424 corpus body-op XTs */
         st.set(plb, "n_entries", nd); st.set(plb, "index_map_offset", 0); st.set(plb, "next_block", 0); st.seta(plb, "entries", ent);
     }
     st.set(body, "attribute_chains", list);

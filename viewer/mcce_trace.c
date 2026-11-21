@@ -142,8 +142,38 @@ static void mcce_trace_place(double tol, double w, P2 A, P2 B, int r, P2 out) {
     if (g_trace_f && on && mtr_in_range(g_trace_n)) fprintf(g_trace_f, "P %.17g %.17g A %.17g %.17g B %.17g %.17g -> %d %.17g %.17g\n", tol, w, A.x, A.y, B.x, B.y, r, out.x, out.y);
 }
 static void mcce_trace_trial(double ang, double len) { mtr_init(); if (g_trace_f && g_trace_lvl >= 5 && mtr_in_range(g_trace_n)) fprintf(g_trace_f, "T %.*g %.*g\n", mtr_prec() != 6 ? 17 : 9, ang, mtr_prec() != 6 ? 17 : 9, len); }
+/* MCCE_TRACE_SW with level >= 5: the trial line's attach result after FUN_180017a10 ("TG" line: G+8 valid, +0xa8 sh, +0xac ent,
+   +0xb0 t, lead count and entities in %a); tools/peloader mcce.c hook_trial the same */
+static void mcce_trace_tg(const Gbap *G) {
+    if (!(g_trace_f && g_trace_lvl >= 5 && mcce_trace_sw_on() && mtr_in_range(g_trace_n))) return;
+    fprintf(g_trace_f, "TG %d %d %d %a n %d\n", G->valid, G->sh, G->ent, G->t, G->lead.n);
+    for (int k = 0; k < G->lead.n; k++) mtr_ent_a(g_trace_f, &G->lead.e[k]);
+}
+/* MCCE_TRACE_SW with level >= 5: the attach's probe result ("AP"), the U-turn's crossings ("AUI") and result ("AU"); tools/peloader
+   mcce.c hook_probe / hook_isx / hook_uturn the same */
+static int mtr_l5(void) { return g_trace_f && g_trace_lvl >= 5 && mcce_trace_sw_on() && mtr_in_range(g_trace_n); }
+static void mcce_trace_ap(int r) { if (mtr_l5()) fprintf(g_trace_f, "AP %d\n", r); }
+static void mcce_trace_aui(const IsabL *I, const Sh *A) {
+    if (!mtr_l5()) return;
+    fprintf(g_trace_f, "AUI %d", I->n);
+    for (int k = 0; k < I->n; k++) fprintf(g_trace_f, " | xt %a pt %a %a y %d %d %a", I->r[k].xt, I->r[k].pt.x, I->r[k].pt.y, I->r[k].ys, I->r[k].ye, I->r[k].yt);
+    fputc('\n', g_trace_f);
+    if (A && A->n) mtr_ent_a(g_trace_f, &A->e[0]);
+}
+static void mcce_trace_au(const Gbap *G) {
+    if (!mtr_l5()) return;
+    fprintf(g_trace_f, "AU %d n %d\n", G->valid, G->lead.n);
+    for (int k = 0; k < G->lead.n; k++) mtr_ent_a(g_trace_f, &G->lead.e[k]);
+}
 static void mtr_bnds(FILE *f, int set, const McceBnd *b, int n) {
     for (int i = 0; i < n; i++) {
+        if (b[i].ne > 0) {   /* the entity form (peloader mcce.c "B"): the bound's own lines / arcs */
+            fprintf(f, "B %d %d %d %d\n", set, b[i].island, b[i].open, b[i].ne);
+            for (int k = 0; k < b[i].ne; k++) { const double *v = b[i].ent + 5 * k;
+                if (b[i].ety[k] == 'A') fprintf(f, "A %a %a %a %a %a\n", v[0], v[1], v[2], v[3], v[4]);
+                else fprintf(f, "L %a %a %a %a\n", v[0], v[1], v[2], v[3]); }
+            continue;
+        }
         fprintf(f, "b %d %d %d %d\n", set, b[i].island, b[i].open, b[i].n);
         for (int k = 0; k < b[i].n; k++) fprintf(f, "%a %a\n", b[i].xy[2 * k], b[i].xy[2 * k + 1]);
     }

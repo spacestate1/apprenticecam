@@ -207,6 +207,22 @@ static int am_grid_build(AmGrid *g, const CPaths *T0, double h) {
         }
         free(fill);
     }
+    /* e0[b] = Chebyshev distance (in buckets) from bucket b to the nearest bucket holding a segment: the rings below it
+       are empty, so the ring search starts there (B1, formats/area_mill.md 11.5: with a few long segments, e.g. a
+       rectangle, the search otherwise walked ~d / B empty rings per cell - 47 s per generation on a 100 x 50 part).
+       Same segments in the same order as walking every ring: the result is unchanged */
+    int *e0 = malloc(sizeof(int) * (size_t)bx * by);
+    for (int b = 0; b < bx * by; b++) e0[b] = cnt[b + 1] > cnt[b] ? 0 : bx + by;
+    for (int j = 0; j < by; j++) for (int i = 0; i < bx; i++) {          /* two-pass chamfer, unit 8-neighbour cost */
+        int *v = &e0[j * bx + i];
+        if (i > 0 && e0[j * bx + i - 1] + 1 < *v) *v = e0[j * bx + i - 1] + 1;
+        if (j > 0) for (int di = -1; di <= 1; di++) { int i2 = i + di; if (i2 >= 0 && i2 < bx && e0[(j - 1) * bx + i2] + 1 < *v) *v = e0[(j - 1) * bx + i2] + 1; }
+    }
+    for (int j = by - 1; j >= 0; j--) for (int i = bx - 1; i >= 0; i--) {
+        int *v = &e0[j * bx + i];
+        if (i < bx - 1 && e0[j * bx + i + 1] + 1 < *v) *v = e0[j * bx + i + 1] + 1;
+        if (j < by - 1) for (int di = -1; di <= 1; di++) { int i2 = i + di; if (i2 >= 0 && i2 < bx && e0[(j + 1) * bx + i2] + 1 < *v) *v = e0[(j + 1) * bx + i2] + 1; }
+    }
     /* inside test per row (non-zero winding over all loops) + nearest boundary point by ring search */
     double *xs = malloc(sizeof(double) * (ns + 1)); int *ws = malloc(sizeof(int) * (ns + 1));
     for (int j = 0; j < g->ny; j++) {
@@ -223,11 +239,13 @@ static int am_grid_build(AmGrid *g, const CPaths *T0, double h) {
             if (!wind) { g->c[id] = -1; g->fx[id] = g->fy[id] = 0; continue; }
             int ci = (int)((x - lo[0]) / B), cj = (int)((y - lo[1]) / B);
             double best = 1e300, bxp = x, byp = y;
-            for (int ring = 0; ; ring++) {
+            int ring0 = ci >= 0 && cj >= 0 && ci < bx && cj < by ? e0[cj * bx + ci] : 0;
+            for (int ring = ring0; ; ring++) {
                 if ((ring - 1) * B > best && ring > 0) break;
                 if (ring > bx + by) break;
-                for (int jj = cj - ring; jj <= cj + ring; jj++) for (int ii = ci - ring; ii <= ci + ring; ii++) {
-                    if (abs(jj - cj) != ring && abs(ii - ci) != ring) continue;
+                /* the ring's buckets only (row by row, left to right, as before; the inner rows have just their two ends) */
+                for (int jj = cj - ring; jj <= cj + ring; jj++) for (int ii = ci - ring; ii <= ci + ring;
+                                                                     ii += abs(jj - cj) == ring || ring == 0 ? 1 : 2 * ring) {
                     if (ii < 0 || jj < 0 || ii >= bx || jj >= by) continue;
                     int b = jj * bx + ii;
                     for (int e = cnt[b]; e < cnt[b + 1]; e++) { double *q = S + 4 * idx[e], qx, qy;
@@ -238,7 +256,7 @@ static int am_grid_build(AmGrid *g, const CPaths *T0, double h) {
             g->c[id] = (float)best; g->fx[id] = (float)bxp; g->fy[id] = (float)byp;
         }
     }
-    free(xs); free(ws); free(S); free(cnt); free(idx);
+    free(xs); free(ws); free(S); free(cnt); free(idx); free(e0);
     static const int dd[4][2] = { { 1, 0 }, { 0, 1 }, { 1, 1 }, { -1, 1 } };
     for (int j = 0; j < g->ny; j++) for (int i = 0; i < g->nx; i++) {
         size_t a = (size_t)j * g->nx + i; if (g->c[a] <= 0) continue;

@@ -523,6 +523,7 @@ static int g_pk_kp; static Gls g_pk_kb; static double g_pk_kz; static int g_pk_c
 static int g_pk_ktd_err; static double g_pk_ctol;                    /* g_pk_ktd_err: a link failed (op->error from g_pk_ktd_msg); g_pk_ctol: gen_pocket_v2's arc chord */
 static char g_pk_ktd_msg[160];
 static int pk_ktd_take(MB *b, const CamParams *p, PV r0, int first);
+static int g_pk_fin_sec;                                            /* the section being written is a finish section */
 static int g_pk_sec_on, g_pk_down, g_pk_lastk, g_pk_curk; static double g_pk_lastz, g_pk_hf, g_pk_ref;   /* g_pk_ref: the marker's top for this section: top of stock, or for a later depth cut the previous cut's Z (wr_pock_depth_cuts l.315181; set_heights l.315582) */
 /* zrec: the Z of the section's first record (plunge_move's param_3, l.316198: for a helix / ramp entry the entry's top, FUN_1801c4a60 l.313310-313316) */
 static double pk_sec_start(MB *b, const CamParams *p, PV r0, double depth, double zrec, int any) {
@@ -534,6 +535,12 @@ static double pk_sec_start(MB *b, const CamParams *p, PV r0, double depth, doubl
         if (hypot(e.x - r0.x, e.y - r0.y) > g_nc_tol) pk_up(b, p, pk_h(p, g_pk_lastz, g_pk_lastz), newp && !only_se);
         else g_pk_down = 1;
     }
+    /* the section's own section-start block (Move.sof on its next move): wr_pock_toolpath calls wr_sof at every section start after the
+       retract (decomp/mcmill_all.c l.316183, types other than 3) and has no cancel_q_1000 (none in l.315266-317200): also with the tool
+       down; the op's first section is the op's first block */
+    /* Move.sof 2 = a finish section's block (pock_in_finish = the section marker's finish flag at its start, wr_pock_toolpath l.315581;
+       the 1013 / 1016 compensation words depend on it, decomp/nciw/core_wr.c l.962 / l.6932); the op's first block too when it is one */
+    if (!first || g_pk_fin_sec) { g_sof_mb = b; g_sof_v = g_pk_fin_sec ? 2 : 1; }
     g_pk_lastk = g_pk_curk; g_pk_lastsub = g_pk_cursub; g_pk_lastz = depth;
     PkH H = pk_h(p, depth, g_pk_ref); g_pk_hf = H.f;
     int c14 = only_se ? first : (first || newp);                 /* l.316186-316197 */
@@ -1229,11 +1236,15 @@ static int gen_pocket_v2(const McamFile *f, CamOp *op, MB *b) {
     if (nsec > 1 && !g_pk_tc_in) qsort(sec, nsec, sizeof *sec, pk_sec_cmp);
     PkRoughCtx rc = { p, step, ctol, nctol, zf, method, in2out, burial, pk_type, minfil, tol, op->error, sizeof op->error, 0 };
     g_pk_sec_on = p->pk_ok && pk_type != 3 && !g_pk_tc_in; g_pk_lastk = -1; g_pk_lastz = 0;     /* N9-12 */
+    /* Move.sof at each section start (pk_sec_start); not with the finish compensation in control: FUN_1801cd200 then sets cur_op +0x568 /
+       +0x56a (decomp/mcmill_all.c l.318449-318452), which the finish blocks' 1013 / 1016 words read - no corpus section shows the result */
+    op->nci_blocks = g_pk_sec_on && !F.ctl; g_pk_fin_sec = 0;
     g_pk_kp = 0; gls_free(&g_pk_kb); g_pk_ktd_err = 0; g_pk_cursub = g_pk_lastsub = 0; g_pk_ctol = ctol;   /* pock_ktd_bnd emptied (wr_pock_toolpath l.316574-316587), lVar19 = 0 (l.315432) */
     for (int i = 0; i < nsec; i++) {
         PkPocket *q = &pk[sec[i].k];
         g_pk_curk = q->sk;                                                       /* local_93e: the marker's chain pocket, l.315556 */
         g_pk_cursub = sec[i].sub;                                                /* local_91e: the marker's sub-pocket (+0x28), l.315563 */
+        g_pk_fin_sec = sec[i].fin;
         const CamParams *secp = p; CamParams spv;
         if (taper) g_pk_face_chain = &q->tr;
         if (isl_f || taper) {

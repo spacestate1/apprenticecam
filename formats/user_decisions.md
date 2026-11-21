@@ -619,3 +619,99 @@ searched. Reuse the other agent's surface-pick (u, v) decode. P-5: port the soli
 - SOL-F5 (Q-F6; not asked separately - decided by the main session under SOL-F3's acceptance, flagged in the report so the user can
   object) The smooth-edge test (PK_EDGE_is_smooth in FUN_180036310) is OpenCASCADE's edge continuity check at its default angle
   (BRepLib::ContinuityOfFaces, 1e-10 rad = BRepLib::EncodeRegularity's default), marked as ours.
+
+## 2026-11-19 (cam_cli test tooling: compensation / chain direction, tabs, entity ids - branch cli-opts)
+- CLI-1 (Q1) PCR rack rebuild (<data-disk>/CAM-posts/pcr-rack-96-10mm.NC, bore op T2): UNCONFIRMED by the user. Compensation Right
+  is used for the rebuild because it is what reproduces the posted NC: an inside full circle cut G2 at tool-centre radius 2.15 needs
+  Right on a CW chain (Left on a CW chain puts the tool outside, radius 8.15, measured with cam_cli --comp left --chain-dir cw).
+  No code change: --comp / --chain-dir set the decoded record field 0x5d2 and the chain direction rule (FUN_1801e8660).
+- CLI-2 (Q2) cam_cli --tabpts implies Manual tabs (ours, test tooling): it sets the decoded record field 0x1381 = 0 (Tabs page
+  2834 "Automatic" off; cam_tab_mirror -> tab_auto), so the given centres are cut instead of being dropped by the default record's
+  Automatic tabs (cam2d.c gen_contour). --tabs N stays tabs on / off (the count is 0x1382: --tab-num). The 2D contour oracle
+  (tools/oracle.py, --set path) changes with it: formats/oracle_results.md "cam_cli --tabpts Manual".
+- CLI-3 (Q3) The PCR bore circles start at 0 deg in the rebuilt geometry, the posted NC starts them at 90 deg: no code change (nothing
+  decoded moves a start inside one entity); handled in the PCR geometry by the coordinator.
+
+## 2026-11-19 (imported solids saved as bricks: formats/solid_import_save.md, branch imp-solid-save)
+- SIS-1 The user's Windows PC runs Mastercam 2017: rebuilt / new parts go out as .mcam (Mastercam 2017). A STEP-opened document's part
+  is a new part on the 2017 operation defaults library, so its content is 2017 (major 0x13, solid ver 0x1c, Parasolid 28).
+- SIS-2 **Approved deviation (ours, no Mastercam source):** a part whose content is 2017 saved under a .mcx-9 name -> warn that it is a
+  Mastercam 2017 part and suggest .mcam, but still allow the save. The GUI (MainWindow::savePartAs) shows a box offering
+  "Save as NAME.mcam" (default) / "Save as NAME.mcx-9" / Cancel; scripted runs (export step), qc_save_part and cam_cli save under
+  the given name and carry the warning in the save message (mcam_saveops.c mcam_ext_mismatch / mcam_ext_warning). Mastercam's own Save
+  As offers only *.mcam for a 2017 part (33207), so it never makes this case; the check and its text are ours.
+- SIS-3 Op version (+0x3c) of ops written into an X9 part: keep 0x1a (the rule of every op written here, formats/solid_history.md 8; all
+  corpus X9 ops are <= 0x1a), although Mastercam 2017's McOperation ctor sets 0x1c (FUN_180261b90) and whether its X9 save lowers it is
+  NOT DECODED.
+
+## 2026-11-19 (toolpath NCI saved with the part: formats/nci_save.md, branch nci-save)
+- NS-1 (a): ops other than Drill stay dirty (red X, no NCI section) when saved, until the engines' per-pass section-start rule
+  (bnci_wr_sof + 1002 per pass; Contour FUN_180218410, Pocket, 2D High Speed) is decoded; decode it next (branch nci-passes) and
+  lift the gate per op type where the block placement matches the corpus.
+- NS-2: every NCI record's +0x10 = its offset in the saved part (save_db's bnci_write_to_disk) - Mastercam's rule, kept; no user
+  decision needed; checked in regress3 at integration.
+- NS-3: the PCR chains' Contour regenerated without arc records (G1 chords) is a fix to make (Mastercam stores arcs), not a question:
+  formats/TODO.md, after the pass rule, its own commit.
+- NS-4 (a): the gate is lifted for the standard 2D Contour (contour type 2D, not chamfer / engrave / Ramp / Oscillate / 3D / Remachining,
+  no Tab Cutoff passes) - its blocks follow FUN_180045770 (formats/nci_save.md 7: 149 / 149 block counts, 129 / 149 positions, the 20
+  others where our moves differ). Ramp, Oscillate, 3D, chamfer stay gated (dirty). Next: the move accuracy (branch move-accuracy).
+- NS-5: the Contour section-start block of the next, deeper depth cut that starts elsewhere goes after the traverse (before the rapid
+  down to the feed plane) - accepted as measured (17 / 17 corpus sections), documented as measured-not-decoded (formats/nci_save.md
+  7.1; the FUN_180045770 branch that orders it is not decoded).
+- NS-6: Dynamic Contour - decode its true-arc engine input (mcmill, with citations), port it, verify against mcce.dll on our inputs; its
+  NCI gate stays CLOSED until a part with stored Mastercam Dynamic Contour NCI exists (formats/windows_checklist.md 13). Order of the
+  2D HS work: (1) the link sets on true-arc input, (4) buckle-v9 op 46, (2) solid-chain regions, (3) region / entry selection, (5) this.
+
+## 2026-11-19 (Engrave engine core, branch engrave-core; formats/engrave_engine.md 3.7, 6, 10)
+- EG-1 Zigzag roughing, the uninitialised `e` of FUN_0051064c (a word gdi32 SetROP2 leaves on the stack): keep e = s/4, documented
+  as measured on the coaster (engrave_engine.md 6 "NOT DECODED / not ported").
+- EG-2 Wine allowed for TESTING ONLY: the real estamp7.exe (~/mastercam-re/files_engrave/) runs under Wine on generated
+  ENGCONT.LG1 / EST_DAT.TXT as a test oracle, compared with the port bit for bit; never shipped, never called by apprenticeCAM.
+  Memory-capped (ulimit -v 4000000, timeout), headless (WINEDEBUG=-all, no X; never DISPLAY :1).
+- EG-3 Decode and port roughing 'C' / 'D' (Radius / Durchm): FUN_0051a298 / FUN_0051abac and callees, verified with the Wine oracle.
+- EG-4 Tie / spike (engrave_engine.md 10): no change to Mastercam's behaviour; the Wine oracle on the same input settles the port
+  side; the spline-breaking question stays for windows_checklist case 11r.
+
+
+## 2026-11-19 (Engrave, engrave.dll side: formats/engrave.md 9, branch engrave-dll)
+- E-DW1 The depth warning dialog 1808 is asked before EVERY regeneration of an Engrave op that shows it, as Mastercam's heights
+  FUN_18001bb30 does (op dialog OK, Regenerate selected / dirty, tool / chain regenerations; core_ui pp_engrave_ask, Qt
+  engraveDepthWarning); headless scripts answer with step egdwarn:N.
+- E-DW2 APPROVED DEVIATION: Mastercam's carry-over of "Use the maximum depth" (session globals DAT_1806da109 / 110) into later
+  regenerations of other ops is NOT reproduced; the maximum applies only to the regeneration the answer belongs to (code comment "ours,
+  user decision E-DW2").
+- E-T17 Tool type 17: read tool +0x2ef0 (TL +0x290) when a test part holds such a tool (windows_checklist.md); refused until then.
+- E-2018 2018 records: the dialog's template rows are offset by the position of the block's 'ENGR' marker (0x1418 -> S at 0x12f0,
+  0x1420 -> S at 0x12f8).
+- Next (user, "Both, remachining first"): remachining (FUN_1800525b0's tool list, EStamp7 multi-tool, checked against estamp7 under
+  Wine - testing only, EG-2), then wrapping (the mapping 0x180203000-0x180212000 and its 4 / 5-axis output).
+
+- NS-7 (2026-11-19): next, build the trampoline trace-hook variant for the mcce.dll harness (tools/peloader), trace the state-0/1 last-step
+  shortening (FUN_18006db90 / FUN_18006d170) against the DLL on the 7 cases (5 Dynamic Mill + 2 Dynamic Contour), port it, re-measure
+  (port / DLL record identity, p95 vs the stored NCI, pass oracle, save oracle, fileop). Branch hs-steprule from e3a534a.
+- NS-8 (2026-11-19): NAKTO op 2's engine region switch keeps the safe feed-plane link (no clearance retract / second block copied from
+  one measured op); wait for the decode or a second example (formats/windows_checklist.md 14, TODO.md).
+- NS-9 (2026-11-19): approved deviation - the port's half-annulus circles loop (mcce_dyn.c circles_meet, FUN_1800236f0 l.24238-24408)
+  stops when the two fractions are equal (the DLL's loop would not advance there and never end). Code comment "ours, user decision NS-9".
+  The NS-7 trace lines (TG / AP / AU / AUI, MCCE_DEBUG=4 bit dump) are test tooling, off by default - no decision needed.
+- NS-10 (2026-11-19): full bit-exactness for Dynamic Contour buckle-v6 chain 6 stock 0.5 (FUN_18003e2f0 ramp split in the DLL's
+  arithmetic, then the following last-bit differences) - yes, as a separate task queued after the current integration and Engrave
+  work (formats/TODO.md "Queued"; handoff formats/mcce_port_plan.md 9.y). Not started on hs-steprule.
+
+- LET-1 (2026-11-19): APPROVED DEVIATION from Mastercam - Create Letters becomes live / parametric until OK. Mastercam 2017
+  (FUN_18006c0b0 / FUN_18006cce0: UndoTransCommit per placement, no preview) commits each placement at once and later setting
+  changes only reach the next placement. Ours: a click (or the arc pick of the arc alignments, or the chains of Top of Chain)
+  builds the letters as the LIVE result (geo_live, live colour, an open undo step); Apply rebuilds them at the same placement
+  with the panel's settings now (Apply is the only trigger: a settings change alone does not rebuild); another click / arc /
+  chain moves them (rebuilt there); OK (panel OK, Enter) commits them as ONE undo step and ends the command; Esc / Cancel drops
+  them (nothing made, no undo step); Apply with nothing live does nothing. The letter geometry (fonts, widths, alignment, arc /
+  chain placement, drafting fonts, the missing-file list, LETTERS.PRM save at each build) is unchanged. Code comments
+  "ours, user decision LET-1" (viewer/core_ui/cui_geo.c geo_let_*, let_build; cui_wfmisc.c wm_let_arcpick; Qt Enter key).
+
+- SH-1 (2026-11-20): APPROVED DEVIATION from Mastercam - the solid face hover highlight wins over wireframe beyond 5 px. Mastercam
+  (DrawAutoHighlight -> select_ent_from_sel_pt -> select_ent_univ, decomp/mastercam_seluniv.c l.540-551 / 685-700): with a shaded
+  candidate under the cursor every wire within sel_dist (17.4 px) is listed, sorted (FUN_180203a70 = std::sort of the 0x30-byte
+  candidates) and the first visible one wins; the face only when none is visible. On a face covered with wireframe (the PCR rack's
+  56 hole circles, outline, labels) that left the top face almost never highlighted (grid sweep: 6 of ~130 points). Ours: on hover
+  only (cui_hover_update) a wire beats the face only when within SLD_HOVER_WIRE_PX = 5 px (top face 122 points); clicks keep
+  Mastercam's 17.4 px rule (az_dbl_line unchanged). Code comment "ours, user decision SH-1" (viewer/core_ui/cui_sel.c pick_entity).

@@ -112,6 +112,9 @@ typedef struct {
        which runs it as the op dialog's OK does (worker thread + progress window): ms_gen_take, gen_run, gen_end. NULL = computed at
        once on the calling thread */
     void (*gen_queued)(void);
+    /* Engrave's depth warning dialog 1808 (cui_opdlg.c pp_engrave_ask), asked before each regeneration that shows it (user decision
+       E-DW1): 1 use the maximum, 2 return, 3 ignore. NULL = the script answer (step egdwarn:N) */
+    int (*ask_dwarn)(double dmax);
 } CuiHooks;
 extern CuiHooks cui_hooks;
 void cui_message(const char *title, const char *fmt, ...);
@@ -185,6 +188,7 @@ void ocs_params_of(const ExtrudeParams *ep, int single, OcsParams *p);
 double feat_xt_scale(void);                                          /* part units per metre */
 Body body_of_occ(OcsBody *ob, const char *name);                     /* takes the reference */
 struct SldNew; int sld_new_build(struct SldNew **out);              /* cui_sldsave.c: the solids made here for the part save (sld_ops.h) */
+void sld_new_drop(struct SldNew *s, int n);                         /* frees sld_new_build's list (the imported solids' bodies too) */
 /* undo record payload: the features one OK / Apply made (sec. 6: one per body / group) */
 typedef struct { int n; ExFeat *f; } FeatPack;
 typedef struct { int *ix, n; } ExGrp;
@@ -249,6 +253,13 @@ void do_redo(void);
 extern int vp_x, vp_y, vp_w, vp_h;               /* the graphics viewport in window coordinates (y down) */
 extern unsigned char *ent_sel; extern int ent_sel_n, nselected;
 extern int hover_ent;                            /* the entity under the cursor, drawn highlighted (build_overlay) */
+/* the GAF AutoHighlighted solid (formats/ui.md "Shaded face highlight of solids", cui_sel.c cui_hover_update): kind 0 = part solid
+   F.solids[hover_sld], 1 = body hover_sld of the solids made here; hover_sld_face = its face (topology order), -1 = the whole body;
+   hover_sld_tag = 1 when it is mcgeomsld's highlighted tag (sld_identify_from_cursor / FUN_180099aa0: a body tag also gets its edges
+   in the select colour, FUN_180098b20), 0 when it is the auto-highlighted solid entity (DrawAutoHighlight) */
+extern int hover_sld, hover_sld_face, hover_sld_kind, hover_sld_tag;
+extern int cfg_sld_by_faces;                     /* config 4037 "Solids by faces?" = auto_highlight_solid_faces (.data 1) */
+extern int pick_sld_on, pick_sld_si, pick_sld_f; /* pick_entity: SOLID_ID in the mask (set by the caller); out: the part solid face that won */
 extern int sld_hover_body;                       /* the body under the cursor during a solid body pick (sld_identify_from_cursor
                                                     hit type 1; formats/ui.md "Solid selection hover highlight"), -1 none */
 extern unsigned char op_msel[1024]; extern int msel_owner;   /* Operations Manager multi-selection (op_click) */
@@ -480,7 +491,7 @@ void wm_ln_exec(void); void wm_ln_apply(void); void wm_ln_reselect(void); int wm
 void geo_add_like(int i, const GE *pieces, int n);   /* cui_geo.c: pieces with entity i's attributes */
 void wm_combine_views(void);
 int wm_script(const char *st, const char *arg);
-void geo_let_chain_changed(void);
+void geo_let_chain_changed(void); void geo_let_point(V3 p);   /* geo_let_point: Create Letters' arc pick built live (ours, user decision LET-1) */
 void wm_let_chain_exec(void); int wm_let_arcpick(int e, V3 w); int wm_let_wants_arc(void); int wm_let_chain(void); int wm_let_take_cancelled(void); const char *wm_let_prompt(void);
 void wm_let_begin(void); void wm_let_exec(V3 w); int wm_let_ported(void); int wm_let_mode(void); void wm_let_gpset(const char *k, double x, const char *sv);
 void wm_rg_gpset(const char *k, double x);
@@ -838,6 +849,10 @@ extern int drv_pick;                             /* the select_ents prompt runs:
 extern int ms_sld_body, ms_sld_faces;            /* the Selection Bar's Select body / Select face buttons (OnSolidsSelectBody / Face: the
                                                     solid pick mask's bits 1 / 4); at the flow's start Body on, Face off (N13-8) */
 int ms_selbar_enabled(void);                     /* the buttons are enabled (the drive / check prompt runs) */
+int ms_sld_pick_mask(void);                      /* the solid pick mask of the drive / check prompt (1 bodies, 4 faces; 0 = none) */
+int ms_face_picked(int si, int f);               /* part solid si's face f is in the solid selection (drawn Selected) */
+int sld_sel_is(int si); void sld_sel_toggle(int si); void sld_sel_clear(void); int sld_sel_count(void);   /* part solids' selection bit 4 (cui_chain.c) */
+int pick_entity_gs(float mx, float my, int *solid);   /* the general selection's pick: an entity, else (-1) the part solid in *solid (cui_sel.c) */
 void ms_selbar_toggle(int face);                 /* a click on Select body (0) / Select face (1) */
 int ms_gen_take(CamOp *job);                     /* N13-9: the flow's generation waits for the front end (cui_hooks.gen_queued): 1 = JOB
                                                     taken - compute it (gen_run) and end it with gen_end */
@@ -900,6 +915,8 @@ void sld_enter(void); void sld_leave(void); void sld_commit(void); void sld_rese
 int sld_act(int id); int sld_ctl_live(int id); int sld_ctl_on(int id); void sld_dlg_refresh(void);
 int sld_pick_part_solid(float mx, float my);     /* From Solid: the part solid under the cursor (cui_sldchain.c) */
 int sld_pick_part_face(float mx, float my, int *solid, int *face, double hp[3]);   /* the part solid and face under the cursor (Line Normal) */
+int sld_pick_part_face_front(float mx, float my, int si_only, int *solid, int *face, double hp[3]);   /* the same, From back off (cui_sldchain.c) */
+int sld_face_picked(int si, int f);              /* a Face item of the solid chaining on part solid si (drawn Selected) */
 int sld_part_face_pt(int si, int f, float c[3]);   /* tests: the centre of face F's largest triangle (cui_sldchain.c) */
 int sld_part_nface(int si);                      /* the faces of part solid SI in this program's face list (cui_sldchain.c topo; XT FACE order) */
 int sld_click(float mx, float my);               /* window coordinates; 1 = taken */
@@ -1061,6 +1078,9 @@ int cui_extrude_script(const char *st, const char *arg);
 
 /* ------------------------------------------------------------------------------------------------ operations (cui_ops.c) */
 extern CamOp pending;                            /* the op the toolpath dialog edits (show_params) */
+int pp_engrave_dwarn(const CamOp *job, double *dmax);   /* Engrave: generating JOB asks the depth warning 1808 (cui_opdlg.c) */
+void pp_engrave_ask(CamOp *op);                  /* ... and asks it (cui_hooks.ask_dwarn / the script answer) into op->p.eg_dwarn */
+extern int pp_dwarn_preset;                      /* its answer in a scripted run (step egdwarn:N) */
 extern int tool_choice;                          /* index into F.tools, or F.ntools = custom */
 extern int edit_camop;                           /* camops index being edited in the params dialog, -1 = new op */
 extern CamOp *op_clip, *op_deleted; extern int op_deleted_at, op_clip_cut;   /* Toolpaths manager: clipboard, last deleted */
@@ -1123,7 +1143,8 @@ void fs_from_source(CamParams *p, const Tool *t);
 /* the Toolpaths manager right-click menu (OPMANRES.DLL menu 780, formats/opmanager_menu.md) */
 enum { CM_NA = 0, CM_OP, CM_EDIT, CM_DELETE, CM_UNDO, CM_EXPAND, CM_COLLAPSE, CM_TOOLLIST, CM_CUT, CM_COPY, CM_PASTE, CM_UNDELETE, CM_REVERSE, CM_RECALC, CM_SEP,
        CM_MILLPOP, CM_ALIAS, CM_HIDE, CM_CTRL, CM_NEEDOPS, CM_NEEDSEL, CM_DOCFILE, CM_RENUMTOOLS, CM_GRP_NEW, CM_GRP_RENAME, CM_GRP_DELETE, CM_GRP_DELEMPTY,
-       CM_LATHEPOP, CM_LFACE };   /* the Lathe toolpaths popup (usable on a lathe machine group) and its Face (cui_lface.c) */
+       CM_LATHEPOP, CM_LFACE,
+       CM_OP_RENAME };   /* not a menu item: an op's label edit (cui_misc.c op_rename_begin; the AskBox act) */   /* the Lathe toolpaths popup (usable on a lathe machine group) and its Face (cui_lface.c) */
 typedef struct { int depth; const char *text; int act; const char *arg; } CMItem;
 extern const CMItem cm_items[]; extern const int cm_nitems;
 #define CM_N cm_nitems
@@ -1774,6 +1795,9 @@ void ask_ok(void);
 void ask_end(int commit);
 void grp_rename_begin(void);
 int grp_renaming(int group);
+int op_rename_begin(int i);                      /* the label edit of op I starts (OnBeginlabeledit): ask.v[0] = its comment; 0 = refused */
+int op_renaming(void);                           /* the op being renamed, -1 = none */
+void op_set_comment(int i, const char *s);       /* OnEndlabeledit: the op's comment (record 0x6e, at most 0x77 bytes), part modified */
 typedef struct { int type, level, color; V3 a, b, c; double r, a0, sw; int vw; double vm[9];
                  uint8_t *srec, *brec; uint32_t sn, bn; int blevel, bcolor; } Clip;   /* vw / vm: a view arc's view (Ent.vw); srec: a surface's record, brec: its base's (trimmed / offset) */
 extern int nclip, paste_pending;

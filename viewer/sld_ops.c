@@ -52,10 +52,19 @@ static int r_base(Rd *rr, int type, SldOp *o, char *err, size_t errn) {
 int sld_op_read(int type, const uint8_t *body, size_t n, int ver, SldOp *o, char *err, size_t errn) {
     memset(o, 0, sizeof *o); o->type = type; o->fver = ver;
     if (ver < 0x19) { snprintf(err, errn, "ops version 0x%x: only >= 0x19 (64-bit) is handled", ver); return 0; }
-    if (type != SLD_OP_EXTRUDE_CUT && type != SLD_OP_EXTRUDE_BOSS && type != SLD_OP_EXTRUDE && type != SLD_OP_FILLET) {
+    if (type != SLD_OP_EXTRUDE_CUT && type != SLD_OP_EXTRUDE_BOSS && type != SLD_OP_EXTRUDE && type != SLD_OP_FILLET && type != SLD_OP_BODY) {
         o->cls = SLD_CLS_RAW; o->raw = malloc(n ? n : 1); memcpy(o->raw, body, n); o->nraw = n; return 1;
     }
     Rd r = { body, body + n, 0 };
+    if (type == SLD_OP_BODY) {
+        /* SldBodyOp::Read FUN_18026f4f0: the base, u32 size, size bytes of XT (written to <temp>sld_N_bo.x_b, ps_read_body) */
+        o->cls = SLD_CLS_BODY;
+        if (!r_base(&r, type, o, err, errn)) { sld_op_free(o); return 0; }
+        uint32_t k = g32(&r);
+        if (r.bad || k != (size_t)(r.e - r.q)) { snprintf(err, errn, "body op: XT size %u, %zu bytes left (Mastercam: sld 259 size mismatch)", k, (size_t)(r.e - r.q)); sld_op_free(o); return 0; }
+        o->bxt = malloc(k ? k : 1); memcpy(o->bxt, r.q, k); o->nbxt = k;
+        return 1;
+    }
     if (type == SLD_OP_FILLET) {
         o->cls = SLD_CLS_FILLET;
         if (!r_base(&r, type, o, err, errn)) { sld_op_free(o); return 0; }
@@ -114,7 +123,7 @@ void sld_op_free(SldOp *o) {
     free(o->e1); free(o->e2); free(o->p3);
     for (int c = 0; c < o->nch; c++) { if (o->ent) free(o->ent[c]); if (o->rev) free(o->rev[c]); }
     free(o->cnt); free(o->xa0); free(o->ent); free(o->xc0); free(o->xa8); free(o->rev); free(o->cdata);
-    free(o->trim); free(o->trim_data); free(o->raw);
+    free(o->trim); free(o->trim_data); free(o->raw); free(o->bxt);
     free(o->ida); free(o->pta); free(o->idb); free(o->ptb); free(o->bfl); free(o->r48); free(o->r60);
     for (int i = 0; i < o->nvr; i++) { if (o->vra) free(o->vra[i]); if (o->vrb) free(o->vrb[i]); }
     free(o->vrk); free(o->vra); free(o->vrb);
@@ -147,9 +156,13 @@ static void w_base(Wb *w, const SldOp *o) {
 uint8_t *sld_op_write(const SldOp *o, size_t *n) {
     *n = 0;
     if (o->cls == SLD_CLS_RAW) { uint8_t *b = malloc(o->nraw ? o->nraw : 1); memcpy(b, o->raw, o->nraw); *n = o->nraw; return b; }
-    if ((o->cls != SLD_CLS_EXTRUDE && o->cls != SLD_CLS_FILLET) || o->fver < 0x19) return NULL;
+    if ((o->cls != SLD_CLS_EXTRUDE && o->cls != SLD_CLS_FILLET && o->cls != SLD_CLS_BODY) || o->fver < 0x19) return NULL;
     Wb w = { 0 };
     w_base(&w, o);
+    if (o->cls == SLD_CLS_BODY) {               /* SldBodyOp write FUN_18026fc80: u32 the XT's size, the XT */
+        p32(&w, (uint32_t)o->nbxt); wput(&w, o->bxt, o->nbxt);
+        *n = w.n; return w.b;
+    }
     if (o->cls == SLD_CLS_FILLET) {
         /* McSldEntOp (the inverse of FUN_180274c80) + SldFilletOp write FUN_180281c70 */
         p8(&w, o->ex90);

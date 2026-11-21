@@ -195,14 +195,19 @@ bool occt_shape_of(const uint8_t *b, size_t n, TopoDS_Shape &s) {
 static void mesh_of(const TopoDS_Shape &s, double defl) { BRepMesh_IncrementalMesh m(s, defl > 0 ? defl : 0.02, Standard_False, 0.5, Standard_False); }
 
 extern "C" int occt_brep_mesh(const uint8_t *b, size_t n, double deflection, float **tri, char *err, size_t errn) {
-    *tri = nullptr;
+    return occt_brep_mesh_faces(b, n, deflection, tri, nullptr, nullptr, err, errn);
+}
+extern "C" int occt_brep_mesh_faces(const uint8_t *b, size_t n, double deflection, float **tri, int **fntri, int *nface, char *err, size_t errn) {
+    *tri = nullptr; if (fntri) *fntri = nullptr; if (nface) *nface = 0;
     try {
         TopoDS_Shape s; if (!occt_shape_of(b, n, s)) { E(err, errn, "bad BRep blob"); return -1; }
         mesh_of(s, deflection);
-        std::vector<float> out; int nt = 0;
+        std::vector<float> out; std::vector<int> fn; int nt = 0;
         for (TopExp_Explorer ex(s, TopAbs_FACE); ex.More(); ex.Next()) {
             const TopoDS_Face &F = TopoDS::Face(ex.Current()); TopLoc_Location loc;
+            fn.push_back(0);
             Handle(Poly_Triangulation) T = BRep_Tool::Triangulation(F, loc); if (T.IsNull()) continue;
+            fn.back() = T->NbTriangles();
             bool rev = F.Orientation() == TopAbs_REVERSED;
             for (int i = 1; i <= T->NbTriangles(); i++) {
                 int a, c, d; T->Triangle(i).Get(a, c, d); if (rev) std::swap(c, d);
@@ -213,6 +218,8 @@ extern "C" int occt_brep_mesh(const uint8_t *b, size_t n, double deflection, flo
             }
         }
         *tri = (float *)malloc(sizeof(float) * (out.size() ? out.size() : 1)); if (out.size()) memcpy(*tri, out.data(), sizeof(float) * out.size());
+        if (fntri) { *fntri = (int *)malloc(sizeof(int) * (fn.size() ? fn.size() : 1)); if (fn.size()) memcpy(*fntri, fn.data(), sizeof(int) * fn.size()); }
+        if (nface) *nface = (int)fn.size();
         return nt;
     } catch (...) { E(err, errn, "OpenCASCADE failed on this solid"); return -1; }
 }
@@ -339,6 +346,7 @@ extern "C" int occt_cad_curves(const OccCad *, int, OccCurve **, int *, char *er
 extern "C" void occt_cad_curves_free(OccCurve *, int) {}
 extern "C" int occt_cad_points(const OccCad *, double **, int *n) { *n = 0; return 0; }
 extern "C" int occt_brep_mesh(const uint8_t *, size_t, double, float **, char *err, size_t errn) { if (err) snprintf(err, errn, "built without OpenCASCADE"); return -1; }
+extern "C" int occt_brep_mesh_faces(const uint8_t *, size_t, double, float **, int **fntri, int *nface, char *err, size_t errn) { if (fntri) *fntri = nullptr; if (nface) *nface = 0; if (err) snprintf(err, errn, "built without OpenCASCADE"); return -1; }
 extern "C" int occt_brep_drive(const uint8_t *, size_t, double, double **, char *err, size_t errn) { if (err) snprintf(err, errn, "built without OpenCASCADE"); return -1; }
 extern "C" int occt_brep_edges(const uint8_t *, size_t, XtBEdge **, int *) { return 0; }
 extern "C" int occt_brep_topo(const uint8_t *, size_t, BTopo *) { return 0; }

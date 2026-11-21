@@ -237,6 +237,8 @@ static void params_from_record(McamFile *f, const Op *o, int type, double cz, Ca
     if (D(0x378) > 0) p->feed = D(0x378);
     if (D(0x380) > 0) p->plunge_feed = D(0x380);
     if (rd32(r, rn, 0x390) > 0) p->rpm = rd32(r, rn, 0x390);
+    p->coolant = S16(0x398) == 0x10;   /* regen-consistency 2026-11-19: the op's coolant word (op +0x330, cam_postvals.h PV_COOL_OLD: 8 off, 0x10
+                                          flood), which mcam_saveops.c writes from CamParams.coolant; was the tool's (always 0 for a part tool) */
     p->stock_xy = D(0x2e0);
     if (type == CAM_CONTOUR || type == CAM_POCKET || type == CAM_SLOT || type == CAM_CIRCLE) p->stepdown = B(0x868) ? D(0x870) : 0;
 
@@ -659,6 +661,45 @@ void cam_params_from_patches(CamParams *p) {
 void cam_params_from_raw(McamFile *f, const uint8_t *r, uint32_t n, int type, CamOp *op) {
     Op o; memset(&o, 0, sizeof o); o.raw = (uint8_t *)r; o.raw_n = n; params_from_record(f, &o, type, 0, op);
 }
+/* B2 (formats/new_toolpath_audit.md): a stored op of the 3D ports' codes -> its port type (the map of cam_cli saveref, S6 of
+   formats/surface_selection.md: op 132 by its style byte 0x16bc - 1 OptiRough, cam_hst_style for the others - and the classic
+   surface codes); 0 = none */
+int cam_fileop_type3d(const Op *o) {
+    if (!o->raw) return 0;
+    int st = o->opcode == 132 && o->raw_n > 0x16bc ? o->raw[0x16bc] : -1;
+    if (o->opcode == 132) { if (st == 1) return CAM_OPTIROUGH; for (int t = 1; t < CAM_NTYPES; t++) if (t != CAM_OPTIROUGH && cam_hst_style(t) >= 0 && cam_hst_style(t) == st) return t; return 0; }
+    static const int oc3[][2] = { { 5, CAM_SRPARALLEL }, { 7, CAM_SRPROJECT }, { 10, CAM_SRPOCKET }, { 11, CAM_SFPARALLEL }, { 12, CAM_SFRADIAL },
+                                  { 13, CAM_SFPROJECT }, { 15, CAM_SFCONTOUR }, { 39, CAM_SFPENCIL }, { 44, CAM_SRPLUNGE }, { 109, CAM_BLEND }, { 131, CAM_SRMPOCKET } };
+    for (size_t k = 0; k < sizeof oc3 / sizeof oc3[0]; k++) if (o->opcode == oc3[k][0]) return oc3[k][1];
+    return 0;
+}
+/* a stored 3D op as an op of its port type, as cam_cli saveref builds it: defaults, the op's tool, the parameters from its record
+   (cam_params_from_raw), its planes, its containment / curve chains (TP kind 6 / 7, roles 2 / 3); its drive / check references stay
+   the TP kind 4 records the engines read for a stored op (p.file_op_id, cam_refs_from_tp) */
+static int op_from_file_3d(McamFile *f, const Op *o, int op_index, int type, CamOp *op, char *err, size_t errn) {
+    cam_defaults_base(&op->p, type, f);
+    { const Tool *tl = op_tool(f, o, rd32(o->raw, o->raw_n, 0x348)); if (tl) cam_params_from_tool(&op->p, tl); }
+    cam_params_from_raw(f, o->raw, o->raw_n, type, op);
+    op->p.type = type; op->p.file_op_id = o->id;
+    snprintf(op->name, sizeof op->name, "%s", o->comment);   /* op +6, none = none (L-5) */
+    { char why[200] = ""; if (!cam_planes_from_record(o->raw, o->raw_n, &op->p, why, sizeof why)) { snprintf(err, errn, "operation %d: %s; it stays as stored", op_index + 1, why); return 0; } }
+    int32_t *ids = xmalloc(sizeof(int32_t) * (size_t)(f->ntp + 1)); int *rv = xmalloc(sizeof(int) * (size_t)(f->ntp + 1)); int nid = 0, role = 0, lost = 0;
+    for (int k = 0; k <= f->ntp; k++) {
+        const TpRef *t = k < f->ntp ? &f->tp[k] : NULL;
+        if (t && t->op_id != o->id) continue;
+        if (!t || t->kind == 6) {
+            if (nid) { Chain c; if (cam_chain_from_idns(f, ids, rv, nid, &c)) { c.role = role; op->chains = xrealloc(op->chains, sizeof(Chain) * (size_t)(op->nchains + 1)); op->chains[op->nchains++] = c; } else lost++; }
+            nid = 0; if (!t) break; role = t->role; continue;
+        }
+        if (t->kind == 7) { ids[nid] = t->ent; rv[nid++] = t->rev; }
+        if (type == CAM_SRPLUNGE && t->kind == 1) {          /* Rough Plunge: the grid corners = the op's point records (surf_classic2.md 2.9) */
+            Hole h = { 0 }; h.x = t->xyz[0]; h.y = t->xyz[1]; op->holes = xrealloc(op->holes, sizeof(Hole) * (size_t)(op->nholes + 1)); op->holes[op->nholes++] = h; }
+    }
+    free(ids); free(rv);
+    if (lost) { for (int c = 0; c < op->nchains; c++) cam_chain_free(&op->chains[c]); free(op->chains); op->chains = NULL; op->nchains = 0;
+        snprintf(err, errn, "operation %d: %d chain(s) cannot be rebuilt here (missing geometry); it stays as stored", op_index + 1, lost); return 0; }
+    return 1;
+}
 int cam_op_from_file(McamFile *f, int op_index, CamOp *op, char *err, size_t errn) {
     memset(op, 0, sizeof *op);
     if (op_index < 0 || op_index >= f->nops) { snprintf(err, errn, "no such operation"); return 0; }
@@ -671,6 +712,7 @@ int cam_op_from_file(McamFile *f, int op_index, CamOp *op, char *err, size_t err
        tool / STL model (mcmsurf FUN_18013b2f0 / FUN_1802d9780; formats/stock_model.md 3, 5). */
     if (o->opcode == 0x8b) { snprintf(err, errn, "%s: the Stock Model sweep (ifsweep.dll, formats/stock_model.md) is not ported; the operation stays as stored", o->type); return 0; }
     if (o->opcode == 0x6b) { snprintf(err, errn, "%s: the rest material engine (formats/stock_model.md) is not ported; the operation stays as stored", o->type); return 0; }
+    if (!type && cam_fileop_type3d(o)) return op_from_file_3d(f, o, op_index, cam_fileop_type3d(o), op, err, errn);   /* B2: the 3D ports */
     if (!type) { snprintf(err, errn, "%s operations can't be regenerated here yet", o->type[0] ? o->type : "this kind of"); return 0; }
     if (rn < 0x1600) { snprintf(err, errn, "operation record too short (0x%x bytes)", rn); return 0; }
     if (type == CAM_LFACE) {   /* Lathe Face: no chains (its two face points are read by gen_lathe_face), no mill parameters; the
@@ -909,9 +951,20 @@ int cam_defaults_from_file(CamParams *p, int type, int metric, const Tool *tool)
         *p = tmp.p;
         p->tool_num = keep.tool_num; p->tool_dia = keep.tool_dia; p->tool_type = keep.tool_type; p->corner_r = keep.corner_r;
         cam_lead_recalc(p);                                   /* Recalc (bnci_ctour l.394-406: each side that is on) */
+        /* regen-consistency 2026-11-19: the 2D High Speed gap size as % of D (0x15cd, params_from_record) with the op's tool, as it reads
+           back from the saved op - it was the default op's tool's D (a new Dynamic op linked with another gap than its saved copy) */
+        if ((type == CAM_DYNAMIC || type == CAM_AREA || type == CAM_DYNCONTOUR || type == CAM_PEEL) && o->raw_n > 0x1610 && o->raw[0x15cd]) {
+            double pct; memcpy(&pct, o->raw + 0x1608, 8); p->link_retract = pct * p->tool_dia * 0.01; }
         p->tip_angle = keep.tip_angle; p->tip_dia = keep.tip_dia; p->flute_len = keep.flute_len; p->coolant = keep.coolant;
         if (tool) { if (tool->rpm > 0) p->rpm = tool->rpm; if (tool->feed > 0) p->feed = tool->feed; if (tool->plunge > 0) p->plunge_feed = tool->plunge;
-                    if (tool->pitch > 0) p->thread_pitch = tool->pitch; }
+                    if (tool->pitch > 0) p->thread_pitch = tool->pitch;
+                    if (tool->retract > 0) p->mc_rrate = tool->retract; }   /* regen-consistency 2026-11-19: the retract rate with the feeds -
+                    GetFeedsAndSpeedsFromTool (mccore 0x180884bf0) takes feed / plunge / retract / rpm of the tool's op_tool_info (+0x30 /
+                    +0x38 / +0x40 / +0x48; cui_ops.c fs_from_source); the save writes the tool's block (toollib.c tool_op_info) */
+        /* regen-consistency 2026-11-19: 2D High Speed back feed 0 = the op's feed (params_from_record, LoadDynPockParm) - the feed the op
+           has now (the tool's), not the default op's */
+        if ((type == CAM_DYNAMIC || type == CAM_AREA || type == CAM_DYNCONTOUR || type == CAM_PEEL) && o->raw_n > 0x1250) {
+            double bf; memcpy(&bf, o->raw + 0x1248, 8); if (!(bf > 1e-5)) p->back_feed = p->feed; }
         p->file_op_id = 0;
         return 1;
     }

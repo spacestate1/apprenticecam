@@ -243,7 +243,7 @@ void runScript(MainWindow *w, const QString &script) {
         else if (st == "show" && arg == "open") w->openDialogShown();                               /* the Open dialog, not modal (screenshots) */
         /* ours (Qt): the phase 8 windows through their widgets (dump / KEY=V), as a frame of mcamui would draw them */
         else if (st == "bpdlg" || st == "bpdlgset" || st == "bpodlg" || st == "bpodlgset" || st == "azdlg" || st == "azdlgset" || st == "cdlgset" || st == "ldlgset" || st == "ecpdlg" || st == "ecpdlgset"
-                 || st == "griddlgset" || st == "vcrclick" || st == "renameedit" || st == "keyswin" || st == "stdlg" || st == "stdlgset") {
+                 || st == "griddlgset" || st == "vcrclick" || st == "renameedit" || st == "renameesc" || st == "keyswin" || st == "stdlg" || st == "stdlgset") {
             g_qt_scripting = false; w->syncMisc(); QApplication::processEvents();
             QString k = arg.section('=', 0, 0), v = arg.section('=', 1); bool ok = true;
             if (st.endsWith("set") && arg.contains('&')) {   /* KEY=V&KEY=V: several controls in one step (the model step's count) */
@@ -278,9 +278,13 @@ void runScript(MainWindow *w, const QString &script) {
                 QPoint pc = b->btnRect(i).center(); QMouseEvent pr(QEvent::MouseButtonPress, QPointF(pc), QPointF(b->mapToGlobal(pc)), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
                 QMouseEvent re(QEvent::MouseButtonRelease, QPointF(pc), QPointF(b->mapToGlobal(pc)), Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
                 QApplication::sendEvent(b, &pr); QApplication::sendEvent(b, &re); } }
-            else if (st == "renameedit") {                  /* the tree's label editor: type the text, Enter */
-                QLineEdit *le = qobject_cast<QLineEdit *>(QApplication::focusWidget()); ok = le != nullptr;
-                if (le) { le->setText(arg); QKeyEvent kd(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier); QApplication::sendEvent(le, &kd); }
+            else if (st == "renameedit" || st == "renameesc") {   /* the tree's label editor: type the text, Enter (renameesc: Esc, nothing typed) */
+                QLineEdit *le = qobject_cast<QLineEdit *>(QApplication::focusWidget());
+                if (!le) le = w->toolpathsManager()->labelEditor();   /* the editor is open but its window is not the active one (offscreen) */
+                ok = le != nullptr;
+                if (le && ask.act == CM_OP_RENAME) printf("    (label edit of op %d held '%s')\n", op_renaming() + 1, le->text().toUtf8().constData());   /* an op's: its comment */
+                if (le && st == "renameedit") le->setText(arg);
+                if (le) { QKeyEvent kd(QEvent::KeyPress, st == "renameesc" ? Qt::Key_Escape : Qt::Key_Return, Qt::NoModifier); QApplication::sendEvent(le, &kd); }
             }
             else if (st == "keyswin") printf("    keys window %s\n", show_help ? "open" : "closed");
             QApplication::processEvents(); w->refreshAll();
@@ -345,6 +349,18 @@ void runScript(MainWindow *w, const QString &script) {
             static const char *lk[] = { "none", "autohl", "selected", "autohl-selected", "none", "autohl-stipple", "selected-stipple", "autohl-selected-stipple" };
             printf("      srf hl hover %d mode %d cfg %d stipple %d\n", hover_ent, solid_mode, scene_render_cfg(), cfg_stipple_hl);
             for (int i = 0; i < F.nsurfs; i++) { int l = scene_srf_look(i); if (l) printf("      srf hl %d ent %d look %s\n", i, F.surfs[i].ent, lk[l]); }
+        }
+        else if (st == "azdump") az_dump();                                                         /* ours (tests): the Analyze dialog's state */
+        else if (st == "sldhl") {                                                                    /* ours (tests): the GAF highlight of the solids' faces (scene.c draw_solid_mesh, cui_overlay.c cui_sld_hl) */
+            static const char *lk[] = { "none", "autohl", "selected", "autohl-selected" };
+            printf("      sld hl hover kind %d solid %d face %d tag %d ent %d mode %d cfg %d stipple %d byfaces %d\n", hover_sld_kind, hover_sld, hover_sld_face, hover_sld_tag,
+                   hover_ent, solid_mode, scene_render_cfg(), cfg_stipple_hl, cfg_sld_by_faces);
+            if (cui_ptr_ok) { QPoint o = w->view()->widget()->mapTo(w, QPoint(0, 0)); printf("    sldcur %d %d\n", (int)cui_ptr_x + o.x(), (int)cui_ptr_y + o.y()); }   /* the cursor (solid_compare.sh counts the shot's colours around it) */
+            for (int i = 0; i < F.nsolids && scene_sld_hl; i++) { int n = sld_part_nface(i), c[4] = { 0, 0, 0, 0 }, f1[4] = { -1, -1, -1, -1 };
+                for (int f = 0; f < n; f++) { int l = scene_sld_hl(0, i, f) & 3; c[l]++; if (f1[l] < 0) f1[l] = f; }
+                for (int l = 1; l < 4; l++) if (c[l]) printf("      sld hl solid %d faces %d/%d look %s first %d\n", i, c[l], n, lk[l], f1[l]); }
+            for (int i = 0; i < F.nsolids; i++) if (sld_sel_is(i)) printf("      sld hl selected solid %d\n", i);
+            for (int b = 0; b < nsbodies && scene_sld_hl; b++) { int l = scene_sld_hl(1, b, -1) & 3; if (l) printf("      sld hl body %d look %s\n", b, lk[l]); }
         }
         else if (st == "ents") {                                                                     /* the live geometry (mcamui) */
             for (int i = 0; i < F.nents; i++) { const Ent *E = &F.ents[i]; if (!E->type || E->type == E_SURF || E->type == E_NOTE || E->type == E_MESH) continue;   /* surfaces: srfdump, notes: notedump, meshes: meshdump */
@@ -417,7 +433,15 @@ void runScript(MainWindow *w, const QString &script) {
         else if (st == "opexpand" && !arg.isEmpty()) w->expandOp(arg.toInt());                        /* expand an op in the Toolpaths manager */
         else if (st == "mcfn" && !arg.isEmpty()) w->mcFunction(arg, false);
         else if (st == "copyimage") w->copyImageTest(arg);                                               /* ours: Home > Copy Image (Esc / two corners) */                           /* mcfn:OnViewTop - an FT function */
+        else if (st == "tpslowclick" && !arg.isEmpty()) {                                          /* ours: tpslowclick:N - a click on op N's row, then (it being
+                                                                                                   the selected op) the slow click on its label: the label edit's model
+                                                                                                   (ToolpathsManager::slowClick); renameedit:TEXT types and ends it */
+            int i = arg.toInt() - 1;
+            if (arg == "tpgroup" || arg == "machgroup") w->toolpathsManager()->slowClickGroup(arg == "machgroup" ? 2 : 1);   /* tpslowclick:tpgroup|machgroup: a group row's */
+            else if (i >= 0 && i < F.nops) { op_click(i, 0, 0); w->toolpathsManager()->slowClick(i); } else printf("    (no op %s)\n", arg.toUtf8().constData());
+        }
         else if (st == "cmd" && !arg.isEmpty()) { UiCmd k; k.text = arg; k.tip = arg; w->invoke(k); }  /* ours: cmd:LABEL - a ribbon command by label */
+        else if (st == "galitem" && !arg.isEmpty()) { if (!w->invokeGalleryItem(arg)) printf("    (no gallery item %s)\n", arg.toUtf8().constData()); }   /* ours: galitem:Tab@Context|Gallery|Item[#n] */
         else if (st == "ribbon" && !arg.isEmpty()) { if (!w->invokeRibbonPath(arg)) printf("    (no ribbon command %s)\n", arg.toUtf8().constData()); }   /* ours: ribbon:Tab/Group/Label - by its button (FT routing) */
         else if (st == "nest" || st == "nestdump" || st == "nestfile" || st == "nestcat" || st == "nestlevels" || st == "nestppi" || st == "nestdelesc" || st == "nesttrim") {                                                  /* ours: Geometry Nesting (core_ui cui_nest.c) - nest = ns_start (as the ribbon), nestdump = the session */
             QByteArray sb = st.toUtf8(), ab = arg.toUtf8(); w->view()->withGL([&] { cui_ns_script(sb.constData(), ab.constData()); });

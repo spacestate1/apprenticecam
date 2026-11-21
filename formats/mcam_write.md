@@ -261,6 +261,8 @@ The minimal *valid* section is `-2 … -3` with matching op ids. The 1011–1017
 op: 1013/1014 "Tplane does not match", 1017 Cplane, 1016 tool slot "Mill tool does not exist", each forcing a
 regeneration. A synthetic section is risky and gains nothing. **Recommended: emit no NCI for new ops and let
 the user regenerate.**
+(2026-11-19: superseded for ops whose toolpath was computed here - formats/nci_save.md: the save writes their section with
+nci_write.c; by default Drill ops only, the other engines' per-pass block rule being NOT DECODED.)
 
 ---------------------------------------------------------------------------------------------------
 ## 7. Counts, offsets and checksums that break on insertion
@@ -532,3 +534,44 @@ original's). Only the seven system planes are written / read: the part's Masterc
 parsed, so no plane is created in it; a stored op whose view is not a system plane is not regenerated (it stays as
 stored, cam_fileop.c message). Verified: tools/tests/planes_scenes.txt pl_bottom_save_reopen (save, reopen, edit, post:
 the same G-code), pl_b4_edit_top.
+
+---------------------------------------------------------------------------------------------------
+## 12. A new op saved = the op generated (2026-11-19, branch regen-consistency; test `tools/tests/regen_consistency.py`)
+Rule: an op made here (`cam_cli PART TYPE ... --mcam OUT`, the Qt app) must regenerate from the saved record (`cam_cli OUT fileop
+ID`, the app's Regenerate) to the same moves and feeds. Two roots of a mismatch: the save not writing a field the engine cut with, or
+the new op's parameters not coming from the record the save writes. Found and fixed (moves + feeds compared, `--movesf`):
+| mismatch | root | fix (source) |
+|---|---|---|
+| `--engrave`: no leads generated, R10 arc leads after a regeneration (user's PCR rack op 4) | contour_type 2 is ours (no such Contour type: 0x1308 0 2D / 1 3D / 2 2D chamfer / 3 3D chamfer / 4 Ramp / 5 Remachining / 6 Oscillate); the engine forced lead off / on the line, the save wrote the default op's 0x8f0 (on) | cam_cli: `--engrave` = Compensation Off (0x5d0 = 4 -> SIDE_ON) + Lead In/Out off (0x8f0 = 0, LEADS) before generation |
+| compensation Off on a CCW closed chain cut CW, the saved op ran CCW | cam2d.c chain_offset "on the line: CW" (ours) for chains without a stored direction, while Mastercam's contour follows the stored chain (TP_BND +0xa8, formats/mcam.md; side_rel on reading) | user decision 4: cut in the chain's own direction from its start (as Mastercam), the save keeps the chain as chained |
+| a library tool whose number a part tool has: the saved op cut with the part's tool | cam_cli appended the tool with no slot; the save took mcam_tool(number) | cam_cli: a slot of its own (tool = slot + number, cam_fileop.c op_tool); the save gives it its part slot (open_slot) |
+| Thread Mill pitch (and hand, ID / OD, direction) | not written; the engine reads op +0x11f0 = 0x1258 (FUN_1802350f0 / FUN_180235a80 / FUN_180236170, decomp/mcmill_all.c l.385268 / 385626 / 385807) | save writes 0x1258, S16 0x1290, 0x12a0, 0x12a2 when they read back otherwise |
+| retract rate (feed of retracts with Rapid Retract off) | a new op kept the default record's 0x388, the save wrote the tool's (tool_op_info +0x40) | new op takes the tool's (GetFeedsAndSpeedsFromTool mccore 0x180884bf0: feed / plunge / retract / rpm, formats/mcamui_dialogs.md 3581); the save writes the op's mc_rrate into +0x40 |
+| 2D chamfer 0.25 mm off after reload | a new tool (TL_ID only, no TlMgr entry) lost its tip diameter | loader: TipDiameter = tp_tool +0x3f8 for end mill / slot / feed mill classes (TlToolEndmill::SetFromOldTool decomp/mccore_tooladd.c l.10357, TlToolFeedMill l.11870) |
+| 2D High Speed: first-pass / ramp / back feeds | a new op's engine record was the default op's (its feed 0x378) | cam2d_dyn.c hst_record: feed / plunge / retract / rpm put where the save writes them (tool block 0x378 / 0x380 / 0x388 / 0x390) |
+| 2D High Speed gap size (% of D) | computed with the default op's tool | cam_defaults_from_file: 0x1608 x the op's D (as params_from_record) |
+| 2D High Speed stepover / min radius / micro lift / plunge angle / back feed / gap | not written (only 0x1580) | save writes 0x1730 (when 0x1700 && 0x1701, LoadDynPockParm l.1612-1624), 0x1658, 0x16d0, 0x1678, 0x1248, 0x1600 / 0x1608 |
+| coolant (M8) | the reader took the tool's (0 for part tools) | params_from_record: op coolant word 0x398 == 0x10 (PV_COOL_OLD), which the save writes |
+| 2D HS back feed 0 (= the feed) | a new op took the default op's feed as its back feed | cam_defaults_from_file: back feed = the op's (tool's) feed when 0x1248 is 0 |
+| pocket zigzag (`--set pocket_style=1`) | not written | save: cutting method S16 0x123c = 0 (the engines' method 0 for style 1; the reader's style 1) |
+| Helix Bore rough pitch | not written | save: 0x1250 (dialog 2823; params_from_record) |
+| drill: clearance from the R plane | the save tested clearance-off against top + CamParams.feed_plane, the reader computes top + its feed plane field 0x190 = the R plane | save: clearance-off value of a drill op = the R plane |
+| contour depth cuts (`--step`): keep tool down / 0x93b rule | a new op's 0x868 (default record: off) while the save writes it on for more than one cut | cam_cli: 0x868 as the save writes it |
+| contour `--finish N` at every depth | Multi Passes off in the generated op, on in the saved one (with the default op's "finish at every depth" 0x1230) | cam_cli: Multi Passes on, rough 1, N finish, as the save writes them |
+Measured 2026-11-19: regen_consistency.py 34 cases x (fileop, GUI tpregen) 0 differ, the user's PCR op 4 identical (after decision 4: its moves
+equal the user's original op4.nc exactly); fileop_all 0/205 vs the master build;
+tools/oracle.py contour 149 / pocket 1 / drill 5 / dynamic 37 / thread 6 ops: per-op output identical to master's. Op goldens
+(op_compare.sh): 47 output files change against the int-pcr base build (71 -> 99 / 668 differ vs golden/op, not re-blessed): new Drill
+ops show retract rate R2000 (the tool's) instead of R0; new 2D High Speed ops' gap size (P link_retract 100 -> 50, page 3205 edit
+1000 -> 500, rt_dyn_medax_entry2's links) and first-pass / ramp feed (F7. -> F3060., the default op's feed before); reopened ops
+show their saved coolant (cool 0 -> 1, "Coolant=On") - each the value the saved op regenerates with.
+User decision 1 (2026-11-19): those 47 golden/op files re-blessed for exactly these four reasons (each file's diff checked; the
+int-pcr base's other known differences in them kept): op_compare.sh 71 / 668 differ, as the int-pcr base build (3 of them MISSING
+goldens). Found on the way: the 2D HS writes ran before the dialog's record patches and rewrote the % gap field of an op set to
+Distance (rt_dynamic reopened: 500 -> 50) - now after the patches.
+Not fixed / NOT DECODED: the 3D types (optirough, srough, sf*, ...) and Lathe Face are not in the test (their new ops need surface /
+solid references or a lathe part); cam_cli flags that only set CamParams fields the record-driven engines (face, slot, helix, circle,
+thread passes: p->mc_p) do not read are no-ops both ways. User decisions 2026-11-19: `--engrave` stays as an ours
+test shorthand and contour_type 2 left the engine (cam_contour_engrave_compat); the library tool number on a clash stays until
+WarnOfDuplicateToolNumbers is decoded (TODO.md); Compensation Off follows the chain's direction (the CW rule was removed); cam_cli's
+feeds always from the tool (test tooling; the app follows the group's Feed Calculation).

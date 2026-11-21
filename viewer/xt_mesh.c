@@ -423,12 +423,14 @@ int xt_mesh(const XtSchema *s, const uint8_t *xb, size_t n, XtMesh *out) {
     memset(out, 0, sizeof *out);
     Model m = { s, NULL, 0 };
     if (!parse(&m, xb, n, out->error)) { free(m.by_idx); return 0; }
-    TriBuf tb = { 0 };
+    TriBuf tb = { 0 }; int fcap = 0;
     for (int i = 2; i <= m.maxidx; i++) {
         const Node *f = node(&m, i);
         if (!f) continue;
         out->nnodes++;
         if (!is(&m, f, "FACE")) continue;
+        if (out->nfaces == fcap) { fcap = fcap ? fcap * 2 : 64; out->fntri = xrealloc(out->fntri, sizeof(int) * (size_t)fcap); }
+        int t0 = tb.n;
         out->nfaces++;
         const Node *srf = node(&m, fptr(&m, f, "surface"));
         int fs = fchr(&m, f, "sense");
@@ -441,13 +443,14 @@ int xt_mesh(const XtSchema *s, const uint8_t *xb, size_t n, XtMesh *out) {
         if (nr && is(&m, srf, "PLANE")) { mesh_plane(&m, srf, fs, rings, nr, &tb); out->nfaces_meshed++; }
         else if (nr && is(&m, srf, "CYLINDER")) { mesh_cylinder(&m, srf, fs, rings, nr, &tb); out->nfaces_meshed++; }
         for (int k = 0; k < nr; k++) free(rings[k].p);
+        out->fntri[out->nfaces - 1] = (tb.n - t0) / 18;
     }
     free(m.by_idx);
     out->tri = tb.v; out->ntri = tb.n / 18;
     return 1;
 }
 
-void xt_mesh_free(XtMesh *m) { free(m->tri); memset(m, 0, sizeof *m); }
+void xt_mesh_free(XtMesh *m) { free(m->tri); free(m->fntri); memset(m, 0, sizeof *m); }
 
 /* the FACE nodes of a body in XT node index order = xt_mesh's face order (the loop above) = the keys of xt_occt's face_of
    (viewer/occt/xt_occt.h); sldtoolp.c (S3 of formats/surface_selection.md) names solid faces by this ordinal */

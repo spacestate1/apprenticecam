@@ -94,6 +94,7 @@ public:
     void syncMisc();
     QString cmdLabelOf(const QString &fn) const;
     void parityDump();                                 // tests: every command and its state (tools/tests/parity_check.sh)
+    bool invokeGalleryItem(const QString &key);        // tests: galitem:Tab@Context|Gallery|Item[#n] - a gallery item as its click runs it (ours)
     bool invokeRibbonPath(const QString &path);        // tests: ribbon:Tab/Group/Label[/Sub] - the ribbon command as its button runs it (ours)
     BackplotDialog *backplotDialog() { return bpDlg_; }
     BpVcrBar *vcrBar() { return vcr_; }
@@ -191,6 +192,7 @@ private:
     ToolWizardDialog *twDlg_ = nullptr; CoolantDialog *coolDlg_ = nullptr; int tlrShown_ = 0;
     ChainDialog *chainDlg_ = nullptr; DrillDialog *drillDlg_ = nullptr; RefFaceDialog *refDlg_ = nullptr; ChainOptsDialog *optsDlg_ = nullptr; int chainLastN_ = -1;
     QList<QPair<QAction *, QString>> galActs_;
+    QStringList galKeys_;                              // tests: each gallery action's "Tab@Context|Gallery|Item[#n]" (invokeGalleryItem)
     QList<QPair<QString, class SARibbonGallery *>> gals_;   // tab (context/name) -> its galleries
     QString galleryTip(const QString &key, const QString &name) const;         // the toolpath gallery items (enabled where gallery_pick generates the op)
     ToolpathsManager *tpm_ = nullptr; SolidsManager *sm_ = nullptr; LevelsManager *lm_ = nullptr; RecentManager *rm_ = nullptr;

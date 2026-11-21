@@ -74,3 +74,13 @@ hs_err_pid*.log
 /tools/tests/horiz_test
 /tools/sptrim_port
 /tools/spint_port
+
+# Renishaw .RenPP post decryption (user decision PRB-5, 2026-11-19): the key / key-derivation inputs, decrypted posts and the
+# decrypt module stay on this machine - never committed, never in the public export (tools/export_public.sh refuses them too).
+/local/
+*.RenPP
+*.renpp
+*.RenPP.*
+*.renpp.*
+/viewer/renpp_local*
+/viewer/local/

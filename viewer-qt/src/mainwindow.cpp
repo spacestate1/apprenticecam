@@ -345,6 +345,7 @@ MainWindow::MainWindow(UiLayout &ui, QWidget *parent) : SARibbonMainWindow(paren
     cui_hooks.gen_queued = hook_gen_queued;             /* N13-9: the generation after a new 3D op's picks on the worker thread (cui_chain.c) */
     cui_hooks.solids_cleared = hook_solids_cleared; cui_hooks.msg_open = hook_msg_open; cui_hooks.msg_close = hook_msg_close;   /* core_ui cui_extrude.c (phase 5) */
     cui_hooks.op_menu = hook_op_menu;                    /* core_ui cui_ops.c (phase 6) */
+    cui_hooks.ask_dwarn = [](double dm) { extern int engraveDepthWarning(QWidget *, double); return engraveDepthWarning(g_mw, dm); };   /* Engrave 1808 (opdlg.cpp; E-DW1) */
     cui_hooks.dop_resume = hook_dop_resume;              /* core_ui cui_dirty.c: dialog 977's held command */
     cui_hooks.config_reload = hook_config_reload;        /* core_ui cui_units_set (formats/units.md) */
     cui_hooks.tool_wizard = tw_open_part; cui_hooks.tool_manager = hook_tool_manager;   /* phase 7: menu 1247 / the op dialog's toolbar enable themselves */
@@ -717,7 +718,7 @@ void MainWindow::buildRibbon() {
                             QAction *a = new QAction(gi2, nm, this);
                             a->setToolTip(galleryTip(key, nm));
                             connect(a, &QAction::triggered, this, [this] { view_->withGL([] { lface_open(); }); refreshAll(); syncMisc(); });
-                            galActs_ << qMakePair(a, nm); items << a; continue;
+                            galActs_ << qMakePair(a, nm); galKeys_ << (t.name + (t.context.isEmpty() ? QString() : "@" + t.context) + "|" + key); items << a; continue;
                         }
                         bool ok = gt != 0;
                         QString pick = gt && cam_type_is_3d(gt) ? QString::fromUtf8(cam_type_label(gt)) : nm;
@@ -725,7 +726,7 @@ void MainWindow::buildRibbon() {
                         a->setToolTip(galleryTip(key, nm));   /* the item name + its gallery_tips.tsv description (mcamui gal_tooltip, core_ui gal_tip) */
                         a->setEnabled(ok);
                         if (ok) connect(a, &QAction::triggered, this, [this, pick] { if (galleryPick(pick)) addRecent(pick); });
-                        galActs_ << qMakePair(a, nm);
+                        galActs_ << qMakePair(a, nm); galKeys_ << (t.name + (t.context.isEmpty() ? QString() : "@" + t.context) + "|" + key);
                         items << a;
                     }
                     SARibbonGalleryGroup *gg = gal->addCategoryActions(e.gname, items);
@@ -867,7 +868,8 @@ void MainWindow::buildDocks() {
     connect(tpm_, &ToolpathsManager::propsRow, this, [this](int page) { st_open(page); syncMisc(); });   /* EditGroup (core_ui cui_stock.c) */
     connect(tpm_, &ToolpathsManager::menuRun, this, [this](int item) { opMenuRun(item); });
     tpm_->menuHas = [](int) { return true; };          /* every front-end item exists since phase 8 (Edit Common Parameters, Rename) */
-    connect(tpm_, &ToolpathsManager::renamed, this, [this] { renameShown_ = 0; refreshAll(); }, Qt::QueuedConnection);   /* queued: the editor also closes while the window is destroyed */
+    connect(tpm_, &ToolpathsManager::renamed, this, [this] { renameShown_ = 0; refreshAll(); }, Qt::QueuedConnection);
+    connect(tpm_, &ToolpathsManager::renameBegun, this, [this] { syncMisc(); });   /* the op's editor (syncMisc: beginOpRename) */   /* queued: the editor also closes while the window is destroyed */
     connect(tpm_, &ToolpathsManager::toolRow, this, [this](int op) {   /* the tree's tool row: the Tool Manager on that tool (mcamui draw_manager) */
         show_tm = 1; for (int k = 0; k < F.ntools; k++) if (F.tools[k].num == F.ops[op].tool) tm_part_sel = k;
         syncTools(); });
@@ -1321,13 +1323,14 @@ void MainWindow::viewClickIn(float x, float y) {
         view_->withGL([&] { geo_click(x, y, w, ctrl); });
         refreshAll(); return;
     }
-    int e = pick_entity(x, y);
+    int psol = -1, e = pick_entity_gs(x, y, &psol);     /* the general selection: an entity, else a part solid (core_ui cui_sel.c) */
     /* a double-click with no command running: the properties dialog of the entity / part solid under the cursor (core_ui
        analyze_dblclick; user report 2026-10-24) */
     if (last_clicks >= 2 && !cam_mode && !geo_cmd && !show_params && !drv_pick && !st_pick) {
-        int sol = e < 0 ? st_pick_solid_at(x, y) : -1;
+        int sol = e < 0 ? (psol >= 0 ? psol : st_pick_solid_at(x, y)) : -1;
         if (e >= 0 || sol >= 0) { view_->withGL([e, sol] { analyze_dblclick(e, sol); }); refreshAll(); return; }
     }
+    if (e < 0 && psol >= 0) { sld_sel_toggle(psol); geo_applied = 0; redrawView(); return; }   /* a solid: its selection bit 4 flips (FUN_1804e8d50) */
     if (e < 0) { view_->withGL([] { pick_noport_msg(); }); return; }   /* CS-20: shaded picks not decoded say so */
     view_->withGL([&] { taken = chain_click_ent(e, x, y) != 0; });   /* drill points / run_chain_dlg picks (core_ui) */
     if (taken) { redrawView(); return; }
@@ -1640,8 +1643,23 @@ bool MainWindow::keymap(QKeyEvent *e) {
     return false;
 }
 
-bool MainWindow::savePartAs(const QString &p) {
-    char msg[900] = "";
+bool MainWindow::savePartAs(const QString &p0) {
+    QString p = p0;
+    /* a 2017 part (qc_save_ext ".mcam": a new part / a 2017 source) under a .mcx-9 name: warn and offer the .mcam name, the save
+       still allowed - user decision 2026-11-19 (formats/user_decisions.md); the dialog and its text are ours (no Mastercam source).
+       Scripted: no dialog, the save goes on under the given name (mcam_save_part's message carries the warning) */
+    if (!g_qt_scripting && qc_ext_mismatch(p.toUtf8().constData())) {
+        QString alt = p.left(p.size() - 6) + ".mcam";
+        QMessageBox mb(QMessageBox::Warning, "Save as MCAM part", QString::fromUtf8(qc_ext_warning()), QMessageBox::NoButton, this);
+        QPushButton *useMcam = mb.addButton("Save as " + QFileInfo(alt).fileName(), QMessageBox::AcceptRole);
+        QPushButton *keep = mb.addButton("Save as " + QFileInfo(p).fileName(), QMessageBox::DestructiveRole);
+        mb.addButton(QMessageBox::Cancel);
+        mb.setDefaultButton(useMcam);
+        mb.exec();
+        if (mb.clickedButton() == useMcam) p = alt;
+        else if (mb.clickedButton() != keep) return false;
+    }
+    char msg[1400] = "";
     bool ok = qc_save_part(p.toUtf8().constData(), msg, sizeof msg);
     message(ok ? "Saved as MCAM part" : "Save as MCAM part", QString::fromUtf8(msg));
     backstage_->refresh();
@@ -1716,7 +1734,8 @@ bool MainWindow::eventFilter(QObject *o, QEvent *e) {
         auto *k = static_cast<QKeyEvent *>(e);
         if (toolKey(k)) return true;                     /* the modal Tool Manager / wizard (mcamui: show_tm skips the keymap) */
         QWidget *fw0 = QApplication::focusWidget();
-        bool text0 = qobject_cast<QLineEdit *>(fw0) || qobject_cast<QTextEdit *>(fw0) || qobject_cast<QPlainTextEdit *>(fw0) || qobject_cast<QAbstractSpinBox *>(fw0);
+        bool text0 = qobject_cast<QLineEdit *>(fw0) || qobject_cast<QTextEdit *>(fw0) || qobject_cast<QPlainTextEdit *>(fw0) || qobject_cast<QAbstractSpinBox *>(fw0)
+                     || qobject_cast<QLineEdit *>(o);           /* a key sent to a line edit (the tree's label edit) is the edit's */
         bool nomod = !(k->modifiers() & (Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier));
         /* the VCR accelerators (FUN_66d1ed30): S B N P R while backplotting, S / B / R in Verify (mcamui main loop, before the keymap) */
         if (!text0 && nomod && !k->isAutoRepeat() && bp_on && (k->key() == Qt::Key_S || k->key() == Qt::Key_B || k->key() == Qt::Key_N || k->key() == Qt::Key_P || k->key() == Qt::Key_R)) {
@@ -1735,7 +1754,8 @@ bool MainWindow::eventFilter(QObject *o, QEvent *e) {
         /* the keys mcamui handles after the keymap: Esc ends a point pick (Alt+F12), Delete removes the selected
            entities (an operation selected in the tree: deleting it is not ported here - phase 6) */
         QWidget *fw = QApplication::focusWidget();
-        bool text = qobject_cast<QLineEdit *>(fw) || qobject_cast<QTextEdit *>(fw) || qobject_cast<QPlainTextEdit *>(fw) || qobject_cast<QAbstractSpinBox *>(fw);
+        bool text = qobject_cast<QLineEdit *>(fw) || qobject_cast<QTextEdit *>(fw) || qobject_cast<QPlainTextEdit *>(fw) || qobject_cast<QAbstractSpinBox *>(fw)
+                    || qobject_cast<QLineEdit *>(o);
         if (!text && k->key() == Qt::Key_Escape && st_pick) { st_pick_escape(); refreshAll(); return true; }   /* the Stock Setup's pick ends (mcamui) */
         if (!text && k->key() == Qt::Key_Escape && show_stock_setup) { st_cancel(); refreshAll(); return true; }   /* the sheet's Cancel */
         if (!text && tb_pick && !zoom_window && (k->key() == Qt::Key_Escape || k->key() == Qt::Key_Return || k->key() == Qt::Key_Enter)) {   /* Position...: Enter ends, Esc (core_ui tb_key) */
@@ -1771,6 +1791,7 @@ bool MainWindow::eventFilter(QObject *o, QEvent *e) {
         if (!text && (k->key() == Qt::Key_Return || k->key() == Qt::Key_Enter) && pln_cmd(geo_cmd)) { view_->withGL([] { pln_enter_key(); }); refreshAll(); return true; }   /* Curve Parting Line: <Enter> rebuilds (cui_partline.c) */
         if (!text && (k->key() == Qt::Key_Return || k->key() == Qt::Key_Enter) && ds_running()) { view_->withGL([] { geo_ds_key(0xb); }); refreshAll(); return true; }   /* dyno_surf (cui_dsurf.c): Enter ends it */
         if (!text && (k->key() == Qt::Key_Return || k->key() == Qt::Key_Enter) && geo_cmd == G_LNORM && wm_ln_active()) { view_->withGL([] { geo_panel_button(1); }); refreshAll(); return true; }   /* Line Normal: the prompt 6707 "Press Enter to select another surface or face" = the panel code 1 path (FUN_1803584a0; the key to code mapping [inferred] from the prompt) */
+        if (!text && (k->key() == Qt::Key_Return || k->key() == Qt::Key_Enter) && geo_cmd == G_LETTERS && !geo_chaining) { view_->withGL([] { geo_panel_button(0); }); refreshAll(); return true; }   /* Create Letters: Enter = OK, the live letters committed (ours, user decision LET-1) */
         if (!text && (k->key() == Qt::Key_Return || k->key() == Qt::Key_Enter) && wm_rg_wait) { wm_rg_enter(); refreshAll(); return true; }   /* Relief Groove Preview: wait_for_space (core_ui cui_wfmisc.c) */
         if (!text && (k->key() == Qt::Key_Return || k->key() == Qt::Key_Enter) && sp_cmd(geo_cmd)) { view_->withGL([] { sp_enter_key(); }); refreshAll(); return true; }   /* the spline commands (cui_spline.c): finish / run */
         if (!text && (k->key() == Qt::Key_Return || k->key() == Qt::Key_Enter) && chain_sketching()) { view_->withGL([] { chain_sketch_end(); }); refreshAll(); return true; }
@@ -1927,6 +1948,7 @@ void MainWindow::syncMisc() {
     if (show_about) { if (!aboutWin_->isVisible()) { centre(aboutWin_); aboutWin_->show(); } } else if (aboutWin_->isVisible()) aboutWin_->hide();
     if (show_help) { if (!keysWin_->isVisible()) { keysWin_->refresh(); placeRight(keysWin_); keysWin_->show(); } } else if (keysWin_->isVisible()) keysWin_->hide();
     if (ask.act == CM_GRP_RENAME && renameShown_ != CM_GRP_RENAME && !g_qt_scripting) { renameShown_ = CM_GRP_RENAME; showManager(0); tpm_->beginRename(cm_group); }   /* TVM_EDITLABEL */
+    if (ask.act == CM_OP_RENAME && renameShown_ != CM_OP_RENAME && !g_qt_scripting) { renameShown_ = CM_OP_RENAME; showManager(0); tpm_->beginOpRename(op_renaming()); }   /* an op's label edit (TVS_EDITLABELS) */
     if (!ask.act) renameShown_ = 0;
     if (want_print) QTimer::singleShot(0, this, [this] { printNow(); });   /* mcamui: the frame after the command (want_print) */
     /* the zoom-window drag (OnScreenZoom) and the graphics cross cursor follow the view */
@@ -1966,6 +1988,15 @@ bool MainWindow::invokeRibbonPath(const QString &want) {
     printf("    ribbon %s (%s): %s\n", want.toUtf8().constData(), hit->ft.toUtf8().constData(), cmdOk(*hit) ? "on" : "off");
     invoke(*hit);
     return true;
+}
+/* tests (ours): galitem:Tab@Context|Gallery|Item[#n] - a ribbon gallery item as its click runs it (greyed: only said) */
+bool MainWindow::invokeGalleryItem(const QString &key) {
+    for (int i = 0; i < galActs_.size() && i < galKeys_.size(); i++) if (galKeys_[i] == key) {
+        printf("    gallery %s: %s\n", key.toUtf8().constData(), galActs_[i].first->isEnabled() ? "on" : "off");
+        if (galActs_[i].first->isEnabled()) galActs_[i].first->trigger();
+        return true;
+    }
+    return false;
 }
 /* the parity check (tools/tests/parity_check.sh): the same lines as mcamui.c parity_dump */
 void MainWindow::parityDump() {

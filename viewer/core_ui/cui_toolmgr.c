@@ -783,6 +783,7 @@ void rn_apply(void) {
         if (cam_fileop_type(&F.ops[i]) == CAM_LFACE) continue;   /* Lathe Face: its tool is its own ltool_rec (not a TlMgr tool) */
         if (!cam_op_from_file(&F, i, &tmp, err, sizeof err)) continue;
         CamOp *op = malloc(sizeof *op); *op = tmp;
+        pp_engrave_ask(op);
         if (!cam_generate(&F, op)) { cam_op_free(op); continue; }
         { int at = op->p.file_op_id > 0 ? takeover_index(op->p.file_op_id) : -1;   /* taken over in place */
           remove_stored_op(op->p.file_op_id);

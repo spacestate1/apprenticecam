@@ -58,6 +58,10 @@ int ocs_valid(const OcsBody *b);                                  /* BRepCheck_A
 /* the body as Parasolid XT (formats/occt_xt.md): scale = part units per metre (1000 mm, 39.37007874015748 inch); pk = 27 (X9:
    SCH_2700142_26105) or 28 (2017: SCH_2800143_28002); key = "sld_N". Malloc'd; NULL with err (what the writer refused) */
 uint8_t *ocs_xt(const OcsBody *b, double scale, int pk, const char *key, size_t *n, char *err, size_t errn);
+/* ocs_xt with the header DATE (NULL / "" = now), the CNC/mcEntinfoPtr attributes of a SldBodyOp's XT (entinfo != 0; formats/
+   solid_import_save.md 3) and the EDGE / FACE node counts written (ne / nf may be NULL) */
+uint8_t *ocs_xt_ex(const OcsBody *b, double scale, int pk, const char *key, const char *date, int entinfo, size_t *n, int *ne, int *nf,
+                   char *err, size_t errn);
 /* the shape as OCCT BRep text (malloc'd), e.g. for tests */
 uint8_t *ocs_brep(const OcsBody *b, size_t *n);
 OcsBody *ocs_from_brep(const uint8_t *s, size_t n);

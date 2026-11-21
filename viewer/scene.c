@@ -79,6 +79,8 @@ static const GLuint stipple_mask0[32] = { 0, 0x22222222u, 0, 0x88888888u, 0, 0x2
 int (*scene_ent_hl)(int e);                       /* core_ui: bit 0 = the auto-highlighted entity, bit 1 = drawn selected */
 int scene_hl_colors[2] = { 15, 14 };              /* config 5000 auto_highlight_color, 5033 select_color (core_ui sets them) */
 int scene_hl_stipple = 1;                         /* config 4053 "Use stipple on solids/surfaces?" = StippleHighlight (.data 1) */
+int (*scene_sld_hl)(int kind, int i, int f);      /* core_ui: a solid's GAF highlight flags (scene_sld_look): kind 0 = part solid F.solids[i],
+                                                     face f of its topology; kind 1 = body i of the solids made here (f = -1) */
 
 static GLuint shader(GLenum t, const char *src) {
     GLuint s = glCreateShader(t);
@@ -234,6 +236,11 @@ static float *user_tri; static int user_ntri;           /* solids made here (Sol
 static double xt_lo[3], xt_hi[3]; static int xt_stock;  /* bounding box of the part's own solids */
 static float *solid_tri; int solid_ntri, solid_faces, solid_meshed, solids_ok; double solid_scale = 1000;
 static int *solid_tfirst, *solid_tn, solid_nmeshed;   /* per F.solids[i] at the last mesh_solids (solid_nmeshed of them): its triangles in solid_tri (first, count; 0 = not meshed) */
+/* per F.solids[i]: its faces' triangle ranges in solid_tri (sf_first / sf_n from solid_f0[i], solid_nf[i] faces; the face order of the
+   solid's topology = xt_mesh / xt_brep_topo's FACE node order, occt_brep_mesh_faces / occt_brep_topo's TopExp order) - the shaded face
+   highlight of a solid face (scene_sld_hl) */
+static int *solid_f0, *solid_nf, *sf_first, *sf_n, sf_tot;
+static int *ubody_n, ubody_cnt;                         /* the solids made here: each body's triangles in user_tri, in order (scene_set_user_bodies) */
 /* the surface entities' display mesh (mesh_surfs below) */
 static float *surf_tri, *surf_seg; static int surf_ntri, surf_nseg, *surf_tfirst, *surf_tn, surf_nmeshed, surf_nskip;
 static GLuint svao, svbo, sevao, sevbo; static int surf_up;
@@ -384,6 +391,11 @@ void scene_set_user_solids(const float *tri, int ntri) {
         double q = user_tri[v * 6 + k]; if (q < (&F.lo.x)[k]) (&F.lo.x)[k] = q; if (q > (&F.hi.x)[k]) (&F.hi.x)[k] = q; }
 }
 
+/* the solids made here: body b's triangles are n[b] of user_tri, body after body (bodies_show) - their GAF body highlight */
+void scene_set_user_bodies(const int *n, int nb) {
+    free(ubody_n); ubody_n = NULL; ubody_cnt = 0;
+    if (nb > 0 && n && (ubody_n = malloc(sizeof(int) * (size_t)nb))) { memcpy(ubody_n, n, sizeof(int) * (size_t)nb); ubody_cnt = nb; }
+}
 int scene_part_tris(const float **tri) { *tri = solid_tri; return solid_ntri; }   /* the part solids' mesh (model units) */
 int scene_user_tris(const float **tri) { *tri = user_tri; return user_ntri; }    /* the solids made here (model units) */
 /* the machine group's shaded stock model (mastercam.dll draw_stock 0x1803360a0 -> FUN_18033fe70, decomp/mastercam_stocksetup.c
@@ -507,6 +519,71 @@ static void mesh_one_surf(int i, double defl) {
     free(t);
 }
 static int surf_color(int i) { int e = F.surfs[i].ent; return e >= 0 && e < F.nents ? F.ents[e].color : F.surfs[i].color; }   /* the entity's (a colour change here) */
+/* one GAF face drawn with its look (bits as scene_srf_look: 1 AutoHighlighted, 2 Selected, 4 StippleHighlight), the mesh program and the
+   face's vertex array bound: pass 0 = lit in GetMaterialIdx's material (no flag: the face's own colour OWN; with StippleHighlight the
+   lowest flag's list, its first pass = the own material with that bit stripped - Selected left = select_color; without it material 1
+   auto_highlight_color / 2 select_color of the lowest flag), then the stipple list's further passes over the same triangles
+   (DrawTriangles loops PrepTriangleState per pass): flat glColor4ubv, blended (bit 4: GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, the
+   alpha != 0xff), depth-tested / written at the same polygon offset; the scene's depth function is GL_LEQUAL (GrOGLPipe::Draw
+   0x10e88147), so the equal depths pass:
+     list 0: {0,0,0,0x40, ff, 0}, {ahl rgb, 0x80, 0, 0};   list 1: {0,0,0,0xc4, 0, 0} */
+static void gaf_face_draw(int first, int count, int look, int own, float alpha) {
+    int fl = look & 3, st = look & 4;
+    int lit = !fl ? own : !st ? scene_hl_colors[fl & 1 ? 0 : 1] : fl & 2 ? scene_hl_colors[1] : own;
+    float c[3]; mc_col(lit, c); glUniform4f(um_color, c[0], c[1], c[2], alpha);
+    glDrawArrays(GL_TRIANGLES, first, count);
+    if (!fl || !st) return;
+    glDepthFunc(GL_LEQUAL); glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); glUniform1i(um_flat, 1);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);   /* the view image keeps alpha 1 (the shot / widget paints it with its alpha; a
+                                                          window shows only RGB) */
+    if (fl & 1) {                          /* list 0 */
+        float h[3]; mc_col(scene_hl_colors[0], h);
+        glUniform4f(um_color, 0, 0, 0, 0x40 / 255.0f);
+        glDrawArrays(GL_TRIANGLES, first, count);
+        glUniform1i(um_stip, 1); glUniform4f(um_color, h[0], h[1], h[2], 0x80 / 255.0f);
+    } else {                               /* list 1 */
+        glUniform1i(um_stip, 1); glUniform4f(um_color, 0, 0, 0, 0xc4 / 255.0f);
+    }
+    glDrawArrays(GL_TRIANGLES, first, count);
+    glUniform1i(um_stip, 0); glUniform1i(um_flat, 0); glDisable(GL_BLEND); glDepthFunc(GL_LESS); glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+}
+/* a solid's GAF face look (formats/ui.md "Shaded face highlight of solids"): kind 0 = part solid si's face f, kind 1 = body si of the
+   solids made here (f -1); the flags core_ui gives (scene_sld_hl: bit 0 AutoHighlighted, bit 1 Selected - a body's flag is on every
+   face, GrSolid::SetAltRender 0x10e72370 passing it to each GrFace) + StippleHighlight; only the opaque shaded display as surfaces */
+static int scene_sld_look(int kind, int si, int f) {
+    if (solid_mode != 1 || !scene_sld_hl) return 0;
+    int hl = scene_sld_hl(kind, si, f) & 3;
+    return hl ? hl | (scene_hl_stipple ? 4 : 0) : 0;
+}
+typedef struct { int first, n, look; } HlRange;
+static int hlr_cmp(const void *a, const void *b) { return ((const HlRange *)a)->first - ((const HlRange *)b)->first; }
+/* the solids' mesh (mvao bound, the mesh program on, the own colour set): the unflagged triangles first, then the flagged faces with
+   their passes (the draw items: user mask 8 = faces without a highlight flag, then 0x10 | 0x20 = the flagged ones stippled,
+   FUN_1801c11d0 / Draw(GrFace) 0x10e8a950). The own colour of a face: this program's solid colour (config 5052, as the base draw) */
+static void draw_solid_mesh(void) {
+    HlRange *r = NULL; int nr = 0, cap = 0;
+    if (solid_mode == 1 && scene_sld_hl) {
+        for (int si = 0; si < solid_nmeshed && si < F.nsolids && solid_nf; si++)
+            for (int f = 0; f < solid_nf[si]; f++) {
+                int k = solid_f0[si] + f; if (!sf_n[k]) continue;
+                int look = scene_sld_look(0, si, f); if (!look) continue;
+                if (nr == cap) { cap = cap ? cap * 2 : 16; HlRange *q = realloc(r, sizeof *r * (size_t)cap); if (!q) break; r = q; }
+                r[nr].first = sf_first[k]; r[nr].n = sf_n[k]; r[nr].look = look; nr++;
+            }
+        for (int b = 0, t = solid_ntri; b < ubody_cnt; t += ubody_n[b], b++) {
+            int look = ubody_n[b] ? scene_sld_look(1, b, -1) : 0; if (!look || t + ubody_n[b] > solid_ntri + user_ntri) continue;
+            if (nr == cap) { cap = cap ? cap * 2 : 16; HlRange *q = realloc(r, sizeof *r * (size_t)cap); if (!q) break; r = q; }
+            r[nr].first = t; r[nr].n = ubody_n[b]; r[nr].look = look; nr++;
+        }
+    }
+    if (!nr) { glDrawArrays(GL_TRIANGLES, 0, mesh_verts); free(r); return; }
+    qsort(r, (size_t)nr, sizeof *r, hlr_cmp);
+    int at = 0;
+    for (int i = 0; i < nr; i++) { if (r[i].first > at) glDrawArrays(GL_TRIANGLES, at * 3, (r[i].first - at) * 3); if (r[i].first + r[i].n > at) at = r[i].first + r[i].n; }
+    if (at * 3 < mesh_verts) glDrawArrays(GL_TRIANGLES, at * 3, mesh_verts - at * 3);
+    for (int i = 0; i < nr; i++) gaf_face_draw(r[i].first * 3, r[i].n * 3, r[i].look, cfg_solid_color, 1.0f);
+    free(r);
+}
 /* how surface i's face is drawn highlighted (S-16, formats/ui.md "Shaded vs Outline Shaded"): bit 0 = the GrRender's AutoHighlighted
    flag, bit 1 = its Selected flag, bit 2 = StippleHighlight (config 4053); 0 = not flagged. The flags the frame shows are the repaint's
    (both shaded modes alike): FUN_1801dbc80 -> FUN_18031f5c0 -> gl_Shade 0x1802252e0 -> FUN_1802298b0 -> MaintainGrRenderSurface
@@ -653,8 +730,23 @@ int scene_mesh_wire(int i, const float **seg) {
     *seg = pm_seg + (size_t)pm_first[i] * 36; return pm_n[i] * 3;
 }
 void scene_meshes_changed(void) { pm_dirty = 1; }
+/* solid i's faces: fn[f] triangles each, face after face from solid_ntri on (called before its triangles are appended) */
+static void solid_face_ranges(int i, const int *fn, int nfc) {
+    if (!solid_f0 || !solid_nf) return;
+    solid_f0[i] = sf_tot; solid_nf[i] = 0;
+    if (nfc <= 0 || !fn) return;
+    int *a = realloc(sf_first, sizeof(int) * (size_t)(sf_tot + nfc)), *b = a ? realloc(sf_n, sizeof(int) * (size_t)(sf_tot + nfc)) : NULL;
+    if (a) sf_first = a;
+    if (!a || !b) return;
+    sf_n = b;
+    int t = solid_ntri;
+    for (int f = 0; f < nfc; f++) { sf_first[sf_tot + f] = t; sf_n[sf_tot + f] = fn[f]; t += fn[f]; }
+    solid_nf[i] = nfc; sf_tot += nfc;
+}
 static void mesh_solids(void) {
     free(solid_tri); solid_tri = NULL; solid_ntri = solid_faces = solid_meshed = solids_ok = 0; solid_msg[0] = 0;
+    free(solid_f0); free(solid_nf); free(sf_first); free(sf_n); sf_first = sf_n = NULL; sf_tot = 0;
+    solid_f0 = calloc(F.nsolids + 1, sizeof(int)); solid_nf = calloc(F.nsolids + 1, sizeof(int));
     free(solid_tfirst); free(solid_tn); solid_tfirst = calloc(F.nsolids + 1, sizeof(int)); solid_tn = calloc(F.nsolids + 1, sizeof(int));
     solid_nmeshed = solid_tfirst && solid_tn ? F.nsolids : 0;
     if (!solid_nmeshed) { free(solid_tfirst); free(solid_tn); solid_tfirst = solid_tn = NULL; }
@@ -662,8 +754,10 @@ static void mesh_solids(void) {
     for (int i = 0; i < F.nsolids; i++) {
         if (solid_tfirst) solid_tfirst[i] = solid_ntri;
         if (F.solids[i].brep) {        /* an imported solid (STEP): OCCT's mesh, model units -> metres like the XT's (solid_scale below) */
-            float *t = NULL; char e2[128] = ""; int nt = occt_brep_mesh(F.solids[i].brep, F.solids[i].brep_n, mcam_is_metric(&F) ? 0.02 : 0.001, &t, e2, sizeof e2);
-            if (nt < 0) { snprintf(err, sizeof err, "%s", e2); nfail++; continue; }
+            float *t = NULL; char e2[128] = ""; int *fn = NULL, nfc = 0;
+            int nt = occt_brep_mesh_faces(F.solids[i].brep, F.solids[i].brep_n, mcam_is_metric(&F) ? 0.02 : 0.001, &t, &fn, &nfc, e2, sizeof e2);
+            if (nt < 0) { snprintf(err, sizeof err, "%s", e2); nfail++; free(fn); continue; }
+            solid_face_ranges(i, fn, nfc); free(fn);
             double u = mcam_is_metric(&F) ? 0.001 : 0.0254;      /* metres per model unit (the XT convention of solid_tri) */
             for (int q = 0; q < nt * 3; q++) { t[q * 6] *= (float)u; t[q * 6 + 1] *= (float)u; t[q * 6 + 2] *= (float)u; }
             solids_ok++; solid_tri = realloc(solid_tri, (size_t)(solid_ntri + nt) * 18 * sizeof(float));
@@ -675,6 +769,7 @@ static void mesh_solids(void) {
         if (!sc) { snprintf(err, sizeof err, "Parasolid schema file not found (set MCAM_SCHEMA_DIR)"); nfail++; continue; }
         XtMesh m;
         if (!xt_mesh(sc, F.solids[i].xt, F.solids[i].xt_size, &m)) { snprintf(err, sizeof err, "%s", m.error); nfail++; continue; }
+        solid_face_ranges(i, m.fntri, m.fntri ? m.nfaces : 0);
         solids_ok++; solid_faces += m.nfaces; solid_meshed += m.nfaces_meshed;
         solid_tri = realloc(solid_tri, (size_t)(solid_ntri + m.ntri) * 18 * sizeof(float));
         memcpy(solid_tri + (size_t)solid_ntri * 18, m.tri, (size_t)m.ntri * 18 * sizeof(float));
@@ -1204,7 +1299,7 @@ void draw_scene(int x, int y, int w, int h) {
         glUniform1f(um_tintz, 0);
         { float sc[3]; mc_col(cfg_solid_color, sc); glUniform4f(um_color, sc[0], sc[1], sc[2], 1); }   /* config 5052 */
         glEnable(GL_POLYGON_OFFSET_FILL); glPolygonOffset(1, 1);
-        glBindVertexArray(mvao); glDrawArrays(GL_TRIANGLES, 0, mesh_verts);
+        glBindVertexArray(mvao); draw_solid_mesh();
         glDisable(GL_POLYGON_OFFSET_FILL);
         glUseProgram(prog);
     }
@@ -1228,29 +1323,9 @@ void draw_scene(int x, int y, int w, int h) {
            - no StippleHighlight: no list, the face lit in material 1 (auto_highlight_color) / 2 (select_color) of the lowest flag. */
         for (int pass = 0; pass < 2; pass++)
         for (int i = 0; i < surf_nmeshed; i++) if (surf_tn[i] && surf_shown(i)) {
-            int look = scene_srf_look(i), fl = look & 3, st = look & 4;
-            if ((fl != 0) != (pass == 1)) continue;
-            int lit = !fl ? surf_color(i) : !st ? scene_hl_colors[fl & 1 ? 0 : 1] : fl & 2 ? scene_hl_colors[1] : surf_color(i);
-            float c[3]; mc_col(lit, c); glUniform4f(um_color, c[0], c[1], c[2], ghost ? 0.38f : 1.0f);
-            glDrawArrays(GL_TRIANGLES, surf_tfirst[i] * 3, surf_tn[i] * 3);
-            if (fl && st) {                            /* the list's further passes over the same triangles (DrawTriangles loops PrepTriangleState
-                                                          per pass): flat glColor4ubv, blended (bit 4: GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA,
-                                                          the alpha != 0xff), depth-tested / written at the same polygon offset; the scene's
-                                                          depth function is GL_LEQUAL (GrOGLPipe::Draw 0x10e88147), so the equal depths pass */
-                glDepthFunc(GL_LEQUAL); glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); glUniform1i(um_flat, 1);
-                glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);   /* the view image keeps alpha 1 (the shot / widget paints it with its alpha; a
-                                                                      window shows only RGB) */
-                if (fl & 1) {                          /* list 0: {0,0,0,0x40, ff, 0}, {ahl rgb, 0x80, 0, 0} */
-                    float h[3]; mc_col(scene_hl_colors[0], h);
-                    glUniform4f(um_color, 0, 0, 0, 0x40 / 255.0f);
-                    glDrawArrays(GL_TRIANGLES, surf_tfirst[i] * 3, surf_tn[i] * 3);
-                    glUniform1i(um_stip, 1); glUniform4f(um_color, h[0], h[1], h[2], 0x80 / 255.0f);
-                } else {                               /* list 1: {0,0,0,0xc4, 0, 0} */
-                    glUniform1i(um_stip, 1); glUniform4f(um_color, 0, 0, 0, 0xc4 / 255.0f);
-                }
-                glDrawArrays(GL_TRIANGLES, surf_tfirst[i] * 3, surf_tn[i] * 3);
-                glUniform1i(um_stip, 0); glUniform1i(um_flat, 0); glDisable(GL_BLEND); glDepthFunc(GL_LESS); glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-            }
+            int look = scene_srf_look(i);
+            if (((look & 3) != 0) != (pass == 1)) continue;
+            gaf_face_draw(surf_tfirst[i] * 3, surf_tn[i] * 3, look, surf_color(i), ghost ? 0.38f : 1.0f);
         }
         if (ghost) { glDepthMask(GL_TRUE); glDisable(GL_BLEND); } else glDisable(GL_POLYGON_OFFSET_FILL);
         glUseProgram(prog);

@@ -105,6 +105,19 @@ static void mcce_moves(MB *b, const CamParams *p, const McceRec *r, int n, doubl
             mv(b, 1, ex, ey, fp, 0);
             continue;
         }
+        if (!*down && e->id != 'A' && fabs(ex - sx) < 1e-9 && fabs(ey - sy) < 1e-9 && e->z1 > e->z0) {
+            /* a vertical record going UP after a rapid (the engine's rapids run at the level, e.g. NAKTO op 2 record 7184 at z -8, then
+               7185 straight up to the ramp start 3.0): OutputMotionToBnci writes a record straight to its own XYZ (header above), and the
+               stored NCI there is a G0 down to 3.0 from the clearance (NAKTO op 2, after its second section-start block) - no plunge to
+               the rapid's level first (the SAFE rule below would plunge to z0 = the level and feed back up) */
+            if (!b->n) mv(b, 1, sx, sy, p->clearance, 0);
+            V3 l = lastp(b);
+            if (fabs(l.x - sx) > 1e-9 || fabs(l.y - sy) > 1e-9) { if (l.z < fp) mv(b, 1, l.x, l.y, fp, 0); mv(b, 1, sx, sy, fp, 0); }
+            if (e->z1 < fp) { mv(b, 1, sx, sy, fp, 0); mv(b, 0, sx, sy, e->z1, p->plunge_feed > 0 ? p->plunge_feed : e->feed); }
+            else mv(b, 1, sx, sy, e->z1, 0);
+            *down = 1;
+            continue;
+        }
         if (!*down) {
             if (!b->n) mv(b, 1, sx, sy, p->clearance, 0);
             V3 l = lastp(b);
@@ -138,21 +151,21 @@ static void mcce_moves(MB *b, const CamParams *p, const McceRec *r, int n, doubl
 /* the wall stock of a Dynamic Contour chain: the port of MCCECalcContourOffset on the chain's own entities (flags 0x105, angle 0, gap
    chain_tol, 1e-6 / 1e-6: FUN_1801ac7e0 l.17539-17541). The output's entities become chords of `chord` (the engine takes polylines here).
    No output shape: the bound stays (l.17542). */
-static CPaths dc_stock_offset(const McamFile *f, const Chain *ch, double d, double gap, double chord, int dir, const CPaths *orig, const char **why) {
-    if (ch->cut0 > 1e-12 || ch->cut1 > 1e-12) { *why = "a chain with trimmed ends is NOT DECODED here"; return cl_bool(orig, NULL, 0); }   /* (the offset is of the chain's whole entities) */
-    McceEnt *ents = malloc((size_t)(ch->n ? ch->n : 1) * sizeof(McceEnt));
-    for (int i = 0; i < ch->n; i++) {
-        const Ent *E = &f->ents[ch->ent[i]]; int r = ch->rev[i]; McceEnt *x = &ents[i];
-        memset(x, 0, sizeof *x);
-        if (E->type == E_LINE) { V3 u = r ? E->b : E->a, v = r ? E->a : E->b; x->id = 'L'; x->a[0] = u.x; x->a[1] = u.y; x->a[2] = v.x; x->a[3] = v.y; }
-        else if (E->type == E_ARC) { x->id = 'A'; x->a[0] = E->c.x; x->a[1] = E->c.y; x->a[2] = E->r; x->a[3] = r ? E->a0 + E->sw : E->a0; x->a[4] = r ? -E->sw : E->sw; }
-        else { free(ents); *why = "a chain entity that is not a line or arc is NOT DECODED here"; return cl_bool(orig, NULL, 0); }
-    }
-    McceShape in = { ents, ch->n, dir, 0 };
-    McceResult res = mcce_contour_offset(&in, 1, d, 0x105, 0.0, gap, 1e-6, 1e-6);
-    free(ents);
+static void dyn_ents_clear(void);
+static void dyn_ents_add(const McamFile *f, const Chain *c, const double *xy);
+static void dyn_ents_of(McceBnd *b);
+typedef struct { int ne; char *ety; double *ent; } DcEnts;   /* a bound's entities (McceBnd.ne / ety / ent form) */
+static void dc_ents_rev(DcEnts *E) {   /* the same loop the other way round */
+    for (int i = 0, j = E->ne - 1; i < j; i++, j--) { char t = E->ety[i]; E->ety[i] = E->ety[j]; E->ety[j] = t; double w[5]; memcpy(w, E->ent + 5 * i, sizeof w); memcpy(E->ent + 5 * i, E->ent + 5 * j, sizeof w); memcpy(E->ent + 5 * j, w, sizeof w); }
+    for (int i = 0; i < E->ne; i++) { double *q = E->ent + 5 * i;
+        if (E->ety[i] == 'L') { double x = q[0], y = q[1]; q[0] = q[2]; q[1] = q[3]; q[2] = x; q[3] = y; }
+        else { q[3] += q[4]; q[4] = -q[4]; } }
+}
+static CPaths dc_offset_out(McceResult *rp, double chord, const CPaths *orig, const char **why, DcEnts **eout) {
+    McceResult res = *rp;
     if (res.refused) { *why = res.refused; return cl_bool(orig, NULL, 0); }
     CPaths o = { calloc(res.n + 1, sizeof(CPath)), 0 };
+    if (eout) *eout = calloc(res.n + 1, sizeof(DcEnts));
     for (int k = 0; k < res.n; k++) {
         const McceShape *sh = &res.s[k]; int cap = 64, m = 0; double *q = malloc(sizeof(double) * 2 * cap);
 #define DP(X, Y) do { if (m == cap) { cap *= 2; q = realloc(q, sizeof(double) * 2 * cap); } if (!m || fabs(q[2 * m - 2] - (X)) > 1e-9 || fabs(q[2 * m - 1] - (Y)) > 1e-9) { q[2 * m] = (X); q[2 * m + 1] = (Y); m++; } } while (0)
@@ -164,11 +177,39 @@ static CPaths dc_stock_offset(const McamFile *f, const Chain *ch, double d, doub
         }
 #undef DP
         if (m > 1 && fabs(q[0] - q[2 * m - 2]) < 1e-9 && fabs(q[1] - q[2 * m - 1]) < 1e-9) m--;
-        if (m >= 3) { o.p[o.n].xy = q; o.p[o.n].n = m; o.n++; } else free(q);
+        if (m >= 3) {
+            if (eout) { DcEnts *E = &(*eout)[o.n]; E->ne = sh->n; E->ety = malloc((size_t)sh->n + 1); E->ent = malloc(sizeof(double) * 5 * ((size_t)sh->n + 1));
+                        for (int e = 0; e < sh->n; e++) { E->ety[e] = sh->e[e].id; memcpy(E->ent + 5 * e, sh->e[e].a, sizeof(double) * 5); } }
+            o.p[o.n].xy = q; o.p[o.n].n = m; o.n++;
+        } else free(q);
     }
     mcce_shapes_free(&res);
     if (!o.n) { free(o.p); return cl_bool(orig, NULL, 0); }
     return o;
+}
+static CPaths dc_stock_offset(const McamFile *f, const Chain *ch, double d, double gap, double chord, int dir, const CPaths *orig, const char **why, DcEnts **eout) {
+    if (ch->cut0 > 1e-12 || ch->cut1 > 1e-12) { *why = "a chain with trimmed ends is NOT DECODED here"; return cl_bool(orig, NULL, 0); }   /* (the offset is of the chain's whole entities) */
+    McceEnt *ents = malloc((size_t)(ch->n ? ch->n : 1) * 2 * sizeof(McceEnt));
+    /* the bound is ConvertChainsToPockBounds' (decomp/mcmill_hst2d.c l.2276-2470): a full-circle single-arc chain in two halves (as dyn_ents_add) */
+    if (ch->n == 1 && f->ents[ch->ent[0]].type == E_ARC && fabs(fabs(f->ents[ch->ent[0]].sw) - 2 * M_PI) < 1e-9) {
+        const Ent *E = &f->ents[ch->ent[0]]; int r = ch->rev[0]; double sa = r ? E->a0 + E->sw : E->a0, sw = r ? -E->sw : E->sw;
+        for (int h = 0; h < 2; h++) { McceEnt *x = &ents[h]; memset(x, 0, sizeof *x); x->id = 'A'; x->a[0] = E->c.x; x->a[1] = E->c.y; x->a[2] = E->r; x->a[3] = sa + h * sw / 2; x->a[4] = sw / 2; }
+        McceShape in2 = { ents, 2, dir, 0 };
+        McceResult res2 = mcce_contour_offset(&in2, 1, d, 0x105, 0.0, gap, 1e-6, 1e-6);
+        free(ents);
+        return dc_offset_out(&res2, chord, orig, why, eout);
+    }
+    for (int i = 0; i < ch->n; i++) {
+        const Ent *E = &f->ents[ch->ent[i]]; int r = ch->rev[i]; McceEnt *x = &ents[i];
+        memset(x, 0, sizeof *x);
+        if (E->type == E_LINE) { V3 u = r ? E->b : E->a, v = r ? E->a : E->b; x->id = 'L'; x->a[0] = u.x; x->a[1] = u.y; x->a[2] = v.x; x->a[3] = v.y; }
+        else if (E->type == E_ARC) { x->id = 'A'; x->a[0] = E->c.x; x->a[1] = E->c.y; x->a[2] = E->r; x->a[3] = r ? E->a0 + E->sw : E->a0; x->a[4] = r ? -E->sw : E->sw; }
+        else { free(ents); *why = "a chain entity that is not a line or arc is NOT DECODED here"; return cl_bool(orig, NULL, 0); }
+    }
+    McceShape in = { ents, ch->n, dir, 0 };
+    McceResult res = mcce_contour_offset(&in, 1, d, 0x105, 0.0, gap, 1e-6, 1e-6);
+    free(ents);
+    return dc_offset_out(&res, chord, orig, why, eout);
 }
 static int gen_dyncontour_mcce(const McamFile *f, CamOp *op, MB *b, const McceParm *P0, int dc_fin) {
     CamParams *p = &op->p;
@@ -191,23 +232,41 @@ static int gen_dyncontour_mcce(const McamFile *f, CamOp *op, MB *b, const MccePa
         CPath c0 = { xy, n }; double A0 = cl_area(&c0);
         int dir = A0 > 0 ? 1 : -1;
         CPaths R = { &c0, 1 }, Q;
+        /* the engine input as true lines / arcs (NS-6): ConvertChainsToPockBounds keeps the chain's entities (decomp/mcmill_hst2d.c
+           l.2276-2470; FUN_1801b58f0 calls chains_to_pock_bounds, l.11331), MCCECalcContourOffset returns entities (mcce_contour_offset);
+           the DLL gets them as they are. MCCE_DCENTS=0 = the old chord polylines. */
+        int ents_on = !(getenv("MCCE_DCENTS") && *getenv("MCCE_DCENTS") == '0');
+        DcEnts *QE = NULL;
         if (fabs(p->stock_xy) > 1e-12) {
             int sg = (P0->flags & 0x400000) ? 1 : -1;           /* FUN_1801ac7e0: record 0x5d2 (op 0x56a) != 0 -> -1 (0x400000 = 0x56a == 0, LoadDynPockParm) */
             const char *why = NULL;
-            Q = dc_stock_offset(f, &op->chains[ci], sg * p->stock_xy, P0->chain_tol, tol, dir, &R, &why);
-            if (why) { snprintf(op->error, sizeof op->error, "Dynamic Contour wall stock (MCCECalcContourOffset 0x105): %s", why); cl_free(&Q); free(xy); return 0; }
-        } else Q = cl_bool(&R, NULL, 0);
+            Q = dc_stock_offset(f, &op->chains[ci], sg * p->stock_xy, P0->chain_tol, tol, dir, &R, &why, ents_on ? &QE : NULL);
+            if (why) { snprintf(op->error, sizeof op->error, "Dynamic Contour wall stock (MCCECalcContourOffset 0x105): %s", why); cl_free(&Q); free(xy); free(QE); return 0; }
+        } else {
+            DcEnts E0 = { 0, NULL, NULL };
+            if (ents_on) { dyn_ents_clear(); dyn_ents_add(f, &op->chains[ci], xy); McceBnd t = { xy, n, 0, 0, 0, NULL, NULL }; dyn_ents_of(&t);
+                           if (t.ne) { E0.ne = t.ne; E0.ety = malloc((size_t)t.ne); E0.ent = malloc(sizeof(double) * 5 * (size_t)t.ne); memcpy(E0.ety, t.ety, (size_t)t.ne); memcpy(E0.ent, t.ent, sizeof(double) * 5 * (size_t)t.ne); }
+                           dyn_ents_clear(); }
+            if (E0.ne) {   /* the chain itself, as its polyline and entities */
+                Q.p = calloc(2, sizeof(CPath)); Q.n = 1; Q.p[0].xy = malloc(sizeof(double) * 2 * (size_t)n); memcpy(Q.p[0].xy, xy, sizeof(double) * 2 * (size_t)n); Q.p[0].n = n;
+                QE = calloc(2, sizeof(DcEnts)); QE[0] = E0;
+            } else Q = cl_bool(&R, NULL, 0);
+        }
         McceRec *all = NULL; int nall = 0;
         for (int k = 0; k < Q.n; k++) {
             CPath *q = &Q.p[k]; if (q->n < 3) continue;
-            if ((cl_area(q) > 0) != (dir > 0)) reverse_path(q);   /* keep the chain's direction */
-            McceBnd bd = { q->xy, q->n, 0, 0 };
+            DcEnts *E = QE && QE[k].ne ? &QE[k] : NULL;
+            if ((cl_area(q) > 0) != (dir > 0)) { reverse_path(q); if (E) dc_ents_rev(E); }   /* keep the chain's direction */
+            McceBnd bd = { q->xy, q->n, 0, 0, E ? E->ne : 0, E ? E->ety : NULL, E ? E->ent : NULL };
             McceParm P = *P0; P.depth = zl[0];
             McceRec *rec = NULL; int nrec = 0; char err[160] = "";
             if (!mcce_calc_dyn_pock(&P, &bd, 1, NULL, 0, NULL, 0, &rec, &nrec, err, sizeof err)) {
-                snprintf(op->error, sizeof op->error, "%s", err); free(rec); free(all); cl_free(&Q); free(xy); return 0; }
+                snprintf(op->error, sizeof op->error, "%s", err); free(rec); free(all);
+                if (QE) { for (int j = 0; j < Q.n; j++) { free(QE[j].ety); free(QE[j].ent); } free(QE); }
+                cl_free(&Q); free(xy); return 0; }
             all = realloc(all, sizeof(McceRec) * (nall + nrec + 1)); memcpy(all + nall, rec, sizeof(McceRec) * nrec); nall += nrec; free(rec);
         }
+        if (QE) { for (int k = 0; k < Q.n; k++) { free(QE[k].ety); free(QE[k].ent); } free(QE); }
         cl_free(&Q); free(xy);
         McceRec *cp = nall ? malloc(sizeof(McceRec) * nall) : NULL;
         double d = 0;
@@ -485,6 +544,13 @@ static uint8_t *hst_record(const McamFile *f, const CamParams *p, const Op **fo_
         rec[0x1567] = p->dyn_outside ? 1 : 0;
     }
     if (!fo) { memcpy(rec + 0x350, &p->tool_dia, 8); memcpy(rec + 0x358, &p->corner_r, 8); }   /* P10005 tool dia, corner radius */
+    if (!fo) {   /* regen-consistency 2026-11-19: and the op's feed / plunge / retract rate / spindle speed as the save writes them into the
+                    op's tool block (mcam_saveops.c: blk +0x30 / +0x38 / +0x40 / +0x48 = record 0x378 / 0x380 / 0x388 / 0x390) - the engine
+                    reads its feeds from these (mcce_parm_from_record: OPD(0x310) feed, first-pass / ramp / back feeds from it); a new op
+                    cut with the default op's feed where the saved op cut with its own */
+        int32_t rpm = p->rpm;
+        memcpy(rec + 0x378, &p->feed, 8); memcpy(rec + 0x380, &p->plunge_feed, 8); if (p->mc_rrate > 0) memcpy(rec + 0x388, &p->mc_rrate, 8); memcpy(rec + 0x390, &rpm, 4);
+    }
     if (fo_out) *fo_out = fo;
     *n_out = rn;
     return rec;
@@ -530,8 +596,50 @@ static CPath xt_loop_path(const XtEdge *e, int n, double tol) {
    PackageChains (l.4986-5398; no containment / air chains): until no bound is left, FUN_1802a7cf0 (l.15138) = the first bound of the
    list with the highest z (+0x18, greater by 1e-12), run as a region of its own (PackageMachiningRegion l.5400; no nesting test on
    this path; HasOuterPocket l.5068 only changes a nested region's top of stock: outer_pockets). A "Solid Chain" (formats/mcam.md: its edges are NOT DECODED) gives every loop of the
-   solid's top face in XT loop order (cam_solid_face_loops; CORRELATED with buckle-v6/7/8 op 31's NCI). *zout = each region's z (malloc); *zbase = the first chain's z;
+   solid's top face in XT loop order (cam_solid_face_loops; CORRELATED with buckle-v6/7/8 op 31's NCI), each loop's XT lines / arcs as the
+   bound's entities (dyn_ents_add_xt; MCCE_XTENTS=0 = the old polyline): op 31 x3 regenerate move for move (formats/nci_save.md 7.3). *zout = each region's z (malloc); *zbase = the first chain's z;
    *lpos = each region's position in the bound list +0x328 (malloc; outer_pockets needs the list order). */
+/* The engine input as mcmill builds it: ConvertChainsToPockBounds (decomp/mcmill_hst2d.c l.2276-2470) makes one pock_bound per chain from
+   its entities - lines and arcs as they are (a full-circle single-arc chain split in two halves) - and the region / island offsets of
+   FUN_1801ac7e0 (MCCECalcOffset) work on those entities; MCCECalcDynPock gets the result (formats/dynamic.md "2D HS input": the DLL on
+   buckle-v6 op 33's region as true arcs reproduces the stored NCI, p95 0.000 mm, as 15-degree chords 0.059 mm). The bounds here keep
+   that entity form next to their polylines (McceBnd.ne): looked up by the polyline (cam_chain_polyline of the same chain). */
+typedef struct { const double *xy; int ne; char *ety; double *ent; } DynEnts;
+static _Thread_local DynEnts *g_dyn_ents; static _Thread_local int g_dyn_nents;
+static void dyn_ents_clear(void) { for (int i = 0; i < g_dyn_nents; i++) { free(g_dyn_ents[i].ety); free(g_dyn_ents[i].ent); } free(g_dyn_ents); g_dyn_ents = NULL; g_dyn_nents = 0; }
+static void dyn_ents_add(const McamFile *f, const Chain *c, const double *xy) {   /* only chains of untrimmed lines / arcs; else the polyline stays */
+    if (!c->n || c->cut0 > 1e-12 || c->cut1 > 1e-12 || c->solid_idn > 0) return;
+    for (int i = 0; i < c->n; i++) { int t = f->ents[c->ent[i]].type; if (t != E_LINE && t != E_ARC) return; }
+    int full = c->n == 1 && f->ents[c->ent[0]].type == E_ARC && fabs(fabs(f->ents[c->ent[0]].sw) - 2 * M_PI) < 1e-9;
+    int ne = full ? 2 : c->n; if (ne <= 0 || ne > 1000000) return; char *ty = malloc((size_t)ne); double *v = malloc(sizeof(double) * 5 * (size_t)ne);
+    for (int i = 0, k = 0; i < c->n; i++) {
+        const Ent *E = &f->ents[c->ent[i]]; int r = c->rev[i];
+        if (E->type == E_LINE) { V3 u = r ? E->b : E->a, w = r ? E->a : E->b; ty[k] = 'L'; double *q = v + 5 * k++; q[0] = u.x; q[1] = u.y; q[2] = w.x; q[3] = w.y; q[4] = 0; continue; }
+        double sa = r ? E->a0 + E->sw : E->a0, sw = r ? -E->sw : E->sw;
+        for (int h = 0; h < (full ? 2 : 1); h++) { ty[k] = 'A'; double *q = v + 5 * k++; q[0] = E->c.x; q[1] = E->c.y; q[2] = E->r;
+            q[3] = full ? sa + h * sw / 2 : sa; q[4] = full ? sw / 2 : sw; }
+    }
+    g_dyn_ents = realloc(g_dyn_ents, sizeof *g_dyn_ents * (size_t)(g_dyn_nents + 1));
+    g_dyn_ents[g_dyn_nents++] = (DynEnts){ xy, ne, ty, v };
+}
+/* a solid chain's face loop (XtEdge lines / arcs, cam_solid_face_loops) in the same entity form: ConvertChainsToPockBounds takes the chain's
+   entities as they are (decomp/mcmill_hst2d.c l.2276-2470), a full-circle single-arc loop in two halves (as dyn_ents_add) */
+static void dyn_ents_add_xt(const XtEdge *e, int n, const double *xy) {
+    if (n <= 0 || n > 1000000) return;
+    for (int i = 0; i < n; i++) if (e[i].type != 2 && e[i].type != 4) return;
+    int full = n == 1 && e[0].type == 4 && fabs(fabs(e[0].sw) - 2 * M_PI) < 1e-9;
+    int ne = full ? 2 : n; char *ty = malloc((size_t)ne); double *v = malloc(sizeof(double) * 5 * (size_t)ne);
+    for (int i = 0, k = 0; i < n; i++) {
+        if (e[i].type == 2) { ty[k] = 'L'; double *q = v + 5 * k++; q[0] = e[i].a[0]; q[1] = e[i].a[1]; q[2] = e[i].b[0]; q[3] = e[i].b[1]; q[4] = 0; continue; }
+        for (int h = 0; h < (full ? 2 : 1); h++) { ty[k] = 'A'; double *q = v + 5 * k++; q[0] = e[i].c[0]; q[1] = e[i].c[1]; q[2] = e[i].r;
+            q[3] = full ? e[i].a0 + h * e[i].sw / 2 : e[i].a0; q[4] = full ? e[i].sw / 2 : e[i].sw; }
+    }
+    g_dyn_ents = realloc(g_dyn_ents, sizeof *g_dyn_ents * (size_t)(g_dyn_nents + 1));
+    g_dyn_ents[g_dyn_nents++] = (DynEnts){ xy, ne, ty, v };
+}
+static void dyn_ents_of(McceBnd *b) {   /* the entities of the polyline b->xy, if registered (shared, not copied) */
+    for (int i = 0; i < g_dyn_nents; i++) if (g_dyn_ents[i].xy == b->xy) { b->ne = g_dyn_ents[i].ne; b->ety = g_dyn_ents[i].ety; b->ent = g_dyn_ents[i].ent; return; }
+}
 static CPaths facing_regions(const McamFile *f, CamOp *op, double tolP, double **zout, double *zbase, int **lpos) {
     int cap = op->nchains + 8, n = 0, have0 = 0;
     CPath *L = calloc(cap, sizeof(CPath)); double *Z = calloc(cap, sizeof(double));
@@ -546,7 +654,7 @@ static CPaths facing_regions(const McamFile *f, CamOp *op, double tolP, double *
                     if (n + 1 >= cap) { cap *= 2; L = realloc(L, cap * sizeof(CPath)); Z = realloc(Z, cap * sizeof(double)); }
                     L[n] = xt_loop_path(e + k0, ln[k], op->p.tol); Z[n] = ln[k] ? e[k0].a[2] : 0;
                     if (!have0) { *zbase = Z[n]; have0 = 1; }
-                    if (L[n].n >= 3) n++; else free(L[n].xy);
+                    if (L[n].n >= 3) { if (getenv("MCCE_XTENTS") == NULL || *getenv("MCCE_XTENTS") != '0') dyn_ents_add_xt(e + k0, ln[k], L[n].xy); n++; } else free(L[n].xy);
                 }
                 free(e);
                 continue;
@@ -559,7 +667,7 @@ static CPaths facing_regions(const McamFile *f, CamOp *op, double tolP, double *
         { double per = 0; for (int k = 0; k < m; k++) { int j = (k + 1) % m; per += hypot(xy[2 * j] - xy[2 * k], xy[2 * j + 1] - xy[2 * k + 1]); }
           if (per < tolP) { free(xy); continue; } }
         if (n + 1 >= cap) { cap *= 2; L = realloc(L, cap * sizeof(CPath)); Z = realloc(Z, cap * sizeof(double)); }
-        L[n].xy = xy; L[n].n = m; Z[n] = z; n++;
+        L[n].xy = xy; L[n].n = m; Z[n] = z; dyn_ents_add(f, c, xy); n++;
     }
     CPaths out = { calloc(n + 1, sizeof(CPath)), 0 };
     *zout = calloc(n + 1, sizeof(double));
@@ -679,11 +787,13 @@ static HstHts hst_set_heights(const CamParams *pr, double top0, const HstLink *l
 }
 /* pp / dprev: the previous region's heights and its last group's depth; pn / dn: the next region's and its first group's depth, (sx, sy, z)
    its first point. The tool stands at the previous region's last point (its SAFE rise to the feed plane, if any, is taken back). */
-static void hst_group_link(MB *b, const CamParams *pp, double dprev, const CamParams *pn, double dn, double top0, const HstLink *lk, double sx, double sy, double z) {
+/* Returns the index of the first move after the retract (the next region's section-start block goes before it: FUN_180045770 l.6732 writes
+   wr_sof at a group's first record and cancels it only when the tool is still down there, l.6774 - here it was lifted), -1 = no link */
+static int hst_group_link(MB *b, const CamParams *pp, double dprev, const CamParams *pn, double dn, double top0, const HstLink *lk, double sx, double sy, double z) {
     if (b->n >= 2) { const Move *up = &b->m[b->n - 1], *bot = &b->m[b->n - 2];
         if (up->rapid && fabs(up->p.x - bot->p.x) < 1e-9 && fabs(up->p.y - bot->p.y) < 1e-9 && up->p.z > bot->p.z) b->n--; }
     V3 e = lastp(b);
-    if (hypot(e.x - sx, e.y - sy) <= g_nc_tol) return;                                        /* l.14462-14466: no link within nc_tol */
+    if (hypot(e.x - sx, e.y - sy) <= g_nc_tol) return -1;                                     /* l.14462-14466: no link within nc_tol */
     HstHts h = hst_set_heights(pp, top0, lk, dprev, dprev);
     double zc = e.z;
     if (!lk->rapid_ret && zc + CAM_SYS_TOL < h.init) { if (lk->rrate > 0) mv(b, 0, e.x, e.y, h.init, lk->rrate); else mv(b, 1, e.x, e.y, h.init, 0); zc = h.init; }
@@ -697,10 +807,12 @@ static void hst_group_link(MB *b, const CamParams *pp, double dprev, const CamPa
         else if (lk->clr_on) { if (zc + CAM_SYS_TOL < h.clr) { mv(b, 1, e.x, e.y, h.clr, 0); zc = h.clr; } }
         else if (zc + CAM_SYS_TOL < h.init) { mv(b, 1, e.x, e.y, h.init, 0); zc = h.init; }
     }
+    int t0 = b->n;
     HstHts g = hst_set_heights(pn, top0, lk, dn, pn->top_z);                                        /* set_heights(depth, top) */
     if (lk->clr_on) { if (g.init + CAM_SYS_TOL < g.clr && z + CAM_SYS_TOL < g.clr && clear) mv(b, 1, sx, sy, g.clr, 0); }   /* plunge_move, tool up */
     else if (g.ret_on && g.init + CAM_SYS_TOL < g.ret && z + CAM_SYS_TOL < g.ret && clear) mv(b, 1, sx, sy, g.ret, 0);
     /* the rapid down to max(init, z) and the plunge feed: mcce_moves' approach (its fp is this init) */
+    return t0;
 }
 
 /* The top of stock of a region nested in another machining region (decoded 2026-11-13, mcmill.dll PackageChains, disassembly
@@ -780,6 +892,7 @@ static int gen_dynamic_mcce(const McamFile *f, CamOp *op, MB *b) {
 
     int facing = (P.flags & 0x40) != 0;   /* style 0 && record 0x1567 = FUN_1801ac7e0's "from outside" (LoadDynPockParm) */
     double tol = fmax(p->tol, D * 0.002), *Zr = NULL, zbase = 0; int *Lp = NULL;
+    dyn_ents_clear();                                                                          /* (no stale polyline keys) */
     CPaths outs = facing_regions(f, op, tolP, &Zr, &zbase, &Lp);
     (void)zbase;
     if (!outs.n) { cl_free(&outs); free(Zr); free(Lp); snprintf(op->error, sizeof op->error, "needs closed chains"); return 0; }
@@ -790,9 +903,15 @@ static int gen_dynamic_mcce(const McamFile *f, CamOp *op, MB *b) {
        same list in every work item (l.5787, vtable +0x18); a chain shorter than the tolerance is dropped (ConvertChains param_3) */
     McceBnd *isl = NULL; int nisl = 0;
     {   double zav; CPaths raw = chain_paths(f, op, 2, &zav);
+        /* the same chains in chain_paths' order (cam2d.c: closed, avoidance, at least 2 points) */
+        for (int i = 0, k = 0; i < op->nchains && k < raw.n; i++) {
+            const Chain *c = &op->chains[i]; if (!c->closed || !c->avoid) continue;
+            double *t, tz; int tn = cam_chain_polyline(f, c, op->p.tol, &t, &tz); free(t); if (tn < 2) continue;
+            dyn_ents_add(f, c, raw.p[k++].xy);
+        }
         McceBnd *rb = calloc(raw.n + 1, sizeof(McceBnd)); int m = 0;
         for (int i = 0; i < raw.n; i++) { double per = 0; for (int k = 0; k < raw.p[i].n; k++) { int j = (k + 1) % raw.p[i].n; per += hypot(raw.p[i].xy[2 * j] - raw.p[i].xy[2 * k], raw.p[i].xy[2 * j + 1] - raw.p[i].xy[2 * k + 1]); }
-            if (per < tolP) continue; rb[m].xy = raw.p[i].xy; rb[m].n = raw.p[i].n; m++; }
+            if (per < tolP) continue; rb[m].xy = raw.p[i].xy; rb[m].n = raw.p[i].n; dyn_ents_of(&rb[m]); m++; }
         mcce_grow_islands(p->stock_xy, tol, rb, m, &isl, &nisl);
         free(rb); cl_free(&raw); }
     int down = 0, okall = 1, any_skip = 0, any_region = 0; double end_clear = p->clearance;
@@ -818,7 +937,7 @@ static int gen_dynamic_mcce(const McamFile *f, CamOp *op, MB *b) {
         P.top = pr.top_z;
         P.depth = zl[0];
         /* the wall offset of the region: FUN_1801ac7e0 (d = stock + vtable +0x38 FUN_1802a70d0, dyn l.483-500: 0 without 0x17b8) */
-        McceBnd reg = { outs.p[r].xy, outs.p[r].n, 0, 0 }, *pc = NULL; int np = 0;
+        McceBnd reg = { outs.p[r].xy, outs.p[r].n, 0, 0, 0, NULL, NULL }, *pc = NULL; int np = 0; dyn_ents_of(&reg);
         double dwall = p->stock_xy;                                                            /* + CHST2DDynamic vtable +0x38 FUN_1802a70d0 dyn l.483-500: style 0, 0x17b8 and 0x1567 */
         if (rest.on && facing) { dwall += 2.0 * tolP + 1.5 * D; if (rest.p8 < 0) dwall += fabs(rest.p8); }
         mcce_wall_region(dwall, facing, tol, &reg, &pc, &np);
@@ -864,7 +983,7 @@ static int gen_dynamic_mcce(const McamFile *f, CamOp *op, MB *b) {
         if (skip) {
             for (int k = 0; k < nz; k++) if (s2l[k]) hst_rest_free(s2l[k], s2n[k]);
             free(s2l); free(s2n); free(s2of);
-            for (int k = 0; k < np; k++) free(pc[k].xy);
+            for (int k = 0; k < np; k++) { free(pc[k].xy); mcce_bnd_free_ents(&pc[k]); }
             free(pc);
             continue;
         }
@@ -883,15 +1002,16 @@ static int gen_dynamic_mcce(const McamFile *f, CamOp *op, MB *b) {
             all = realloc(all, sizeof(McceRec) * (nall + nrec + 1)); memcpy(all + nall, rc, sizeof(McceRec) * nrec); nall += nrec; free(rc);
         }
             if (per_level && okall) {                                                            /* the engine at every level: FUN_1802ca5f0 with +0x10 set, no copies */
-                if (have_prev && nall && !down) hst_group_link(b, &prevp, prevd, &pr, zl[lv], p->top_z, &lk, mrec_sx(&all[0]), mrec_sy(&all[0]), all[0].z0);
+                int s0 = have_prev && nall && !down ? hst_group_link(b, &prevp, prevd, &pr, zl[lv], p->top_z, &lk, mrec_sx(&all[0]), mrec_sy(&all[0]), all[0].z0) : -1;
                 mcce_moves(b, &pr, all, nall, fp, &down);
+                if (s0 >= 0 && s0 < b->n) b->m[s0].sof = 1;   /* the region's section-start block (Move.sof) */
                 if (nall) { prevp = pr; prevd = zl[lv]; have_prev = 1; }
                 if (down) { V3 l = lastp(b); mv(b, 1, l.x, l.y, fp, 0); down = 0; }
             }
         }
         if (rest.on) { for (int k = 0; k < nz; k++) if (s2l[k]) hst_rest_free(s2l[k], s2n[k]); free(s2l); free(s2n); free(s2of); }
         if (per_level) { nall = 0; nz = 0; }                                                     /* (the copies below are skipped) */
-        for (int k = 0; k < np; k++) free(pc[k].xy);
+        for (int k = 0; k < np; k++) { free(pc[k].xy); mcce_bnd_free_ents(&pc[k]); }
         free(pc);
         /* depth cuts: the engine runs once per region at the first level (PackageSomething's level loop runs *(short*)(dc+2) = 1 time when
            process +0x56 / +0x98 are clear), then the CHST2DWorkItemDCS work item (FUN_1802b11f0 l.15759, run by FUN_1802bb260
@@ -900,8 +1020,9 @@ static int gen_dynamic_mcce(const McamFile *f, CamOp *op, MB *b) {
         McceRec *cp = nz > 1 && nall ? malloc(sizeof(McceRec) * nall) : NULL; double d = 0;
         for (int k = 0; k < nz && okall; k++) {
             if (k == 0) {
-                if (have_prev && nall && !down) hst_group_link(b, &prevp, prevd, &pr, zl[0], p->top_z, &lk, mrec_sx(&all[0]), mrec_sy(&all[0]), all[0].z0);
+                int s0 = have_prev && nall && !down ? hst_group_link(b, &prevp, prevd, &pr, zl[0], p->top_z, &lk, mrec_sx(&all[0]), mrec_sy(&all[0]), all[0].z0) : -1;
                 mcce_moves(b, &pr, all, nall, fp, &down);
+                if (s0 >= 0 && s0 < b->n) b->m[s0].sof = 1;   /* the region's section-start block (Move.sof) */
             } else {
                 d += k - 1 < nr_dc - 1 ? st_dc : p->mc_depth_fs;
                 for (int i = 0; i < nall; i++) { cp[i] = all[i]; cp[i].z0 -= d; cp[i].z1 -= d; }
@@ -912,14 +1033,23 @@ static int gen_dynamic_mcce(const McamFile *f, CamOp *op, MB *b) {
         }
         free(cp); free(all);
     }
-    free(sub); for (int i = 0; i < nisl; i++) free(isl[i].xy); free(isl);
-    cl_free(&outs); free(Zr); free(Otop);
+    free(sub); for (int i = 0; i < nisl; i++) { free(isl[i].xy); mcce_bnd_free_ents(&isl[i]); } free(isl);
+    cl_free(&outs); free(Zr); free(Otop); dyn_ents_clear();
     if (!okall) return 0;
     if (any_skip) {                                                                             /* PackageChains l.5388-5394: LogError 10 (mcmillres 0x187) / LogWarning 0xb (0x17f) */
         if (!any_region) { snprintf(op->error, sizeof op->error, "All machining regions have no remaining material."); return 0; }
         snprintf(op->warning, sizeof op->warning, "At least one machining region has no remaining material.");
     }
     if (!b->n) { snprintf(op->error, sizeof op->error, "nothing to cut"); return 0; }
-    { V3 e = lastp(b); mv(b, 1, e.x, e.y, end_clear, 0); }
+    /* the end: one rapid from the last cut straight up to the clearance - measured: 40 / 40 stored 2D High Speed NCI sections end with the
+       last feed record then a single G0, no two upward rapids at one XY anywhere in them (formats/nci_save.md 7.3); the per-level retract to the
+       feed plane just written (the SAFE rule, mcce_moves) is lifted to the clearance instead of a second stop */
+    { Move *l = &b->m[b->n - 1];
+      if (b->n >= 2 && l->rapid && fabs(l->p.x - b->m[b->n - 2].p.x) < 1e-9 && fabs(l->p.y - b->m[b->n - 2].p.y) < 1e-9 && l->p.z > b->m[b->n - 2].p.z && end_clear >= l->p.z && !b->m[b->n - 2].rapid) l->p.z = end_clear;
+      else { V3 e = lastp(b); mv(b, 1, e.x, e.y, end_clear, 0); } }
+    /* the NCI gate (user rule NS-1 / NS-4: lifted where every corpus section that regenerates move for move places its blocks as
+       Mastercam's): the Dynamic region path, blocks at the region links (hst_group_link; FUN_180045770 l.6732) - 6 / 6 such 2D HS
+       sections (formats/nci_save.md 7.3). Dynamic Contour (gen_dyncontour_mcce) stays gated. */
+    op->nci_blocks = 1;
     return 1;
 }

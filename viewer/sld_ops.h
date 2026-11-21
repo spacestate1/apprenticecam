@@ -8,6 +8,7 @@
  *   McOperation base  read FUN_1802649f0, write FUN_180266560, size FUN_180263a70
  *   McChainOp         read FUN_180271cc0 (the write is its inverse; proven by the byte-identity round trip below)
  *   SldExtrudeOp      read FUN_18027bbe0, write FUN_18027cb40 (types 0 Extrude Cut, 1 Extrude Boss, 2 Extrude)
+ *   SldBodyOp         read FUN_18026f4f0, write FUN_18026fc80 (type 0xe Body: formats/solid_import_save.md)
  * Only ops version >= 0x19 in 64-bit files (MCFile +0x31 == 0) is handled: the layouts of every user part (0x1a) and of Mastercam 2017
  * (0x1c). New op classes slot in through SldOp.type + their own part (SldOp.cls); an op whose class has no reader / writer here keeps its
  * stored bytes (SldOp.raw) and cannot be created or edited.
@@ -27,8 +28,8 @@ typedef struct {
     uint8_t b2c, b2d;       /* mem +0x2c / +0x2d (0 in all) */
 } SldEptr;
 
-enum { SLD_OP_EXTRUDE_CUT = 0, SLD_OP_EXTRUDE_BOSS = 1, SLD_OP_EXTRUDE = 2, SLD_OP_FILLET = 9 };   /* factory FUN_180267440; opmanres 27601 + type */
-enum { SLD_CLS_RAW = 0, SLD_CLS_EXTRUDE = 1, SLD_CLS_FILLET = 2 };
+enum { SLD_OP_EXTRUDE_CUT = 0, SLD_OP_EXTRUDE_BOSS = 1, SLD_OP_EXTRUDE = 2, SLD_OP_FILLET = 9, SLD_OP_BODY = 0xe };   /* factory FUN_180267440; opmanres 27601 + type */
+enum { SLD_CLS_RAW = 0, SLD_CLS_EXTRUDE = 1, SLD_CLS_FILLET = 2, SLD_CLS_BODY = 3 };
 
 typedef struct {
     int type;               /* op type (+0x30; also written before the size) */
@@ -69,6 +70,9 @@ typedef struct {
        radius items: per item i32 k, k x 8 bytes (item +0x08), k x 8 bytes (item +0x30) */
     uint8_t FP[0x18];
     int nvr; int *vrk; uint64_t **vra, **vrb;
+    /* SldBodyOp (type 0xe, an imported / history-removed "brick"; formats/solid_import_save.md 2): read FUN_18026f4f0, write FUN_18026fc80,
+       size FUN_18026e420: after the base u32 size + the XT of the op's own body copy (PK_PART_transmit "sld_N_bo", FUN_18026fa70) */
+    uint8_t *bxt; size_t nbxt;
     /* SLD_CLS_RAW: the op's bytes after the type / size */
     uint8_t *raw; size_t nraw;
 } SldOp;
@@ -126,6 +130,8 @@ typedef struct SldNew {
     int level, color;
     char desc[256];                     /* the name after the solid id (sld_set_description) */
     uint8_t expanded;                   /* McOpsFile +0x0e: the Solids manager row's expanded state */
+    int imported;                       /* an imported solid (STEP; F.solids[].brep): a "brick" - one SldBodyOp whose records and XT copy the save
+                                           makes from the body (formats/solid_import_save.md 4); the body is owned (sld_new_drop releases it) */
     int nops; SldOp *ops;
     char why[300];                      /* non-empty: this solid cannot be written (the save leaves it out and says why) */
 } SldNew;

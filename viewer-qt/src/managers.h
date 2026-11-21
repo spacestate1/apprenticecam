@@ -26,9 +26,14 @@ public:
     QMenu *popupMenu(const QPoint &global);            // the right-click menu (OPMANRES menu 780: core_ui cm_items)
     std::function<bool(int act)> menuHas;              // the front end has this menu action
     void beginRename(int group);                       // 3585 Rename: TVM_EDITLABEL on the group's item (core_ui ask: 2 machine, 1 toolpath group)
+    void beginOpRename(int op);                        // an op's label edit (TVS_EDITLABELS; core_ui op_rename_begin): the edit on its row, its comment
+    class QLineEdit *labelEditor() const;              // tests: the open label edit of the tree, nullptr = none
+    void slowClick(int op);
+    void slowClickGroup(int group);                    // the slow click on a group row: its label edit (core_ui grp_rename_begin; 2 machine, 1 toolpath group)                            // the click on the label of the selected op: its label edit (core_ui op_rename_begin)
     bool clickPropsRow(int page);                      // tests (ours): a click on the Properties child of that page (itemClicked)
 signals:
     void renamed();                                    // the label edit ended (core_ui ask_end)
+    void renameBegun();                                // an op's label edit started in the model (core_ui op_rename_begin): show its editor
     void selectionChanged();
     void paramsRow(int op);                            // the Parameters row / a double click: the op dialog (core_ui open_op_params)
     void toolRow(int op);                              // the tool row: the Tool Manager on that tool (mcamui draw_manager, phase 7)
@@ -39,6 +44,8 @@ private:
     QTreeWidget *tree_; QList<QToolBar *> bars_; CommandSink sink_;
     QList<QPair<class QAction *, QString>> acts_;
     bool filling_ = false;
+    bool onLabel(QTreeWidgetItem *it) const;           // the cursor is on the item's text (TVHT_ONITEMLABEL)
+    class QTimer *editTimer_ = nullptr; int editOp_ = -999, prevClick_ = -999;   // the click on the selected op's label: the edit after the double-click time
 };
 
 // the Solids manager (mastercam.dll HistDlg tree; core_ui cui_extrude.c model: rows, images, sm_menu, sm_menu_act)

@@ -44,6 +44,10 @@ struct Options {
     std::string key = "sld_1";               /* header KEY= (Mastercam writes the SOLIDXMT name, e.g. sld_378) */
     std::string date;                        /* header DATE= (asctime form "Sat Jun 01 09:06:29 2024"); empty = now */
     bool mc_attributes = true;               /* the CNC/mcEptrPtr attribute on every face and edge (as Mastercam) */
+    /* the CNC/mcEntinfoPtr attribute on every face and edge, first in its chain: the XT of a SldBodyOp (an imported solid's history op,
+       formats/solid_import_save.md 3): FUN_18026fa70 copies the body and sets mcEntinfo (kind 0 edge / 0x34 face, op 0, null, null) on
+       every edge and face (FUN_180050bb0); 424 / 424 corpus body-op XTs. Needs mc_attributes */
+    bool mc_entinfo = false;
     TopTools_DataMapOfShapeInteger face_color;  /* optional per-face Mastercam colour -> CNC/mcColor attribute */
     /* ours, optional: node_ids to keep for faces / edges / vertices (by sub-shape), e.g. the ids read from a stored XT
        so a regenerated body keeps them; other nodes get fresh ids above the largest one given */

@@ -28,7 +28,52 @@ static int otx_s32(const Op *o, int off) { int32_t v = 0; if (o->raw && off + 4 
 static CamOp *otx_camop(int i) { for (int k = 0; k < ncamops; k++) if (camops[k]->op_index == i) return camops[k]; return NULL; }
 static int otx_opcode(int i) {
     const Op *o = &F.ops[i]; if (o->raw) return o->opcode;
-    CamOp *c = otx_camop(i); int st; return c ? mcam_opcode_for(&c->p, &st) : 0;
+    CamOp *c = otx_camop(i); int st; return c ? mcam_save_opcode_for(&c->p, &st) : 0;   /* the opcode its record gets on save (3D types too) */
+}
+/* a byte of op I's record: a stored op's own; an op of ours: the record the save builds on - Mastercam's default op
+   (cam_default_op_record) with the op dialog's record patches over it (as cam2d_dyn.c hst_record) - and the style bytes the save
+   writes (0x1228 of op 134, 0x16bc of op 132: mcam_saveops.c save_opcode_for) */
+static int otx_rb(int i, int off) {
+    const Op *o = &F.ops[i]; if (o->raw) return off >= 0 && off < (int)o->raw_n ? o->raw[off] : 0;
+    CamOp *c = otx_camop(i); if (!c) return 0;
+    int st = -1, oc = mcam_save_opcode_for(&c->p, &st);
+    if (st >= 0 && ((oc == 134 && off == 0x1228) || (oc == 132 && off == 0x16bc))) return st;
+    int v = 0; uint32_t dn = 0; const uint8_t *dr = cam_default_op_record(c->p.type, mcam_is_metric(&F), &dn);
+    if (dr && off >= 0 && (uint32_t)off < dn) v = dr[off];
+    for (int k = 0; k < c->p.nrpatch; k++) { int po = c->p.rpatch[k].off, m = c->p.rpatch[k].n;
+        if (!c->p.rpatch[k].height && off >= po && off < po + m) v = c->p.rpatch[k].v[off - po]; }
+    return v;
+}
+/* op_make_description (mccore @1800c7720, decomp/mccore_descriptions.c l.369-376) adds " (" + a style text + ")" for 0x84 and 0x86:
+   Surface High Speed: FUN_1800b7130(op +0x1654, op +0x165d) = record 0x16bc style, 0x16c5 rest; 2D High Speed: FUN_1800b7080(op) =
+   record 0x1228 style, 0x1567, 0x17b8 rest, 0x17d8 (decomp/mccore_hst_desc.c; texts mccoreres, exports/mccoreres_strings.tsv) */
+static const char *otx_hst_style(int i, int oc) {
+    if (oc == 0x84) {
+        int s = otx_rb(i, 0x16bc), r = otx_rb(i, 0x16c5) != 0;
+        switch (s) {
+        case 0: return r ? "Area rest roughing" : "Area roughing";              /* 108 / 541 */
+        case 1: return r ? "Dynamic OptiRest" : "Dynamic OptiRough";            /* 109 / 542 */
+        case 2: return r ? "Waterline rest passes" : "Waterline";              /* 4611 / 4609 */
+        case 3: return r ? "Scallop rest passes" : "Scallop";                  /* 4615 / 4613 */
+        case 4: return "Horizontal";                                           /* 4617 */
+        case 5: return r ? "Raster rest passes" : "Raster";                    /* 4621 / 4619 */
+        case 6: return r ? "Pencil rest passes" : "Pencil";                    /* 4626 / 4623 */
+        case 7: return "Hybrid";                                               /* 4628 */
+        case 9: return r ? "Spiral Rest Passes" : "Spiral";                    /* 250 / 243 */
+        case 10: return r ? "Radial Rest Passes" : "Radial";                   /* 252 / 249 */
+        case 15: return "Project";                                             /* 4635 */
+        default: return "General";                                             /* 4603 */
+        }
+    }
+    int c = otx_rb(i, 0x1228), rest = otx_rb(i, 0x17b8) != 0;   /* 0x1567 picks 288 / 348 (Dynamic) and 4642 / 4636 (Area): the same texts */
+    switch (c) {
+    case 0: return rest ? "2D Dynamic Rest Mill" : "2D Dynamic Mill";          /* 4646 / 4649, 288 / 348 */
+    case 1: return rest ? "2D Area Rest Mill" : "2D Area Mill";                /* 4645 / 4648, 4642 / 4636 */
+    case 2: return "2D Dynamic Contour Mill";                                  /* 365 */
+    case 3: return otx_rb(i, 0x17d8) ? "2D Peel Mill" : "2D Dynamic Peel Mill";   /* 4639 / 4641 */
+    case 4: return "2D Blend Mill";                                            /* 4634 */
+    default: return "General";                                                 /* 4603 */
+    }
 }
 static int otx_is_drill(int oc) { return oc == 2 || oc == 0x1c || (oc >= 0x37 && oc <= 0x39) || oc == 0x132; }   /* feeds_speeds.md */
 static int otx_is_point(int oc) { return otx_is_drill(oc) || oc == 0x12 || oc == 100 || oc == 106 || oc == 113; }  /* mccore op_is_point */
@@ -71,6 +116,7 @@ static void otx_desc(int i, char *out, size_t n) {         /* op_make_descriptio
         int t = o->raw ? otx_s16(o, 0x1308) : c && c->p.contour_type == 1 ? 2 : 0;
         if (t >= 0 && t <= 5) { snprintf(out, n, "%s (%s)", name, ct[t]); return; }
     }
+    if (oc == 0x84 || oc == 0x86) { snprintf(out, n, "%s (%s)", name, otx_hst_style(i, oc)); return; }
     if (oc == 3) {
         static const char *pt[] = { "Standard", "Facing", "Island facing", "Remachining", "Open" };
         int t = o->raw ? otx_s16(o, 0x13fa) : 0;

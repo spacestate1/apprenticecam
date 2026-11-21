@@ -168,7 +168,22 @@ static int cui_ent_hl(int e) {
     if ((ent_sel && ent_sel_n == F.nents && ent_sel[e]) || (cui_hooks.ov_picked && cui_hooks.ov_picked(e))) b |= 2;
     return b;
 }
+/* a solid's GAF flags (scene.c draw_solid_mesh; formats/ui.md "Shaded face highlight of solids"): bit 0 AutoHighlighted = the
+   hovered face, or every face of the hovered body (GrSolid::SetAltRender passes a body's flag to its faces); bit 1 Selected = a face
+   picked in the drive / check prompt's solid selection or a Face item of the solid chaining (FUN_180036fc0 -> FUN_1800bc970(face,
+   select_color, 0, 0) -> FUN_18025b140(face, 2, 1)); a whole selected solid: below. */
+static int cui_sld_hl(int kind, int i, int f) {
+    int b = 0;
+    if (hover_sld >= 0 && kind == hover_sld_kind && i == hover_sld && (hover_sld_face < 0 || hover_sld_face == f)) b |= 1;
+    if (kind == 0 && f >= 0 && (ms_face_picked(i, f) || sld_face_picked(i, f))) b |= 2;
+    /* a whole solid with its selection bit 4: Mastercam's look is NOT DECODED (MaintainGrSolid -> SetVisibility index 2 of the GrSolid's
+       prop sets, AddGrPropSets via FUN_18023a290 - their line colour; no face flag found); decision (coordinator, 2026-11-19): the
+       existing select look - every face Selected (stipple list 1) */
+    if (kind == 0 && sld_sel_is(i)) b |= 2;
+    return b;
+}
 void build_overlay(void) {
+    scene_sld_hl = cui_sld_hl;
     scene_ent_hl = cui_ent_hl; scene_hl_colors[0] = cfg_autohl_color; scene_hl_colors[1] = cfg_select_color; scene_hl_stipple = cfg_stipple_hl;
     /* the dashed highlight is baked with screen-space pattern lengths (GL_LINE_STIPPLE semantics): any view
        change (zoom / pan / rotate / resize) must rebuild it */
@@ -207,8 +222,8 @@ void build_overlay(void) {
            render mode 1 -> PK_TOPOL_render_line) in the select colour, config 5033; no set_gl_style / stripes in that
            path). Its edges = what this program draws for the body (body_edges). The width is not set in that path (the
            current GL width, NOT DECODED): the overlay's. The shaded face highlight of the GAF renderer
-           (FUN_180259770 -> SetGrRenderAutoHighlighted: gafgr's stipple list 0, decoded for surfaces - scene.c
-           scene_srf_look) is not ported for solids. */
+           (FUN_180259770 -> SetGrRenderAutoHighlighted: gafgr's stipple list 0 on every face of the body) is drawn by
+           scene.c draw_solid_mesh (hover_sld kind 1, cui_sel.c cui_hover_update). */
         float rgb[3] = { 1, 1, 0 }; mc_rgb(cfg_select_color, rgb);
         float *sg; int ns = body_edges(&sbodies[sld_hover_body], &sg);
         for (int i = 0; i < ns; i++) {
@@ -216,6 +231,17 @@ void build_overlay(void) {
             ov_pt(&v, &n, &cap, a, rgb[0], rgb[1], rgb[2]); ov_pt(&v, &n, &cap, b, rgb[0], rgb[1], rgb[2]);
         }
         free(sg);
+    }
+    if (hover_sld >= 0 && hover_sld_tag && hover_sld_kind == 0 && hover_sld_face < 0 && hover_sld < F.nsolids) {
+        /* a part solid as mcgeomsld's highlighted body tag (the drive / check prompt's solid selection): FUN_180098b20 -> FUN_180042a00,
+           its edges as wire in select_color (config 5033) - as the Select Target Body's above; the edges = this program's B-rep edges
+           of the part solid (cui_snap.c ac_solid_edges) */
+        float rgb[3] = { 1, 1, 0 }; mc_rgb(cfg_select_color, rgb);
+        const BEdge *E; int ne = ac_solid_edges(ac_solid_nbodies() + hover_sld, &E);
+        for (int e = 0; e < ne; e++) for (int k = 0; k + 1 < E[e].np; k++) {
+            V3 a = { E[e].pts[3 * k], E[e].pts[3 * k + 1], E[e].pts[3 * k + 2] }, c = { E[e].pts[3 * k + 3], E[e].pts[3 * k + 4], E[e].pts[3 * k + 5] };
+            ov_pt(&v, &n, &cap, a, rgb[0], rgb[1], rgb[2]); ov_pt(&v, &n, &cap, c, rgb[0], rgb[1], rgb[2]);
+        }
     }
     sp_overlay(&v, &n, &cap);                           /* the Manual / Automatic spline's nodes (cui_spline.c) */
     sld_overlay(&v, &n, &cap);                          /* the solid selection's highlights (cui_sldchain.c) */

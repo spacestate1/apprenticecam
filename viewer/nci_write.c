@@ -276,6 +276,7 @@ typedef struct {
     const uint8_t *op; uint32_t opn;        /* operation = record + 0x68 */
     const uint8_t *tl; uint32_t tln;        /* the TL_ID record image */
     int32_t opid; int opcode;
+    int in_finish;                          /* mcmill pock_in_finish while this block is written (Pocket finish sections, Move.sof 2) */
 } W;
 static void nd(W *w, const char *fmt, const char *what) {         /* ours: a stand-in value */
     w->st->not_decoded++;
@@ -390,7 +391,7 @@ static void wr_1013(W *w, int16_t fn_a1ea0) {                       /* @18008e54
     uint8_t r[NB]; rec0(w, r, 0x3f5); W32(r, 8, w->opid);
     int tc = tip_comp(w); W16(r, 0x30, (int16_t)(tc == 1));
     if (op_is_oldnci(w->opcode)) ND("1013 of an 'old NCI' operation type (FUN_1800a5a90)");
-    W16(r, 0x18, w->opcode == 3 ? 0 : cc_control_gcode(oh(w, 0x568), ob(w, 0x56a)));   /* pocket: pock_in_finish = 0 at the section start */
+    W16(r, 0x18, w->opcode == 3 && !w->in_finish ? 0 : cc_control_gcode(oh(w, 0x568), ob(w, 0x56a)));   /* pocket: 0 unless pock_in_finish (l.6932) */
     ocp(w, r, 0x20, 0x2e8, 16);
     /* the tool library path op +0x3ae (FUN_1800db520 fills an empty one / a missing file - NOT DECODED: kept); "" -> "NONE" */
     char lib[0x106]; size_t n = 0; while (n < 0x105 && ob(w, 0x3ae + (int)n)) { lib[n] = (char)ob(w, 0x3ae + (int)n); n++; } lib[n] = 0;
@@ -415,7 +416,7 @@ static void wr_m33(W *w, int gcode, int moff) {                    /* 1014 @1800
 static void wr_1016(W *w, int metric) {                             /* @18008ed40 */
     uint8_t r[NB]; rec0(w, r, 0x3f8); W32(r, 8, w->opid);
     W32(r, 0x18, w->opid); W16(r, 0x1c, oh(w, 0x2e4)); W16(r, 0x1e, (int16_t)w->opcode);
-    W16(r, 0x40, w->opcode == 3 ? 0 : cc_computer_gcode(oh(w, 0x568), ob(w, 0x56a)));
+    W16(r, 0x40, w->opcode == 3 && !w->in_finish ? 0 : cc_computer_gcode(oh(w, 0x568), ob(w, 0x56a)));   /* pocket: 0 unless pock_in_finish (core_wr.c l.962) */
     int32_t wo = oh(w, 0x602); if (wo < -1) wo = -1;                /* FUN_18011be20(&w, -1) */
     W16(r, 0x42, (int16_t)wo); W16(r, 0x44, (int16_t)(metric != 0)); W16(r, 0x46, oh(w, 0x332));
     W16(r, 0x48, ob(w, 0x541)); ocp(w, r, 0x50, 0x2f8, 8); W32(r, 0x58, oi(w, 0x53c)); W16(r, 0x5c, ob(w, 0x540));
@@ -979,14 +980,34 @@ int nciw_section(const NciwPart *P, const NciwOp *o, const Move *m, int nm, Nciw
         goto eos;
     }
     double first[3] = { m[0].p.x, m[0].p.y, m[0].p.z };
+    w->in_finish = nm > 0 && m[0].sof == 2;   /* pock_in_finish of the op's first section (Move.sof 2) */
     sof(w, first);
     /* the moves: one record each (mcmill gr_lin_mill -> bnci_wr_lin; the engines' arc records -> bnci_wr_arc). The markers -4 .. -7
        and the contour flags +0x40 / +0x58 the Mastercam engines write are NOT DECODED here (engine-specific; bnci_to_nci skips the
        markers): flags 0, no markers */
     ND("contour flags / section markers -4..-7 of the engine");
     if (o->f && o->f->ctl_arcfeed) ND("arc feed adjustment (AdjustArcFeedrates, calc_arc_feed)");
+    /* ct_lin_mill @1808c9eb0 (Ghidra 2026-11-19, formats/nci_save.md 7.2): a line / rapid record is written only when x or y differs from
+       prev_nc_pt or the depth from cur_depth by more than tol, or when DAT_18143d5be forces it - the move after a section-start block
+       (stored: "1002 (p) 0 (p)"); arcs set prev_nc_pt too */
+    double ltol = mc_systol_units(o->metric)->tol, px = 0, py = 0, pz = 0; int have = 0, force = 1;
     for (int k = 0; k < nm; k++) {
         const Move *q = &m[k];
+        if (k > 0 && q->sof) force = 1;
+        if (!(q->arc > 0 && !q->rapid && k > 0 && q->apl == 0) && !force && have && !q->cc
+            && fabs(q->p.x - px) <= ltol && fabs(q->p.y - py) <= ltol && fabs(q->p.z - pz) <= ltol) continue;   /* (no record) */
+        /* ct_lin_mill's split of a rapid that changes both xy and depth (gcode 0, feed not -4, cur_depth valid): first ll_lin_move to the new
+           point at the current depth when it goes down, else to the current point at the new depth - never diagonal; written before a
+           queued section-start block (stored: "0 (old, 8) 0 (old, 10) [S 1002 (new, 10)] 0 (new, 10)") */
+        if (q->rapid && have && (fabs(q->p.x - px) > ltol || fabs(q->p.y - py) > ltol) && fabs(q->p.z - pz) > ltol) {
+            int down = q->p.z <= pz; double ex = down ? q->p.x : px, ey = down ? q->p.y : py, ez = down ? pz : q->p.z;
+            memset(r, 0, NB); W16(r, 0, 0); W32(r, 4, w->opid); WD(r, 0x20, ex); WD(r, 0x28, ey); WD(r, 0x30, ez); WD(r, 0x38, -2.0);
+            put(w, r); px = ex; py = ey; pz = ez;
+        }
+        if (k > 0 && q->sof) {                                       /* a pass's own section-start block (formats/nci_save.md 7): the same
+                                                                        bnci_wr_sof as the op's first, at the pass's approach point */
+            double fp[3] = { q->p.x, q->p.y, q->p.z }; w->in_finish = q->sof == 2; sof(w, fp);
+        }
         if (q->arc > 0 && !q->rapid && k > 0 && q->apl == 0) {      /* an engine arc record: its chords -> one bnci_wr_arc */
             int en = k; int16_t cc = q->cc, ctf = (int16_t)q->ctf;
             while (en + 1 < nm && m[en + 1].arc == q->arc && !m[en + 1].rapid) { en++; if (m[en].cc) cc = m[en].cc; ctf |= (int16_t)m[en].ctf; }
@@ -1001,6 +1022,7 @@ int nciw_section(const NciwPart *P, const NciwOp *o, const Move *m, int nm, Nciw
             r[0x5a] = fabs(m[en].p.x - m[k - 1].p.x) < 1e-6 && fabs(m[en].p.y - m[k - 1].p.y) < 1e-6;
             put(w, r);
             if (cc == 140) { uint8_t z[NB]; rec0(w, z, 0x3ec); W32(z, 8, w->opid); put(w, z); }   /* stop_cc: bnci_wr_1004 */
+            px = m[en].p.x; py = m[en].p.y; pz = m[en].p.z; have = 1; force = 0;
             k = en; continue;
         }
         if (q->arc > 0 && q->apl != 0) ND("an XZ / YZ arc (written as its chords)");
@@ -1010,6 +1032,7 @@ int nciw_section(const NciwPart *P, const NciwOp *o, const Move *m, int nm, Nciw
         WD(r, 0x38, q->rapid ? -2.0 : q->feed);                      /* G0: -2 unless -2 / -3 / -4 already */
         W16(r, 0x40, (int16_t)q->ctf);                               /* the contour flags (Move.ctf: Thread Mill) */
         put(w, r);
+        px = q->p.x; py = q->p.y; pz = q->p.z; have = 1; force = 0;
         if (q->cc == 140) { uint8_t z[NB]; rec0(w, z, 0x3ec); W32(z, 8, w->opid); put(w, z); }
     }
 eos:                                                                /* bnci_wr_eos @180092820 */

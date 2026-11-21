@@ -1925,7 +1925,7 @@ X = half_annulus(C, step)                                    // FUN_180020610
 I1 = Isect(X, C+0x3e8); require I1 non-empty and I1[0].+0x14 < 1 (first hit on entity 0)
 I2 = Isect(X, C+0x410); require non-empty
 mark(C, X, I2)                                               // FUN_1800244a0
-return !contact(C, X, I1, I2)                                // FUN_180024d50
+return !gap(C, X, I1, I2)                                    // FUN_180024d50
 ```
 - **half_annulus = FUN_180020610 (22712-23019)**: n = unit normal of the step end tangent, left (−t.y, t.x) when climb is
   clear, right (t.y, −t.x) when climb is set (22818-22865); Pe = step end; c = Pe − m·n̂ (22874-22894). Shape of 4
@@ -1935,9 +1935,11 @@ return !contact(C, X, I1, I2)                                // FUN_180024d50
 - **mark = FUN_1800244a0 (24578-24614)**: for each ISAB i: section of material shape C+0x420[I2[i].+0x20] from
   (+0x24,+0x28) to I2[I2[i].+0x30] tested against X[0] with FUN_1801489a0(..., single = (n==1), 1e-5); result ≠ 4 →
   I2[i].+0x38 = 3.
-- **contact = FUN_180024d50 (24809-24867)**: cyclic scan of I2 from the last record: find a class-3 record, then the first
+- **gap = FUN_180024d50 (24809-24867)**: cyclic scan of I2 from the last record: find a class-3 record, then the first
   following non-class-3 record k (either scan wrapping round → false). True iff I2[k] is on X entity 0 (+0x14 == 0),
-  I2[k].+0x18 ≤ I1[0].+0x18, |I2[k].pt − I1[0].pt|² ≥ 1e-10, and `FUN_1800236f0(C, X, I2[k].t, I1[0].t)`.
+  I2[k].+0x18 ≤ I1[0].+0x18, |I2[k].pt − I1[0].pt|² ≥ 1e-10, and `FUN_1800236f0(C, X, I2[k].t, I1[0].t)` returns **0**
+  (l.24863 `return (char)uVar7 == '\0'`; disasm 0x180024efe `test al,al` / 0x180024f00 `sete al`). Corrected 2026-11-19
+  (NS-7): this file and the port had the circles test the other way round.
 - **FUN_1800236f0 (24238-24408)**: requires X = {A,L,A,L}, t0 ≤ t1, |e2.sw + e0.sw| ≤ 1e-7, |e2.r − m| ≤ 1e-7.
   n = max(3, round(len(e2 between fractions 1−t0 and 1−t1)/(R−r))) (24306-24340). For t = t0, t0+(t1−t0)/n, … while
   t < t1 + 1e-7: circle (centre = point of e2 at fraction 1−t, r = R−r, sa 0, sw 2π, dir 1) must intersect material

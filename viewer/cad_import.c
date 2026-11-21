@@ -657,6 +657,7 @@ static int import_occ(const char *path, int kind, double scale, const CadImportO
     int ns = occt_cad_nsolids(C);
     char base[300]; { const char *b = strrchr(path, '/'); b = b ? b + 1 : path; snprintf(base, sizeof base, "%s", b); char *dot = strrchr(base, '.'); if (dot) *dot = 0; }
     extern int cfg_solid_color;
+    int first = Fp->nsolids;                             /* the solids this import adds (nameSolidsAndLevels walks from the DB end before it) */
     if (want_solids) {
         for (int i = 0; i < ns; i++) {
             size_t n = 0; uint8_t *b = occt_cad_solid_brep(C, i, &n);
@@ -667,11 +668,20 @@ static int import_occ(const char *path, int kind, double scale, const CadImportO
             snprintf(S->name, sizeof S->name, "sld_imp_%d", Fp->nsolids);
             S->level = main_level;
             S->color = cfg_solid_color;                  /* dbput_solid; the file's own colours (Use System Color off) are NOT DECODED: the system's */
-            /* nameSolidsAndLevels: description = the file name, " (n)" when several solids; the level's name when it is empty */
-            if (ns > 1) snprintf(S->desc, sizeof S->desc, "%s (%d)", base, i + 1); else snprintf(S->desc, sizeof S->desc, "%s", base);
-            struct McLevel *L = mcam_level(Fp, S->level);
-            if (!L || !mcam_level_named(L)) mcam_set_levname(Fp, S->level, S->desc);
             R.n_solids++;
+        }
+        /* nameSolidsAndLevels (mcgeomsld 0x1800a5300; FUN_18002d480 passes reduce_filename's name = the file's base name without the
+           extension, decomp/mccore_filename_parts.c 216): over the new solids in DB order, nm = the base name, + " (v)" when more than one
+           solid was imported; a solid whose level has no name (get_levname empty or " ") names the level nm and gets the description nm
+           (its description is empty: sld_init_solid_ent), then v + 1; a solid whose level is named gets the level's name as description
+           (sld_set_description, at most 0x100 bytes). v starts at 1 and only counts the first case. */
+        int v = 1, nnew = Fp->nsolids - first;
+        for (int k = first; k < Fp->nsolids; k++) {
+            Solid *S = &Fp->solids[k];
+            char nm[300]; if (nnew > 1) snprintf(nm, sizeof nm, "%s (%d)", base, v); else snprintf(nm, sizeof nm, "%s", base);
+            struct McLevel *L = mcam_level(Fp, S->level);
+            if (!L || !mcam_level_named(L)) { mcam_set_levname(Fp, S->level, nm); snprintf(S->desc, sizeof S->desc, "%s", nm); v++; }
+            else snprintf(S->desc, sizeof S->desc, "%s", L->name);
         }
     } else if (ns) {
         if (kind == CAD_IGES) rp_skip("IGES solid (Mastercam's IGES reader has no solids path): imported as surfaces");

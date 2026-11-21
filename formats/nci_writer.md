@@ -73,6 +73,10 @@ Drill ops (2026-10-26, section 10): the section is bnci_drill's (80 / 81 / 82 / 
 (`mcam_op_records_tp`, NciwOp.tp). Refused (never a partial program): a drill case section 10 does not port, an op the save leaves
 out (3D OptiRough, chains on solids, no template), an op without moves, a stored op with a changed tool.
 
+The part save (2026-11-19, formats/nci_save.md): mcam_save_part writes the section of each op computed here with the same writer
+(its own saved record), the record +0xfc = 0 - by default Drill ops only (the other engines' per-pass section-start blocks are
+NOT DECODED; user question NS-1).
+
 ## 5. Q24 naming
 One program per NC file name (op +0x170, case-insensitive, tree order; disabled ops left out), as CBatch::PostSelectedOperations
 runs the post per NCI file: `build_filename(NCI name, NC folder, suffix)` = folder + base name of the NCI name without its

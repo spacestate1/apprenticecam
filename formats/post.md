@@ -19,6 +19,13 @@ output to be validated against.
 python3 tools/mcam_post.py PART.mcx-9 OUT.nc [--style r180|ij-quad] [--ops 3,5,9]
 python3 tools/gcode_compare.py OUT.nc REFERENCE.nc [-v]
 ```
+**Refactoring the post** (2026-11-19, ours): a change to `viewer/nc_post.c` meant to keep its output must pass
+`tools/tests/post_identity.sh OLD NEW OUTDIR` (OLD = a tree of the previous build, e.g. a scratch worktree of master):
+every part of the corpus posted by both builds (`post` in both styles with each `MCAM_*` switch alone and all together,
+`--ops`, `fileop --post`, `reverse --post`, `bpinfo`, and the Qt app's Post / NCI extents headless) must give
+byte-identical programs, the `(DATE=...)` line left out. Layout / comment-only changes can also be checked by
+comparing the object file (`gcc -O2 -c`, no `-g`: identical disassembly, sections and relocations).
+
 `mcam_post.py` reads the binary NCI that Mastercam stores inside the part file and writes 3-axis Fanuc-style G-code
 in the format of the user's own post (LinuxCNC router). It does **not** run the `.pst`/MP language. It reproduces
 that post's output rules, which were decoded by diffing against programs Mastercam actually posted.

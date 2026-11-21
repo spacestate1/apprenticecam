@@ -316,6 +316,9 @@ typedef struct {
     int am_climb;            /* LinkClimbMilling */
     int op_seq;              /* ours: the order an op made here was made in (Mastercam: op +0 = OMgetNextOpId, ids grow as ops are made), for
                                 list_op_get_prev's "highest op id" (cui_ops.c cutoff_children); 0 = reopened from a project (tree order). */
+    int eg_dwarn;            /* Engrave: the answer to the depth warning dialog 1808 asked at this regeneration (engrave.dll FUN_18001bb30, the
+                                globals DAT_1806da108 / 109 / 110; not stored in the op): 0 not asked, 1 use the maximum depth, 2 return
+                                (error 14), 3 ignore (formats/engrave.md 2.4) */
 } CamParams;
 
 typedef struct { double x, y, d; } Hole;           /* d = circle diameter (0 for a point) */
@@ -344,7 +347,7 @@ typedef struct CamOp_ {
     Chain *chains; int nchains;
     Hole *holes; int nholes;          /* drill */
     Move *m; int nm;                  /* generated motion (for display / G-code) */
-    char name[64];
+    char name[0x78];                  /* the op comment, op +6 = record 0x6e (0x78 bytes; see cam_op_label below) */
     int op_index;                     /* index into F.ops once added */
     char error[160];
     int filtered;                     /* batch 10: the moves went through the Line/Arc filter (cam_filter.c): the post writes its arcs as
@@ -364,15 +367,20 @@ typedef struct CamOp_ {
        next regeneration computes it and it replaces this op. Owned: cam_op_free frees it. */
     int dirty;
     struct CamOp_ *edit;
+    int nci_blocks;                   /* the generator placed Move.sof at every pass start by a decoded writer rule (formats/nci_save.md 7):
+                                         the save may write this op's NCI (Pocket through wr_pock_toolpath's section start); 0 = not */
     int gen_units;                    /* the units its moves were computed in (cam_generate_op: IsMetric() + 1 = 1 inch / 2 mm; 0 = not computed).
                                          Mastercam writes IsMetric() into the NCI (1016 +0x44) when it makes the toolpath; a units change
                                          (cui_units_set) converts no operation - the post refuses moves in the other units (formats/units.md) */
 } CamOp;
+int cam_engrave_dwarn(const McamFile *f, const CamOp *op, double *dmax);   /* Engrave: 1 when generating OP asks the depth warning 1808
+                                                                             (cam2d_engrave.c; engrave.dll FUN_18001bb30), *dmax its value */
 /* CamOp.name is the op comment (op +6 = record 0x6e; the Toolpaths manager row's " - comment", COpMgrTree::InitTvOpText
    @1800c3350, shown only when not empty). Our messages name an op by it, else by its type (ours) */
 static inline const char *cam_op_label(const CamOp *op) { return op->name[0] ? op->name : cam_type_label(op->p.type); }
 enum { CAM_DIRTY_PARAMS = 1, CAM_DIRTY_TOOL = 2 };
 
+void cam_contour_engrave_compat(CamParams *p);   /* contour_type 2 (ours) -> Compensation Off + Lead In/Out off (cam2d.c) */
 void cam_defaults(CamParams *p, int type, const McamFile *f);       /* base + Mastercam's default op (Mill_*.mcam-defaults) */
 void cam_defaults_base(CamParams *p, int type, const McamFile *f);  /* built-in values only */
 /* take tool number, diameter, shape, speeds / feeds, coolant and (drill) peck from a tool */

@@ -151,6 +151,13 @@ static void ms_prompt(void) {
     if (drv_pick) snprintf(cam_msg, sizeof cam_msg, "%s", drv_pick == 1 ? "Select Drive Surfaces" : "Select Check Surfaces");   /* mcmsurfres 406 / 407 */
 }
 static void ms_bits(void) { if (ms_nbsel != F.nsolids || !ms_bsel) { free(ms_bsel); ms_bsel = calloc(F.nsolids ? F.nsolids : 1, 1); ms_nbsel = F.nsolids; } }
+/* the part solids' selection bit 4 (SOLID_ID ent +4 & 4, the same bit the general selection toggles: mccore FUN_1804e8d50 -> FUN_1804e78f0,
+   and sld_sel_selected_solid_surfs reads at the drive / check prompt) - ms_bsel above. The general selection's click on a solid
+   (cui_sel.c sel_click_solid), Esc / clear (set_clr_sel_bits_all with 0x1f1fff includes SOLID_ID) */
+int sld_sel_is(int si) { return ms_bsel && si >= 0 && si < ms_nbsel && ms_nbsel == F.nsolids && ms_bsel[si]; }
+void sld_sel_toggle(int si) { if (si < 0 || si >= F.nsolids) return; ms_bits(); ms_bsel[si] = !ms_bsel[si]; overlay_dirty = 1; }
+void sld_sel_clear(void) { if (ms_bsel) memset(ms_bsel, 0, ms_nbsel); overlay_dirty = 1; }
+int sld_sel_count(void) { int n = 0; for (int i = 0; ms_bsel && ms_nbsel == F.nsolids && i < ms_nbsel; i++) n += ms_bsel[i] != 0; return n; }
 /* set_clr_sel_bits_all(0, 4, 0, 4, 0x1f1fff, ..): every selection bit 4 off - the surfaces' (the general selection, ent_sel) and the solids' */
 static void ms_clear_sel(void) {
     if (ent_sel) memset(ent_sel, 0, ent_sel_n);
@@ -465,6 +472,7 @@ static void ms_generate(void) {
         ms_phase = MS_GEN;
         CamOp job;
         if (!gen_begin(&job)) { ms_keep_question(1); return; }
+        pp_engrave_ask(&job);                      /* Engrave 1808 (E-DW1), on this thread */
         if (cui_hooks.gen_queued) { ms_gen_job = job; ms_gen_wait = 1; cui_hooks.gen_queued(); return; }
         int ok = gen_run(&job);
         gen_end(&job, ok, 0);                      /* -> ms_gen_end */
@@ -491,6 +499,18 @@ int ms_gen_waiting(void) { return ms_gen_wait; }
    OnUpdateSolidsSelectFace: GetSolidSelectionActive and the kind allowed - here the drive / check prompt, select_ents 0x110100);
    a click toggles its bit (OnSolidsSelectBody / Face) */
 int ms_selbar_enabled(void) { return drv_pick && ms_live(); }
+/* the solid pick mask while the drive / check prompt's solid selection runs (sld_pick_one_ent: the allowed kinds less the Selection
+   Bar buttons not checked - bit 1 bodies, 4 faces); 0 otherwise (GetSolidSelectionPickMask, mcgeomsld .data 0) */
+int ms_sld_pick_mask(void) { return ms_selbar_enabled() ? (ms_sld_body ? 1 : 0) | (ms_sld_faces ? 4 : 0) : 0; }
+/* a face picked in the solid selection (mcgeomsld's face list; sld_sel_solid_surfs -> ps_hilight_edges keeps it highlighted:
+   ps_redraw_hilights -> FUN_180036fc0 -> FUN_1800bc970(face, select_color, 0, 0) -> FUN_18025b140(face, 2, 1) = the GAF Selected
+   flag, stipple list 1 in the shaded display). Shown while the prompt runs; when the highlight list is reset after it (and whether a
+   check prompt still shows the drive faces) is NOT DECODED: every picked face while a prompt runs (ours) */
+int ms_face_picked(int si, int f) {
+    if (!drv_pick || !ms_live()) return 0;
+    for (int i = 0; i < ms_npk; i++) if (ms_pk[i].s == si && ms_pk[i].f == f) return 1;
+    return 0;
+}
 void ms_selbar_toggle(int face) {
     if (!ms_selbar_enabled()) return;
     if (face) ms_sld_faces = !ms_sld_faces; else ms_sld_body = !ms_sld_body;

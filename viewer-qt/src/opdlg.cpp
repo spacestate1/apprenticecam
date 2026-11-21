@@ -2,6 +2,7 @@
 #include "textfit.h"
 #include <QScrollArea>
 #include "opdlg.h"
+#include "cp1252.h"
 #include "contrast.h"
 #include "icons.h"
 #include <QTreeWidget>
@@ -38,6 +39,7 @@ extern "C" {
 #include <QMouseEvent>
 #include "core_ui/cui_opfields.h"
 #include <cmath>
+#include <QDialog>
 #include <cstdio>
 #include <cstdlib>
 
@@ -228,6 +230,10 @@ void OpDialog::ok() {
     auto begin = [&] { run = gen_begin(&job); };
     if (withGL) withGL(begin); else begin();
     if (!run) { emit done(); return; }                  /* a message (no tool), as generate_pending */
+    {   /* Engrave: the regeneration's depth warning 1808 (engrave.dll FUN_18001bb30 asks it on every regeneration that is too deep for
+           the tool; core_ui pp_engrave_dwarn); scripted runs take the answer of step egdwarn:N */
+        pp_engrave_ask(&job);                            /* cui_hooks.ask_dwarn = engraveDepthWarning (mainwindow.cpp) */
+    }
     runJob(job, [&job](int okv, int cancelled) { gen_end(&job, okv, cancelled); });
     emit done();
 }
@@ -573,8 +579,8 @@ void OpDialog::buildTool(QWidget *box) {
         case TPK_COMBO: { auto *cb = mk<QComboBox>(box, r.adjusted(0, -2, 0, 4)); cb->addItem(TP_DIR[0]); cb->addItem(TP_DIR[1]); cb->setCurrentIndex(tp_ctl_combo()); int id = k.id;
             connect(cb, QOverload<int>::of(&QComboBox::activated), this, [change, id](int i) { change([id, i] { tp_ctl_set(id, i); }); });
             ctls_.append({ 3, QString("tp:%1").arg(k.id), cb, 0, 2 }); } break;
-        case TPK_TEXTBOX: { auto *e = mk<QPlainTextEdit>(box, r); e->setPlainText(QString::fromUtf8(pending.name));   /* the op comment (op +6, 0x77 chars; our buffer 63) */
-            connect(e, &QPlainTextEdit::textChanged, this, [e] { tp_set_comment(e->toPlainText().toUtf8().constData()); });
+        case TPK_TEXTBOX: { auto *e = mk<QPlainTextEdit>(box, r); e->setPlainText(Cp1252::toQ(pending.name));   /* the op comment (op +6, 0x77 bytes): ANSI (cp1252.h), as Mastercam stores it */
+            connect(e, &QPlainTextEdit::textChanged, this, [e] { tp_set_comment(Cp1252::fromQ(e->toPlainText()).constData()); });
             ctls_.append({ 8, QString("tp:%1").arg(k.id), e, 0, 0 }); } break;
         case TPK_GROUP: { auto *g = mk<QGroupBox>(box, r); g->setTitle(QString::fromUtf8(k.text)); g->setEnabled(false); g->lower(); } break;
         }
@@ -675,7 +681,9 @@ void OpDialog::buildTemplate(QWidget *box) {
                                                               pm = TextFit::keyedBitmap(tc == 1 ? "mcmsurfres_BMP_153.png" : "mcmsurfres_BMP_157.png", 0xC0C0C0); }
               else if ((pageDlg == 1338 || pageDlg == 1339) && id == 690) pm = TextFit::keyedBitmap("mccoreres_BMP_5537.png", 0xC0C0C0);
               if (!pm.isNull()) { b->setProperty("coreText", b->text()); b->setText(QString()); b->setIcon(QIcon(pm)); b->setIconSize(pm.size()); } }
-            if (k.live) connect(b, &QPushButton::clicked, this, [change, id] { change([id] { pf_set(id, 1); }); });
+            if (k.live) connect(b, &QPushButton::clicked, this, [this, change, id] {
+                if (pending.p.type == CAM_ENGRAVE && !filling_) { pf_set(id, 1); if (pf_sub_dialog()) runSub(); else { refresh(); emit changed(); } return; }   /* a sub-dialog (runSub) */
+                change([id] { pf_set(id, 1); }); });
             ctls_.append({ 6, key, b, 0, 0 }); } break;
         case PFK_TRACK: { auto *s = mk<QSlider>(box, r); s->setOrientation(Qt::Horizontal); s->setEnabled(false); } break;
         }
@@ -950,4 +958,69 @@ bool PlanesDialog::testSet(const QString &key, const QString &v) {
 void PlanesDialog::dump() const {
     if (upl_) printf("    updateplane \"%s\" choice %d\n", text_->text().toUtf8().constData(), upl_choice);
     else printf("    planeselect rows %d sel %d\n", list_->rowCount(), list_->currentRow());
+}
+
+/* Engrave's push-button sub-dialogs (core_ui cui_opdlg.c pf_sub_*; engrave.dll CDepthCutsDlg 1804 / CRampDlg 1805 / CFilterDlg 1806 /
+   CRemachDlg 1807 / the wrap dialog 10502, formats/engrave.md 2.4): the template's controls at their positions, modal; a change goes to
+   pf_set and the controls are rebuilt (the enable rules 1806 FUN_180021f00 / 1807 FUN_180024a00 follow); OK runs the DDV (a message, the
+   dialog stays), Cancel / Esc / the close box restore. Scripted runs do not open it (steps pfset:ID=V on its controls, pfset:1=1 OK,
+   pfset:2=1 Cancel) */
+void OpDialog::runSub() {
+    int dlg = pf_sub_dialog(); if (!dlg || qEnvironmentVariableIsSet("MCAMUI_SCRIPT")) return;
+    int w = 0, h = 0; const char *t = pf_sub_title(dlg, &w, &h);
+    QDialog d(this); d.setWindowTitle(QString::fromUtf8(t ? t : "")); dlgFont(&d);
+    QRect R = du(0, 0, w, h); d.setFixedSize(R.width(), R.height());
+    QWidget *box = nullptr;
+    std::function<void()> build;
+    std::function<void(const std::function<void()> &)> later = [&](const std::function<void()> &fn) {
+        QTimer::singleShot(0, &d, [&build, fn] { fn(); build(); }); };
+    build = [&] {
+        if (box) box->deleteLater();
+        box = new QWidget(&d); box->setGeometry(0, 0, R.width(), R.height());
+        PfShown c[64]; int n = pf_ctls(c, 64);
+        for (int i = 0; i < n; i++) {
+            const PfShown k = c[i]; QRect r = du(k.x, k.y, k.w, k.h); int id = k.id;
+            switch (k.kind) {
+            case PFK_STATIC: { auto *l = mk<QLabel>(box, r.adjusted(0, -1, 0, 3)); l->setText(QString::fromUtf8(k.text)); } break;
+            case PFK_GROUP: { auto *g = mk<QGroupBox>(box, r); g->setTitle(QString::fromUtf8(k.text)); g->lower(); } break;
+            case PFK_EDIT: { auto *e = mk<QLineEdit>(box, r); e->setText(QString::fromUtf8(k.text)); e->setEnabled(k.live != 0);
+                QString shown = e->text();
+                if (k.live) connect(e, &QLineEdit::editingFinished, &d, [&, e, id, shown] { if (!e->isModified() || e->text() == shown) return; bool ok; double v = e->text().toDouble(&ok);
+                    if (ok && std::isfinite(v)) later([id, v] { pf_set(id, v); }); else e->setModified(false); }); } break;
+            case PFK_CHECK: { auto *cb = mk<QCheckBox>(box, r.adjusted(0, -2, 0, 4)); cb->setText(QString::fromUtf8(k.text)); cb->setChecked(k.on != 0); cb->setEnabled(k.live != 0);
+                if (k.live) connect(cb, &QCheckBox::toggled, &d, [&, id](bool on) { later([id, on] { pf_set(id, on); }); }); } break;
+            case PFK_RADIO: { auto *rb = mk<QRadioButton>(box, r.adjusted(0, -2, 0, 4)); rb->setText(QString::fromUtf8(k.text)); rb->setAutoExclusive(false);
+                rb->setChecked(k.on != 0); rb->setEnabled(k.live != 0);
+                if (k.live && !k.on) connect(rb, &QRadioButton::clicked, &d, [&, id] { later([id] { pf_set(id, 1); }); }); } break;
+            case PFK_PUSH: { auto *b = mk<QPushButton>(box, r); b->setText(QString::fromUtf8(k.text)); b->setEnabled(k.live != 0);
+                if (id == 1) { b->setDefault(true); connect(b, &QPushButton::clicked, &d, [&] { char m[200] = "";
+                    if (pf_sub_ok(m, sizeof m)) d.accept(); else QMessageBox::warning(&d, QString::fromUtf8(t ? t : ""), QString::fromUtf8(m)); }); }
+                else if (id == 2) connect(b, &QPushButton::clicked, &d, [&] { d.reject(); }); } break;
+            default: break;
+            }
+        }
+        box->show();
+    };
+    build();
+    if (d.exec() != QDialog::Accepted) pf_sub_cancel();
+    refresh(); emit changed();
+}
+/* Engrave's depth warning 1808 (mwConicalWarningDlg, engraveres dialog 1808 "Engrave" 272 x 145): the two texts, the radio 1166 / 1167 /
+   1168 (member +0x1d90 set to 0 before DoModal, heights.c l.170), OK; Help not ported. Closed without OK (DoModal != IDOK): heights
+   returns at once and the regeneration fails with exception 14 as "Return" does (FUN_18004abf0, DAT_1806da108 = 0) -> 2 */
+int engraveDepthWarning(QWidget *parent, double dmax) {
+    if (qEnvironmentVariableIsSet("MCAMUI_SCRIPT")) return pp_dwarn_preset;   /* scripted runs: step egdwarn:N */
+    QDialog d(parent); d.setWindowTitle("Engrave"); dlgFont(&d);
+    QRect R = du(0, 0, 272, 145); d.setFixedSize(R.width(), R.height());
+    auto *l1 = mk<QLabel>(&d, du(10, 10, 251, 20)); l1->setWordWrap(true);
+    l1->setText("Warning: The programmed depth of cut for this operation is too deep for the selected tool.");
+    auto *l2 = mk<QLabel>(&d, du(10, 30, 251, 20)); l2->setText(QString("The maximum depth of cut for this tool is %1").arg(QString::asprintf("%.4f", (double)(float)dmax)));
+    auto *r1 = mk<QRadioButton>(&d, du(20, 50, 231, 20)); r1->setText("Use the maximum depth for the selected tool"); r1->setChecked(true);
+    auto *r2 = mk<QRadioButton>(&d, du(20, 70, 231, 20)); r2->setText("Return to the operation to edit tool and/or depth");
+    auto *r3 = mk<QRadioButton>(&d, du(20, 90, 231, 20)); r3->setText("Ignore warning and continue with programmed depth");
+    auto *ok = mk<QPushButton>(&d, du(90, 120, 36, 18)); ok->setText("OK"); ok->setDefault(true);
+    auto *hp = mk<QPushButton>(&d, du(146, 120, 36, 18)); hp->setText("&Help"); hp->setEnabled(false);
+    QObject::connect(ok, &QPushButton::clicked, &d, &QDialog::accept);
+    if (d.exec() != QDialog::Accepted) return 2;
+    return r1->isChecked() ? 1 : r2->isChecked() ? 2 : 3;
 }

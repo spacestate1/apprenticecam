@@ -50,6 +50,7 @@ private:
     void buildTool(QWidget *box);
     void buildLink(QWidget *box);
     void buildTemplate(QWidget *box);                  // a template page (core_ui pf_ctls) at its template positions
+    void runSub();                                     // Engrave: the push-button sub-dialog a page button opened (core_ui pf_sub_*), modal
     // perf: the template page shown last, kept so a refresh with the same controls (same kinds / ids / rectangles /
     // live states / items) updates the values in place instead of rebuilding the page (tmplSame / tmplUpdate)
     struct TmplCtl { int kind, id, x, y, w, h, live, nd, ours, nitems, curNeg; QString pic, tip, items; QWidget *wid; };

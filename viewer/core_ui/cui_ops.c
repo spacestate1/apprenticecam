@@ -684,6 +684,7 @@ void gen_end(CamOp *job, int ok, int cancelled) {
 }
 void generate_pending(void) {
     CamOp job; if (!gen_begin(&job)) return;
+    pp_engrave_ask(&job);                                /* Engrave's depth warning 1808 (E-DW1) */
     int ok = gen_run(&job);
     gen_end(&job, ok, 0);
 }
@@ -1042,7 +1043,7 @@ int edit_selected(int (*fn)(CamOp *op, const uint8_t *raw, uint32_t rawn, void *
         if (!edit_changes(&base->p, &op->p, &dirties)) { cam_op_free(op); nskip++; nunch++; done[ndone++] = camops[k]; continue; }   /* unchanged: nothing (Mastercam: no dirty, no patch); stays selected */
         if (dirties) { op_mark_dirty_edit(camops[k]->op_index, op); done[ndone++] = camops[k]; continue; }
         free(op->m); op->m = NULL; op->nm = 0;
-        cam_set_prev_ops_fn(cui_prev_ops); if (!cam_generate(&F, op)) { snprintf(cam_msg, sizeof cam_msg, "%s: %s", cam_op_label(op), op->error); cam_op_free(op); continue; }
+        cam_set_prev_ops_fn(cui_prev_ops); pp_engrave_ask(op); if (!cam_generate(&F, op)) { snprintf(cam_msg, sizeof cam_msg, "%s: %s", cam_op_label(op), op->error); cam_op_free(op); continue; }
         CamOp *old = camops[k]; op->op_index = old->op_index; camops[k] = op; old->op_index = -1;
         cam_op_free(old);                                 /* not on Undo's stack */
         done[ndone++] = op;
@@ -1065,7 +1066,7 @@ int edit_selected(int (*fn)(CamOp *op, const uint8_t *raw, uint32_t rawn, void *
         CamOp *op = malloc(sizeof *op); *op = tmp;
         if (!changed) { cam_op_free(op); nskip++; nunch++; if (ndirt < 1024) dirt[ndirt++] = ids[a]; continue; }   /* unchanged: stays selected */
         if (dirties) { op_mark_dirty_edit(i, op); if (ndirt < 1024) dirt[ndirt++] = ids[a]; continue; }
-        cam_set_prev_ops_fn(cui_prev_ops); if (!cam_generate(&F, op)) { snprintf(cam_msg, sizeof cam_msg, "%s: %s", cam_op_label(op), op->error); cam_op_free(op); continue; }
+        cam_set_prev_ops_fn(cui_prev_ops); pp_engrave_ask(op); if (!cam_generate(&F, op)) { snprintf(cam_msg, sizeof cam_msg, "%s: %s", cam_op_label(op), op->error); cam_op_free(op); continue; }
         { int at = op->p.file_op_id > 0 ? takeover_index(op->p.file_op_id) : -1;   /* taken over in place */
           remove_stored_op(op->p.file_op_id);
           add_op_at(op, at); }
@@ -1341,7 +1342,7 @@ void op_paste(void) {
             char err[300]; c = calloc(1, sizeof *c);
             if (i < 0 || !cam_op_from_file(&F, i, c, err, sizeof err)) { snprintf(cam_msg, sizeof cam_msg, "operation %d: %s", q + 1, i < 0 ? "no longer in the part" : err); free(c); continue; }
             c->p.file_op_id = 0;
-            cam_set_prev_ops_fn(cui_prev_ops); if (!cam_generate(&F, c)) { snprintf(cam_msg, sizeof cam_msg, "%s: %s", cam_op_label(c), c->error); cam_op_free(c); continue; }
+            cam_set_prev_ops_fn(cui_prev_ops); pp_engrave_ask(c); if (!cam_generate(&F, c)) { snprintf(cam_msg, sizeof cam_msg, "%s: %s", cam_op_label(c), c->error); cam_op_free(c); continue; }
         }
         /* list_op_copy (decomp/align/core_oplist.c l.612: a new id from OMgetNextOpId; no write to op +0xd0 in it): a copy of a contour op
            with a separate Tab Cutoff is not the parent of the original's 0x82 op (that op's +0xd0 holds the original's id) - its own
@@ -1515,6 +1516,7 @@ void cutoff_children(CamOp *par) {
 /* regenerate one operation in place (its tree position is kept) */
 int camop_regen(CamOp *op) {
     free(op->m); op->m = NULL; op->nm = 0;
+    pp_engrave_ask(op);
     if (!cam_generate(&F, op)) { snprintf(cam_msg, sizeof cam_msg, "%s: %s", cam_op_label(op), op->error); return 0; }
     if (op->warning[0]) snprintf(cam_msg, sizeof cam_msg, "%s: warning: %s", cam_op_label(op), op->warning);   /* dec1 (ours) */
     camops_detach(); camops_attach(); doc_dirty = 1; scene_reupload();
@@ -1775,6 +1777,7 @@ int cui_op_script(const char *st, const char *arg) {
                p->ct_comp, p->ct_ccopt, p->ct_tipcomp, p->ct_crnd, p->ct_cbrk, p->bt_eff, p->tab_ramp, p->tab_ang, p->ct_mp_rec, p->mc_mp_on);
         return 1;
     }
+    if (IS("egdwarn") && arg) { pp_dwarn_preset = atoi(arg); return 1; }   /* egdwarn:N - the answer to Engrave's depth warning 1808 at the next OK (1 use max, 2 return, 3 ignore) */
     if (IS("pfset") && arg && show_params) {   /* pfset:ID=V - a template page control (cui_opdlg.c pf_set: edit value, check 0/1, radio, combo index) */
         int id = atoi(arg); const char *eq = strchr(arg, '='); if (!eq) return 1;
         pp_frame_begin();

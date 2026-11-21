@@ -32,6 +32,13 @@ int pf_active(int slot);                /* the page is drawn from its template *
 int pf_ctls(PfShown *out, int cap);     /* the shown page's controls in template (draw) order */
 void pf_set(int id, double v);          /* an edit committed (v) / a check toggled (v 0/1) / a radio clicked / a combo index */
 void pf_reset(void);                    /* a new dialog: no edits */
+/* Engrave's push-button sub-dialogs 1804 / 1805 / 1806 / 1807 / 10502 (cui_opdlg.c; a page button's pf_set opens one): while open,
+   pf_ctls / pf_set work on its controls; OK runs its DDV (0 + msg: stays open), Cancel restores the edits made in it */
+int pf_sub_dialog(void);
+const char *pf_sub_title(int dlg, int *w, int *h);
+void pf_sub_open(int dlg);
+int pf_sub_ok(char *msg, size_t n);
+void pf_sub_cancel(void);
 void pf_apply(CamParams *p);            /* OK: the edited record fields as record patches */
 int pf_dirty_sig(unsigned char *out, int cap);   /* the edit state (the Qt dialog's refresh signature) */
 #ifdef __cplusplus

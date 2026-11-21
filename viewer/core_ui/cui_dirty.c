@@ -138,7 +138,8 @@ static int regen_prep(int i, RgJob *j) {
     return 1;
 }
 int cui_prev_ops(const McamFile *f, const CamOp *op, CamPrevOp **out, int *n);
-static void regen_gen(RgJob *j) { cam_set_prev_ops_fn(cui_prev_ops); if (!j->failed) j->ok = cam_generate(&F, j->inplace ? j->o : &j->work); }
+static void regen_gen(RgJob *j) { cam_set_prev_ops_fn(cui_prev_ops);
+    if (!j->failed) j->ok = cam_generate(&F, j->inplace ? j->o : &j->work); }
 static int regen_par(const RgJob *j) {               /* the Dynamic engine's ops (mcce_dyn.c / cam2d_dyn.c: thread-local state) */
     const CamParams *p = j->inplace ? &j->o->p : &j->work.p;
     return !j->failed && (p->type == CAM_DYNAMIC || p->type == CAM_DYNCONTOUR || p->type == CAM_PEEL || (p->type == CAM_AREA && !(p->am_ok && p->am_mode == 1)));
@@ -200,6 +201,8 @@ static int regen_mask(const unsigned char *mask) {
     for (int a = 0; a < nm; a++) { int i = mine[a]->op_index; if (i < 0) continue; regen_prep(i, &jobs[nj++]); }
     for (int a = 0; a < ni; a++) { int i = -1; for (int j = 0; j < F.nops; j++) if (F.ops[j].id == ids[a]) i = j;
                                    if (i < 0) continue; regen_prep(i, &jobs[nj++]); }
+    for (int a = 0; a < nj; a++) if (!jobs[a].failed) pp_engrave_ask(jobs[a].inplace ? jobs[a].o : &jobs[a].work);   /* Engrave 1808 before the
+                                                     computation, on this thread (E-DW1) */
     int npar = 0; for (int a = 0; a < nj; a++) npar += regen_par(&jobs[a]);
     int nt = regen_threads(npar);
     if (nt > 1) {                                     /* the Dynamic ops on nt workers while this thread does the others */
@@ -395,6 +398,14 @@ int cui_dirty_script(const char *st, const char *arg) {
                 const unsigned char *q = (const unsigned char *)d; for (size_t b = 0; b < sizeof d; b++) h = (h ^ q[b]) * 1099511628211ull;
                 q = (const unsigned char *)iv; for (size_t b = 0; b < sizeof iv; b++) h = (h ^ q[b]) * 1099511628211ull; }
             printf("    movehash op [%d] %s moves %d hash %016llx\n", o->op_index + 1, o->name, o->nm, h); }
+        return 1;
+    }
+    if (IS("movesout") && arg) {                          /* ours (tests, tools/tests/regen_consistency.sh): each op made / taken over here -
+                                                             its moves to ARG<op number>.m, the format of cam_cli --movesf (x y z rapid feed) */
+        for (int j = 0; j < ncamops; j++) { const CamOp *o = camops[j]; char fn[1200]; snprintf(fn, sizeof fn, "%s%d.m", arg, o->op_index + 1);
+            FILE *fo = fopen(fn, "w"); if (!fo) continue;
+            for (int k = 0; k < o->nm; k++) fprintf(fo, "%.6f %.6f %.6f %d %.4f\n", o->m[k].p.x, o->m[k].p.y, o->m[k].p.z, o->m[k].rapid, o->m[k].feed);
+            fclose(fo); printf("    movesout op [%d] %d moves -> %s\n", o->op_index + 1, o->nm, fn); }
         return 1;
     }
     if (IS("dirtyopt") && arg) { if (dop_pending) dop_choice = atoi(arg) ? 1 : 0; return 1; }
